@@ -1,0 +1,21 @@
+[package]
+name = "allowthem"
+version.workspace = true
+authors.workspace = true
+description = "allowthem server binary"
+edition.workspace = true
+
+[[bin]]
+name = "allowthem"
+path = "main.rs"
+
+[dependencies]
+allowthem-core = { path = "../crates/core" }
+allowthem-server = { path = "../crates/server" }
+axum.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+figment.workspace = true
+serde.workspace = true
+eyre.workspace = true

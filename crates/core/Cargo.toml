@@ -1,0 +1,28 @@
+[package]
+name = "allowthem-core"
+version.workspace = true
+authors.workspace = true
+description = "Core types, database, and auth logic for allowthem"
+edition.workspace = true
+
+[lib]
+path = "./core.rs"
+
+[dependencies]
+sqlx.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+argon2.workspace = true
+password-hash.workspace = true
+sha2.workspace = true
+rand.workspace = true
+base64ct.workspace = true
+jsonwebtoken.workspace = true
+
+[dev-dependencies]
+tempfile = "3.8"
+tokio.workspace = true

@@ -1,0 +1,7 @@
+((nil . ((project-vc-extra-root-markers . ("Cargo.lock"))))
+ (auto-mode-alist . (("\\.html\\'" . web-mode)))
+ (web-mode . ((web-mode-engines-alist . (("django" . "\\.html\\'")))
+              (web-mode-engine . "django")
+              (web-mode-markup-indent-offset . 2)
+              (web-mode-css-indent-offset . 2)
+              (web-mode-code-indent-offset . 2))))
