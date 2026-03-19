@@ -1,0 +1,11 @@
+/target
+data/
+.direnv/
+.sqlx/
+*.db
+*.db-wal
+*.db-shm
+.envrc.private
+
+# Dolt database files (added by bd init)
+.dolt/
