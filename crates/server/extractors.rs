@@ -91,3 +91,211 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use allowthem_core::{AllowThemBuilder, Email, generate_token, hash_token};
+    use axum::http::{Request, StatusCode};
+    use axum::routing::get;
+    use axum::{Json, Router};
+    use chrono::{Duration, Utc};
+    use tower::ServiceExt;
+
+    /// Build an AllowThem, create a test user with an active session,
+    /// and return (AllowThem, cookie_header_value).
+    async fn test_setup() -> (AllowThem, String) {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("test@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
+
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        let expires = Utc::now() + Duration::hours(24);
+        ath.db()
+            .create_session(user.id, token_hash, None, None, expires)
+            .await
+            .unwrap();
+
+        let cookie = ath.session_cookie(&token);
+        // session_cookie returns a Set-Cookie value; extract just the name=value
+        // for the Cookie request header (everything before the first ';').
+        let cookie_value = cookie.split(';').next().unwrap().to_string();
+        (ath, cookie_value)
+    }
+
+    fn test_app(ath: AllowThem) -> Router {
+        Router::new()
+            .route("/protected", get(protected_handler))
+            .route("/optional", get(optional_handler))
+            .with_state(ath)
+    }
+
+    async fn protected_handler(AuthUser(user): AuthUser) -> Json<serde_json::Value> {
+        Json(serde_json::json!({"email": user.email}))
+    }
+
+    async fn optional_handler(
+        OptionalAuthUser(user): OptionalAuthUser,
+    ) -> Json<serde_json::Value> {
+        Json(serde_json::json!({"user": user.map(|u| u.email)}))
+    }
+
+    async fn read_body(resp: axum::http::Response<axum::body::Body>) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn no_cookie_returns_401() {
+        let (ath, _) = test_setup().await;
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/protected")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "unauthenticated");
+    }
+
+    #[tokio::test]
+    async fn garbage_cookie_returns_401() {
+        let (ath, _) = test_setup().await;
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/protected")
+            .header(COOKIE, "allowthem_session=garbage")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn valid_session_returns_user() {
+        let (ath, cookie_value) = test_setup().await;
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/protected")
+            .header(COOKIE, &cookie_value)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert_eq!(body["email"], "test@example.com");
+    }
+
+    #[tokio::test]
+    async fn expired_session_returns_401() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("expired@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
+
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        // Session already expired
+        let expires = Utc::now() - Duration::hours(1);
+        ath.db()
+            .create_session(user.id, token_hash, None, None, expires)
+            .await
+            .unwrap();
+
+        let cookie = ath.session_cookie(&token);
+        let cookie_value = cookie.split(';').next().unwrap().to_string();
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/protected")
+            .header(COOKIE, &cookie_value)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn inactive_user_returns_401() {
+        let (ath, cookie_value) = test_setup().await;
+
+        // Deactivate the user
+        let email = Email::new("test@example.com".into()).unwrap();
+        let user = ath.db().get_user_by_email(&email).await.unwrap();
+        ath.db().update_user_active(user.id, false).await.unwrap();
+
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/protected")
+            .header(COOKIE, &cookie_value)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "account inactive");
+    }
+
+    #[tokio::test]
+    async fn optional_no_cookie_returns_none() {
+        let (ath, _) = test_setup().await;
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/optional")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert!(body["user"].is_null());
+    }
+
+    #[tokio::test]
+    async fn optional_valid_session_returns_user() {
+        let (ath, cookie_value) = test_setup().await;
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/optional")
+            .header(COOKIE, &cookie_value)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert_eq!(body["user"], "test@example.com");
+    }
+}
