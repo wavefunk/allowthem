@@ -714,6 +714,7 @@ async fn test_migrations_create_all_tables() {
     assert_eq!(
         tables,
         vec![
+            "allowthem_password_reset_tokens",
             "allowthem_permissions",
             "allowthem_role_permissions",
             "allowthem_roles",

@@ -3,6 +3,7 @@ pub mod email;
 pub mod error;
 pub mod handle;
 pub mod password;
+pub mod password_reset;
 pub mod permissions;
 pub mod roles;
 pub mod sessions;

@@ -40,6 +40,7 @@ id_newtype!(UserId);
 id_newtype!(SessionId);
 id_newtype!(RoleId);
 id_newtype!(PermissionId);
+id_newtype!(ResetTokenId);
 
 /// Email address. Validated at construction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
@@ -61,6 +62,10 @@ impl Email {
             return Err(crate::error::AuthError::InvalidEmail);
         }
         Ok(Self(trimmed))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 
     #[allow(dead_code)]
