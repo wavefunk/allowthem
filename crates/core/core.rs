@@ -1,3 +1,4 @@
+pub mod auth_client;
 pub mod db;
 pub mod email;
 pub mod error;
@@ -10,6 +11,7 @@ pub mod sessions;
 pub mod types;
 pub mod users;
 
+pub use auth_client::{AuthClient, AuthFuture, EmbeddedAuthClient};
 pub use db::Db;
 pub use email::{EmailMessage, EmailSender, LogEmailSender};
 pub use error::AuthError;
