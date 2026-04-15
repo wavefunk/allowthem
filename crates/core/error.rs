@@ -32,4 +32,19 @@ pub enum AuthError {
 
     #[error("OAuth HTTP error: {0}")]
     OAuthHttp(String),
+
+    #[error("MFA not configured -- provide mfa_key to AllowThemBuilder")]
+    MfaNotConfigured,
+
+    #[error("MFA already enabled for this user")]
+    MfaAlreadyEnabled,
+
+    #[error("MFA not enabled for this user")]
+    MfaNotEnabled,
+
+    #[error("invalid TOTP code")]
+    InvalidTotpCode,
+
+    #[error("MFA encryption error: {0}")]
+    MfaEncryption(String),
 }

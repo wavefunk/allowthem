@@ -33,6 +33,7 @@ pub struct AllowThemBuilder {
     cookie_name: Option<&'static str>,
     cookie_secure: Option<bool>,
     cookie_domain: String,
+    mfa_key: Option<[u8; 32]>,
 }
 
 impl AllowThemBuilder {
@@ -47,6 +48,7 @@ impl AllowThemBuilder {
             cookie_name: None,
             cookie_secure: None,
             cookie_domain: String::new(),
+            mfa_key: None,
         }
     }
 
@@ -61,6 +63,7 @@ impl AllowThemBuilder {
             cookie_name: None,
             cookie_secure: None,
             cookie_domain: String::new(),
+            mfa_key: None,
         }
     }
 
@@ -93,6 +96,15 @@ impl AllowThemBuilder {
         self
     }
 
+    /// Set the AES-256-GCM encryption key for MFA secrets.
+    ///
+    /// When not set, all MFA operations return `AuthError::MfaNotConfigured`.
+    /// This keeps MFA opt-in for embedded integrators who don't need it.
+    pub fn mfa_key(mut self, key: [u8; 32]) -> Self {
+        self.mfa_key = Some(key);
+        self
+    }
+
     /// Construct the [`AllowThem`] handle.
     ///
     /// Connects to (or wraps) the database, runs migrations, and assembles
@@ -115,6 +127,7 @@ impl AllowThemBuilder {
                 db,
                 session_config,
                 cookie_domain: self.cookie_domain,
+                mfa_key: self.mfa_key,
             }),
         })
     }
@@ -124,6 +137,7 @@ struct Inner {
     db: Db,
     session_config: SessionConfig,
     cookie_domain: String,
+    mfa_key: Option<[u8; 32]>,
 }
 
 /// Configured allowthem handle.
@@ -156,6 +170,11 @@ impl AllowThem {
     /// `sessions::session_cookie()`.
     pub fn session_cookie(&self, token: &SessionToken) -> String {
         sessions::session_cookie(token, &self.inner.session_config, &self.inner.cookie_domain)
+    }
+
+    /// Returns the MFA encryption key, or `Err(MfaNotConfigured)` if not set.
+    pub(crate) fn mfa_key(&self) -> Result<&[u8; 32], AuthError> {
+        self.inner.mfa_key.as_ref().ok_or(AuthError::MfaNotConfigured)
     }
 
     /// Extract the session token from a `Cookie` header value.

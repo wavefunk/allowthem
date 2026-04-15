@@ -34,6 +34,8 @@ sha2 = "0.10"
 rand = "0.9"
 base64ct = { version = "1", features = ["alloc"] }
 jsonwebtoken = "9"
+totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
+aes-gcm = "0.10"
 
 [profile.dev.package.sqlx-macros]
 opt-level = 3

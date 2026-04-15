@@ -45,6 +45,8 @@ id_newtype!(AuditEntryId);
 id_newtype!(ApiTokenId);
 id_newtype!(OAuthAccountId);
 id_newtype!(OAuthStateId);
+id_newtype!(MfaSecretId);
+id_newtype!(MfaRecoveryCodeId);
 
 /// Email address. Validated at construction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
