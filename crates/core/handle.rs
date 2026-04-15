@@ -261,7 +261,7 @@ mod tests {
         let result = AllowThemBuilder::new("not-a-url").build().await;
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), BuildError::Database(_)));
+        assert!(matches!(result.err().unwrap(), BuildError::Database(_)));
     }
 
     #[tokio::test]
@@ -273,7 +273,11 @@ mod tests {
         let ath2 = ath.clone();
 
         let email = Email::new("shared@example.com".into()).unwrap();
-        let user = ath.db().create_user(email, "password123", None).await.unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
 
         let found = ath2.db().get_user(user.id).await;
         assert!(found.is_ok());
