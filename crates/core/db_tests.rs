@@ -1210,7 +1210,10 @@ async fn test_get_user_by_email() {
         .await
         .expect("create_user");
 
-    let fetched = db.get_user_by_email(&email).await.expect("get_user_by_email");
+    let fetched = db
+        .get_user_by_email(&email)
+        .await
+        .expect("get_user_by_email");
 
     assert_eq!(fetched.id, created.id);
 }
@@ -1487,7 +1490,10 @@ async fn test_delete_nonexistent_user() {
 #[test]
 fn test_email_validation() {
     assert!(Email::new("valid@example.com".into()).is_ok());
-    assert!(Email::new(" spaced@example.com ".into()).is_ok(), "whitespace should be trimmed");
+    assert!(
+        Email::new(" spaced@example.com ".into()).is_ok(),
+        "whitespace should be trimmed"
+    );
     assert!(
         matches!(Email::new("nope".into()), Err(AuthError::InvalidEmail)),
         "no @ must fail"
@@ -1497,7 +1503,10 @@ fn test_email_validation() {
         "empty must fail"
     );
     assert!(
-        matches!(Email::new("@domain.com".into()), Err(AuthError::InvalidEmail)),
+        matches!(
+            Email::new("@domain.com".into()),
+            Err(AuthError::InvalidEmail)
+        ),
         "empty local part must fail"
     );
     assert!(
@@ -1505,7 +1514,10 @@ fn test_email_validation() {
         "empty domain must fail"
     );
     assert!(
-        matches!(Email::new("user@nodot".into()), Err(AuthError::InvalidEmail)),
+        matches!(
+            Email::new("user@nodot".into()),
+            Err(AuthError::InvalidEmail)
+        ),
         "domain without dot must fail"
     );
 }

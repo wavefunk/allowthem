@@ -115,15 +115,14 @@ impl Db {
     /// Update a user's email. Also updates updated_at.
     pub async fn update_user_email(&self, id: UserId, email: Email) -> Result<(), AuthError> {
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let result = sqlx::query(
-            "UPDATE allowthem_users SET email = ?1, updated_at = ?2 WHERE id = ?3",
-        )
-        .bind(&email)
-        .bind(&now)
-        .bind(id)
-        .execute(self.pool())
-        .await
-        .map_err(map_unique_violation)?;
+        let result =
+            sqlx::query("UPDATE allowthem_users SET email = ?1, updated_at = ?2 WHERE id = ?3")
+                .bind(&email)
+                .bind(&now)
+                .bind(id)
+                .execute(self.pool())
+                .await
+                .map_err(map_unique_violation)?;
 
         if result.rows_affected() == 0 {
             return Err(AuthError::NotFound);
@@ -138,15 +137,14 @@ impl Db {
         username: Option<Username>,
     ) -> Result<(), AuthError> {
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let result = sqlx::query(
-            "UPDATE allowthem_users SET username = ?1, updated_at = ?2 WHERE id = ?3",
-        )
-        .bind(&username)
-        .bind(&now)
-        .bind(id)
-        .execute(self.pool())
-        .await
-        .map_err(map_unique_violation)?;
+        let result =
+            sqlx::query("UPDATE allowthem_users SET username = ?1, updated_at = ?2 WHERE id = ?3")
+                .bind(&username)
+                .bind(&now)
+                .bind(id)
+                .execute(self.pool())
+                .await
+                .map_err(map_unique_violation)?;
 
         if result.rows_affected() == 0 {
             return Err(AuthError::NotFound);
@@ -157,14 +155,13 @@ impl Db {
     /// Update a user's is_active flag. Also updates updated_at.
     pub async fn update_user_active(&self, id: UserId, is_active: bool) -> Result<(), AuthError> {
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let result = sqlx::query(
-            "UPDATE allowthem_users SET is_active = ?1, updated_at = ?2 WHERE id = ?3",
-        )
-        .bind(is_active)
-        .bind(&now)
-        .bind(id)
-        .execute(self.pool())
-        .await?;
+        let result =
+            sqlx::query("UPDATE allowthem_users SET is_active = ?1, updated_at = ?2 WHERE id = ?3")
+                .bind(is_active)
+                .bind(&now)
+                .bind(id)
+                .execute(self.pool())
+                .await?;
 
         if result.rows_affected() == 0 {
             return Err(AuthError::NotFound);
