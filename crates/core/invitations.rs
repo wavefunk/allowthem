@@ -93,6 +93,30 @@ impl Db {
 
         Ok((raw_token, inv))
     }
+
+    /// Validate a raw invitation token.
+    ///
+    /// Returns `Some(Invitation)` if the token exists, is not expired, and has
+    /// not been consumed. Returns `None` otherwise. The caller is responsible
+    /// for checking email match on targeted invitations.
+    pub async fn validate_invitation(
+        &self,
+        raw_token: &str,
+    ) -> Result<Option<Invitation>, AuthError> {
+        let token_hash = hash_invitation_token(raw_token);
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        sqlx::query_as::<_, Invitation>(
+            "SELECT id, email, metadata, invited_by, expires_at, consumed_at, created_at \
+             FROM allowthem_invitations \
+             WHERE token_hash = ? AND expires_at > ? AND consumed_at IS NULL",
+        )
+        .bind(&token_hash)
+        .bind(&now)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
 }
 
 #[cfg(test)]
@@ -136,5 +160,44 @@ mod tests {
 
         assert!(inv.email.is_none());
         assert!(inv.metadata.is_none());
+    }
+
+    #[tokio::test]
+    async fn validate_returns_invitation_for_valid_token() {
+        let db = test_db().await;
+        let email = Email::new("v@example.com".to_string()).unwrap();
+        let expires = Utc::now() + Duration::hours(24);
+        let (raw, _) = db
+            .create_invitation(Some(&email), Some("{}"), None, expires)
+            .await
+            .unwrap();
+
+        let inv = db.validate_invitation(&raw).await.expect("validate");
+        assert!(inv.is_some());
+        let inv = inv.unwrap();
+        assert_eq!(inv.email.as_ref().unwrap().as_str(), "v@example.com");
+    }
+
+    #[tokio::test]
+    async fn validate_returns_none_for_garbage_token() {
+        let db = test_db().await;
+        let result = db
+            .validate_invitation("not-a-real-token")
+            .await
+            .expect("validate");
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn validate_returns_none_for_expired_token() {
+        let db = test_db().await;
+        let expires = Utc::now() - Duration::hours(1);
+        let (raw, _) = db
+            .create_invitation(None, None, None, expires)
+            .await
+            .unwrap();
+
+        let result = db.validate_invitation(&raw).await.expect("validate");
+        assert!(result.is_none(), "expired invitation must return None");
     }
 }
