@@ -21,10 +21,7 @@ where
 {
     type Rejection = AuthExtractError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &S,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let ath = AllowThem::from_ref(state);
 
         let cookie_header = parts
@@ -77,10 +74,7 @@ where
 {
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &S,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         match AuthUser::from_request_parts(parts, state).await {
             Ok(AuthUser(user)) => Ok(OptionalAuthUser(Some(user))),
             Err(AuthExtractError::Internal(err)) => {
@@ -144,9 +138,7 @@ mod tests {
         Json(serde_json::json!({"email": user.email}))
     }
 
-    async fn optional_handler(
-        OptionalAuthUser(user): OptionalAuthUser,
-    ) -> Json<serde_json::Value> {
+    async fn optional_handler(OptionalAuthUser(user): OptionalAuthUser) -> Json<serde_json::Value> {
         Json(serde_json::json!({"user": user.map(|u| u.email)}))
     }
 
