@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use axum::extract::{FromRef, FromRequestParts};
 use axum::http::header::COOKIE;
 use axum::http::request::Parts;
 
-use allowthem_core::{AllowThem, AuthError, User};
+use allowthem_core::{AuthClient, User, parse_session_cookie};
 
 use crate::error::AuthExtractError;
 
@@ -16,13 +18,13 @@ pub struct AuthUser(pub User);
 
 impl<S> FromRequestParts<S> for AuthUser
 where
-    AllowThem: FromRef<S>,
+    Arc<dyn AuthClient>: FromRef<S>,
     S: Send + Sync,
 {
     type Rejection = AuthExtractError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let ath = AllowThem::from_ref(state);
+        let client = <Arc<dyn AuthClient>>::from_ref(state);
 
         let cookie_header = parts
             .headers
@@ -30,29 +32,14 @@ where
             .and_then(|v| v.to_str().ok())
             .ok_or(AuthExtractError::Unauthenticated)?;
 
-        let token = ath
-            .parse_session_cookie(cookie_header)
+        let token = parse_session_cookie(cookie_header, client.session_cookie_name())
             .ok_or(AuthExtractError::Unauthenticated)?;
 
-        let session = ath
-            .db()
-            .validate_session(&token, ath.session_config().ttl)
+        let user = client
+            .validate_session(&token)
             .await
             .map_err(AuthExtractError::Internal)?
             .ok_or(AuthExtractError::Unauthenticated)?;
-
-        let user = ath
-            .db()
-            .get_user(session.user_id)
-            .await
-            .map_err(|e| match e {
-                AuthError::NotFound => AuthExtractError::Unauthenticated,
-                other => AuthExtractError::Internal(other),
-            })?;
-
-        if !user.is_active {
-            return Err(AuthExtractError::Inactive);
-        }
 
         Ok(AuthUser(user))
     }
@@ -69,7 +56,7 @@ pub struct OptionalAuthUser(pub Option<User>);
 
 impl<S> FromRequestParts<S> for OptionalAuthUser
 where
-    AllowThem: FromRef<S>,
+    Arc<dyn AuthClient>: FromRef<S>,
     S: Send + Sync,
 {
     type Rejection = std::convert::Infallible;
@@ -88,13 +75,30 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
-    use allowthem_core::{AllowThemBuilder, Email, generate_token, hash_token};
+    use allowthem_core::{
+        AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, generate_token,
+        hash_token,
+    };
+    use axum::extract::FromRef;
     use axum::http::{Request, StatusCode};
     use axum::routing::get;
     use axum::{Json, Router};
     use chrono::{Duration, Utc};
     use tower::ServiceExt;
+
+    #[derive(Clone)]
+    struct TestState {
+        auth: Arc<dyn AuthClient>,
+    }
+
+    impl FromRef<TestState> for Arc<dyn AuthClient> {
+        fn from_ref(s: &TestState) -> Self {
+            Arc::clone(&s.auth)
+        }
+    }
 
     /// Build an AllowThem, create a test user with an active session,
     /// and return (AllowThem, cookie_header_value).
@@ -128,10 +132,12 @@ mod tests {
     }
 
     fn test_app(ath: AllowThem) -> Router {
+        let auth: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath, "/login"));
+        let state = TestState { auth };
         Router::new()
             .route("/protected", get(protected_handler))
             .route("/optional", get(optional_handler))
-            .with_state(ath)
+            .with_state(state)
     }
 
     async fn protected_handler(AuthUser(user): AuthUser) -> Json<serde_json::Value> {
@@ -255,7 +261,7 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
         let body = read_body(resp).await;
-        assert_eq!(body["error"], "account inactive");
+        assert_eq!(body["error"], "unauthenticated");
     }
 
     #[tokio::test]

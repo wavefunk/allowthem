@@ -11,10 +11,8 @@ use allowthem_core::AuthError;
 #[derive(Debug)]
 pub enum AuthExtractError {
     /// No valid session. Covers: missing cookie, invalid token, expired
-    /// session, orphaned session (user deleted).
+    /// session, orphaned session (user deleted), or inactive user.
     Unauthenticated,
-    /// User exists but `is_active == false`.
-    Inactive,
     /// Database or internal error during extraction.
     Internal(AuthError),
 }
@@ -25,11 +23,6 @@ impl IntoResponse for AuthExtractError {
             Self::Unauthenticated => (
                 StatusCode::UNAUTHORIZED,
                 axum::Json(json!({"error": "unauthenticated"})),
-            )
-                .into_response(),
-            Self::Inactive => (
-                StatusCode::UNAUTHORIZED,
-                axum::Json(json!({"error": "account inactive"})),
             )
                 .into_response(),
             Self::Internal(err) => {
