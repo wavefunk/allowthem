@@ -1,4 +1,5 @@
 pub mod db;
+pub mod email;
 pub mod error;
 pub mod handle;
 pub mod password;
@@ -9,6 +10,7 @@ pub mod types;
 pub mod users;
 
 pub use db::Db;
+pub use email::{EmailMessage, EmailSender, LogEmailSender};
 pub use error::AuthError;
 pub use handle::{AllowThem, AllowThemBuilder, BuildError};
 pub use sessions::{

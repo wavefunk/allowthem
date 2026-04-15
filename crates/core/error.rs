@@ -14,4 +14,7 @@ pub enum AuthError {
 
     #[error("invalid password hash: {0}")]
     InvalidPasswordHash(String),
+
+    #[error("email error: {0}")]
+    Email(String),
 }
