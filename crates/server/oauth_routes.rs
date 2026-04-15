@@ -400,17 +400,13 @@ async fn require_session(
                 .into_response()
         })?;
 
-    let user = ath
-        .db()
-        .get_user(session.user_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-                .into_response()
-        })?;
+    let user = ath.db().get_user(session.user_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response()
+    })?;
 
     if user.is_active {
         Ok(user)

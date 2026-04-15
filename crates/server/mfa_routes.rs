@@ -2,7 +2,7 @@ use axum::extract::{Extension, State};
 use axum::http::header::COOKIE;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -42,6 +42,9 @@ pub fn mfa_routes(issuer: String) -> Router<AllowThem> {
         .route("/mfa/confirm", post(confirm))
         .route("/mfa/disable", post(disable))
         .route("/mfa/verify", post(verify_mfa))
+        .route("/auth/mfa/recover", post(recover))
+        .route("/mfa/recovery-codes/regenerate", post(regenerate_codes))
+        .route("/mfa/recovery-codes/count", get(recovery_code_count))
         .layer(Extension(config))
 }
 
@@ -298,6 +301,145 @@ async fn verify_mfa(State(ath): State<AllowThem>, Json(body): Json<VerifyBody>) 
         Json(json!({"message": "MFA verification successful"})),
     )
         .into_response()
+}
+
+#[derive(Deserialize)]
+struct RecoverBody {
+    mfa_token: String,
+    recovery_code: String,
+}
+
+/// POST /auth/mfa/recover
+///
+/// Completes MFA login using a recovery code. The client provides the
+/// `mfa_token` (from the two-step login flow) and a one-time recovery code.
+/// On success, the recovery code is consumed and a session is created.
+/// Does NOT require an auth cookie (the user is mid-login).
+async fn recover(State(ath): State<AllowThem>, Json(body): Json<RecoverBody>) -> Response {
+    let user_id = match ath.db().validate_mfa_challenge(&body.mfa_token).await {
+        Ok(Some(uid)) => uid,
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "invalid or expired MFA token"})),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("MFA challenge validation error: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "internal error"})),
+            )
+                .into_response();
+        }
+    };
+
+    let consumed = match ath
+        .db()
+        .verify_recovery_code(user_id, &body.recovery_code)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("recovery code verification error: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "internal error"})),
+            )
+                .into_response();
+        }
+    };
+
+    if !consumed {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "invalid recovery code"})),
+        )
+            .into_response();
+    }
+
+    // Recovery code accepted — consume the challenge and create a session
+    let _ = ath.db().consume_mfa_challenge(&body.mfa_token).await;
+
+    let token = allowthem_core::generate_token();
+    let token_hash = allowthem_core::hash_token(&token);
+    let expires = chrono::Utc::now() + ath.session_config().ttl;
+
+    if let Err(e) = ath
+        .db()
+        .create_session(user_id, token_hash, None, None, expires)
+        .await
+    {
+        tracing::error!("session creation error: {e}");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "internal error"})),
+        )
+            .into_response();
+    }
+
+    let cookie_value = ath.session_cookie(&token);
+    let remaining = ath
+        .db()
+        .remaining_recovery_codes(user_id)
+        .await
+        .unwrap_or(0);
+
+    (
+        StatusCode::OK,
+        [(axum::http::header::SET_COOKIE, cookie_value)],
+        Json(json!({
+            "message": "recovery successful",
+            "remaining_recovery_codes": remaining,
+        })),
+    )
+        .into_response()
+}
+
+/// POST /mfa/recovery-codes/regenerate
+///
+/// Replaces all recovery codes with a fresh set of 10. Requires auth.
+/// Returns the new codes (shown once).
+async fn regenerate_codes(
+    State(ath): State<AllowThem>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let user = authenticated_user(&ath, &headers).await?;
+
+    let has_mfa = ath.has_mfa_enabled(user.id).await.map_err(map_mfa_error)?;
+    if !has_mfa {
+        return Err(map_mfa_error(AuthError::MfaNotEnabled));
+    }
+
+    let codes = ath
+        .regenerate_recovery_codes(user.id)
+        .await
+        .map_err(map_mfa_error)?;
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "recovery_codes": codes,
+        })),
+    ))
+}
+
+/// GET /mfa/recovery-codes/count
+///
+/// Returns the number of unused recovery codes remaining. Requires auth.
+async fn recovery_code_count(
+    State(ath): State<AllowThem>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let user = authenticated_user(&ath, &headers).await?;
+
+    let count = ath
+        .remaining_recovery_codes(user.id)
+        .await
+        .map_err(map_mfa_error)?;
+
+    Ok((StatusCode::OK, Json(json!({"remaining": count}))))
 }
 
 #[cfg(test)]
@@ -636,5 +778,199 @@ mod tests {
         let code = totp.generate_current().unwrap();
         let totp_valid = ath.verify_totp(user_id, &code).await.unwrap();
         assert!(totp_valid);
+    }
+
+    // --- M28: Recovery code routes ---
+
+    #[tokio::test]
+    async fn recover_with_valid_recovery_code_creates_session() {
+        let (ath, app) = test_app().await;
+        let (user_id, _, recovery_codes) = setup_mfa_user(&ath).await;
+
+        let mfa_token = ath.db().create_mfa_challenge(user_id).await.unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/auth/mfa/recover")
+            .header("content-type", "application/json")
+            .body(Body::from(format!(
+                r#"{{"mfa_token":"{mfa_token}","recovery_code":"{}"}}"#,
+                recovery_codes[0]
+            )))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(
+            resp.headers().get("set-cookie").is_some(),
+            "session cookie must be set"
+        );
+        let body = read_body(resp).await;
+        assert_eq!(body["message"], "recovery successful");
+        assert_eq!(body["remaining_recovery_codes"], 9);
+    }
+
+    #[tokio::test]
+    async fn recover_with_invalid_code_fails() {
+        let (ath, app) = test_app().await;
+        let (user_id, _, _) = setup_mfa_user(&ath).await;
+
+        let mfa_token = ath.db().create_mfa_challenge(user_id).await.unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/auth/mfa/recover")
+            .header("content-type", "application/json")
+            .body(Body::from(format!(
+                r#"{{"mfa_token":"{mfa_token}","recovery_code":"ZZZZZZZZ"}}"#
+            )))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "invalid recovery code");
+    }
+
+    #[tokio::test]
+    async fn recover_with_already_used_code_fails() {
+        let (ath, _) = test_app().await;
+        let (user_id, _, recovery_codes) = setup_mfa_user(&ath).await;
+
+        // Consume the code directly
+        let consumed = ath
+            .db()
+            .verify_recovery_code(user_id, &recovery_codes[0])
+            .await
+            .unwrap();
+        assert!(consumed);
+
+        // Try to recover with the same consumed code
+        let mfa_token = ath.db().create_mfa_challenge(user_id).await.unwrap();
+
+        let app = mfa_routes("allowthem-test".into()).with_state(ath.clone());
+        let req = Request::builder()
+            .method("POST")
+            .uri("/auth/mfa/recover")
+            .header("content-type", "application/json")
+            .body(Body::from(format!(
+                r#"{{"mfa_token":"{mfa_token}","recovery_code":"{}"}}"#,
+                recovery_codes[0]
+            )))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "invalid recovery code");
+    }
+
+    #[tokio::test]
+    async fn regenerate_returns_10_new_codes() {
+        let (ath, app) = test_app().await;
+        let (user_id, cookie) = create_user_session(&ath).await;
+
+        // Setup and enable MFA
+        let secret_b32 = ath.create_mfa_secret(user_id).await.unwrap();
+        let totp = TOTP::new(
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            Secret::Encoded(secret_b32).to_bytes().unwrap(),
+            None,
+            String::new(),
+        )
+        .unwrap();
+        let code = totp.generate_current().unwrap();
+        let old_codes = ath.enable_mfa(user_id, &code).await.unwrap();
+
+        // Regenerate
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mfa/recovery-codes/regenerate")
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        let new_codes = body["recovery_codes"].as_array().unwrap();
+        assert_eq!(new_codes.len(), 10);
+
+        // Old codes should no longer work
+        let old_valid = ath
+            .db()
+            .verify_recovery_code(user_id, &old_codes[0])
+            .await
+            .unwrap();
+        assert!(
+            !old_valid,
+            "old codes must be invalidated after regeneration"
+        );
+
+        // New codes should work
+        let new_code = new_codes[0].as_str().unwrap();
+        let new_valid = ath
+            .db()
+            .verify_recovery_code(user_id, new_code)
+            .await
+            .unwrap();
+        assert!(new_valid, "new codes must work");
+    }
+
+    #[tokio::test]
+    async fn count_returns_remaining_codes() {
+        let (ath, app) = test_app().await;
+        let (user_id, cookie) = create_user_session(&ath).await;
+
+        // Setup and enable MFA
+        let secret_b32 = ath.create_mfa_secret(user_id).await.unwrap();
+        let totp = TOTP::new(
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            Secret::Encoded(secret_b32).to_bytes().unwrap(),
+            None,
+            String::new(),
+        )
+        .unwrap();
+        let code = totp.generate_current().unwrap();
+        let recovery_codes = ath.enable_mfa(user_id, &code).await.unwrap();
+
+        // Check initial count
+        let req = Request::builder()
+            .method("GET")
+            .uri("/mfa/recovery-codes/count")
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert_eq!(body["remaining"], 10);
+
+        // Consume one code
+        ath.db()
+            .verify_recovery_code(user_id, &recovery_codes[0])
+            .await
+            .unwrap();
+
+        // Check count again (need a new app since oneshot consumed it)
+        let app2 = mfa_routes("allowthem-test".into()).with_state(ath.clone());
+        let req2 = Request::builder()
+            .method("GET")
+            .uri("/mfa/recovery-codes/count")
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp2 = app2.oneshot(req2).await.unwrap();
+
+        assert_eq!(resp2.status(), StatusCode::OK);
+        let body2 = read_body(resp2).await;
+        assert_eq!(body2["remaining"], 9);
     }
 }
