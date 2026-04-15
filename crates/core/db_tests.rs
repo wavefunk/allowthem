@@ -2,24 +2,17 @@ use sqlx::SqlitePool;
 use sqlx::sqlite::SqliteConnectOptions;
 use std::str::FromStr;
 
+use crate::db::Db;
 use crate::types::{
     Email, PasswordHash, Permission, PermissionId, PermissionName, Role, RoleId, RoleName,
     RolePermission, Session, SessionId, TokenHash, User, UserId, UserPermission, UserRole,
     Username,
 };
 
-async fn test_pool() -> SqlitePool {
-    let opts = SqliteConnectOptions::from_str("sqlite::memory:")
-        .expect("valid connection string")
-        .pragma("foreign_keys", "ON");
-    let pool = SqlitePool::connect_with(opts)
+async fn test_db() -> Db {
+    Db::connect("sqlite::memory:")
         .await
-        .expect("in-memory pool creation");
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("migrations");
-    pool
+        .expect("Db::connect for in-memory test database")
 }
 
 fn now_str() -> String {
@@ -30,7 +23,7 @@ fn now_str() -> String {
 
 #[tokio::test]
 async fn test_user_round_trip() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let user_id = UserId::new();
     let email = Email::new_unchecked("alice@example.com".to_string());
@@ -50,7 +43,7 @@ async fn test_user_round_trip() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert user");
 
@@ -59,7 +52,7 @@ async fn test_user_round_trip() {
          FROM allowthem_users WHERE id = ?",
     )
     .bind(user_id)
-    .fetch_one(&pool)
+    .fetch_one(db.pool())
     .await
     .expect("fetch user");
 
@@ -84,7 +77,7 @@ async fn test_user_round_trip() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert user with null password");
 
@@ -93,7 +86,7 @@ async fn test_user_round_trip() {
          FROM allowthem_users WHERE id = ?",
     )
     .bind(user_id2)
-    .fetch_one(&pool)
+    .fetch_one(db.pool())
     .await
     .expect("fetch user2");
 
@@ -104,7 +97,7 @@ async fn test_user_round_trip() {
 
 #[tokio::test]
 async fn test_session_round_trip() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let user_id = UserId::new();
     sqlx::query(
@@ -119,7 +112,7 @@ async fn test_session_round_trip() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert user");
 
@@ -140,7 +133,7 @@ async fn test_session_round_trip() {
     .bind(Some("Mozilla/5.0"))
     .bind(&expires_at)
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert session");
 
@@ -149,7 +142,7 @@ async fn test_session_round_trip() {
          FROM allowthem_sessions WHERE id = ?",
     )
     .bind(session_id)
-    .fetch_one(&pool)
+    .fetch_one(db.pool())
     .await
     .expect("fetch session");
 
@@ -161,7 +154,7 @@ async fn test_session_round_trip() {
 
 #[tokio::test]
 async fn test_role_round_trip() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let role_id = RoleId::new();
     let role_name = RoleName::new_unchecked("admin".to_string());
@@ -174,7 +167,7 @@ async fn test_role_round_trip() {
     .bind(&role_name)
     .bind(Some("Administrator role"))
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert role");
 
@@ -182,7 +175,7 @@ async fn test_role_round_trip() {
         "SELECT id, name, description, created_at FROM allowthem_roles WHERE id = ?",
     )
     .bind(role_id)
-    .fetch_one(&pool)
+    .fetch_one(db.pool())
     .await
     .expect("fetch role");
 
@@ -193,7 +186,7 @@ async fn test_role_round_trip() {
 
 #[tokio::test]
 async fn test_user_role_round_trip() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let user_id = UserId::new();
     let role_id = RoleId::new();
@@ -210,7 +203,7 @@ async fn test_user_role_round_trip() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert user");
 
@@ -221,7 +214,7 @@ async fn test_user_role_round_trip() {
     .bind(RoleName::new_unchecked("editor".to_string()))
     .bind(None::<String>)
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert role");
 
@@ -229,7 +222,7 @@ async fn test_user_role_round_trip() {
         .bind(user_id)
         .bind(role_id)
         .bind(now_str())
-        .execute(&pool)
+        .execute(db.pool())
         .await
         .expect("insert user_role");
 
@@ -238,7 +231,7 @@ async fn test_user_role_round_trip() {
     )
     .bind(user_id)
     .bind(role_id)
-    .fetch_one(&pool)
+    .fetch_one(db.pool())
     .await
     .expect("fetch user_role");
 
@@ -248,7 +241,7 @@ async fn test_user_role_round_trip() {
 
 #[tokio::test]
 async fn test_permission_round_trip() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let perm_id = PermissionId::new();
     let perm_name = PermissionName::new_unchecked("posts:write".to_string());
@@ -261,7 +254,7 @@ async fn test_permission_round_trip() {
     .bind(&perm_name)
     .bind(Some("Write access to posts"))
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert permission");
 
@@ -269,7 +262,7 @@ async fn test_permission_round_trip() {
         "SELECT id, name, description, created_at FROM allowthem_permissions WHERE id = ?",
     )
     .bind(perm_id)
-    .fetch_one(&pool)
+    .fetch_one(db.pool())
     .await
     .expect("fetch permission");
 
@@ -280,7 +273,7 @@ async fn test_permission_round_trip() {
 
 #[tokio::test]
 async fn test_role_permission_round_trip() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let role_id = RoleId::new();
     let perm_id = PermissionId::new();
@@ -292,7 +285,7 @@ async fn test_role_permission_round_trip() {
     .bind(RoleName::new_unchecked("viewer".to_string()))
     .bind(None::<String>)
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert role");
 
@@ -303,14 +296,14 @@ async fn test_role_permission_round_trip() {
     .bind(PermissionName::new_unchecked("posts:read".to_string()))
     .bind(None::<String>)
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert permission");
 
     sqlx::query("INSERT INTO allowthem_role_permissions (role_id, permission_id) VALUES (?, ?)")
         .bind(role_id)
         .bind(perm_id)
-        .execute(&pool)
+        .execute(db.pool())
         .await
         .expect("insert role_permission");
 
@@ -319,7 +312,7 @@ async fn test_role_permission_round_trip() {
     )
     .bind(role_id)
     .bind(perm_id)
-    .fetch_one(&pool)
+    .fetch_one(db.pool())
     .await
     .expect("fetch role_permission");
 
@@ -329,7 +322,7 @@ async fn test_role_permission_round_trip() {
 
 #[tokio::test]
 async fn test_user_permission_round_trip() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let user_id = UserId::new();
     let perm_id = PermissionId::new();
@@ -346,7 +339,7 @@ async fn test_user_permission_round_trip() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert user");
 
@@ -357,14 +350,14 @@ async fn test_user_permission_round_trip() {
     .bind(PermissionName::new_unchecked("admin:read".to_string()))
     .bind(None::<String>)
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert permission");
 
     sqlx::query("INSERT INTO allowthem_user_permissions (user_id, permission_id) VALUES (?, ?)")
         .bind(user_id)
         .bind(perm_id)
-        .execute(&pool)
+        .execute(db.pool())
         .await
         .expect("insert user_permission");
 
@@ -373,7 +366,7 @@ async fn test_user_permission_round_trip() {
     )
     .bind(user_id)
     .bind(perm_id)
-    .fetch_one(&pool)
+    .fetch_one(db.pool())
     .await
     .expect("fetch user_permission");
 
@@ -385,7 +378,7 @@ async fn test_user_permission_round_trip() {
 
 #[tokio::test]
 async fn test_unique_email_constraint() {
-    let pool = test_pool().await;
+    let db = test_db().await;
     let email = Email::new_unchecked("duplicate@example.com".to_string());
 
     sqlx::query(
@@ -400,7 +393,7 @@ async fn test_unique_email_constraint() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("first insert succeeds");
 
@@ -416,7 +409,7 @@ async fn test_unique_email_constraint() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await;
 
     assert!(result.is_err(), "duplicate email must be rejected");
@@ -424,7 +417,7 @@ async fn test_unique_email_constraint() {
 
 #[tokio::test]
 async fn test_unique_username_constraint() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let username = Username::new_unchecked("samename".to_string());
 
@@ -441,7 +434,7 @@ async fn test_unique_username_constraint() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("first insert succeeds");
 
@@ -457,7 +450,7 @@ async fn test_unique_username_constraint() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await;
 
     assert!(result.is_err(), "duplicate username must be rejected");
@@ -475,7 +468,7 @@ async fn test_unique_username_constraint() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("null username insert 1 succeeds");
 
@@ -491,14 +484,14 @@ async fn test_unique_username_constraint() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("null username insert 2 succeeds — NULLs are distinct in SQLite");
 }
 
 #[tokio::test]
 async fn test_foreign_key_enforcement() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     // Insert a session with a non-existent user_id — must fail
     let result = sqlx::query(
@@ -512,7 +505,7 @@ async fn test_foreign_key_enforcement() {
     .bind(None::<String>)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -523,7 +516,7 @@ async fn test_foreign_key_enforcement() {
 
 #[tokio::test]
 async fn test_composite_primary_key() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let user_id = UserId::new();
     let role_id = RoleId::new();
@@ -540,7 +533,7 @@ async fn test_composite_primary_key() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert user");
 
@@ -551,7 +544,7 @@ async fn test_composite_primary_key() {
     .bind(RoleName::new_unchecked("superuser".to_string()))
     .bind(None::<String>)
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert role");
 
@@ -559,7 +552,7 @@ async fn test_composite_primary_key() {
         .bind(user_id)
         .bind(role_id)
         .bind(now_str())
-        .execute(&pool)
+        .execute(db.pool())
         .await
         .expect("first insert succeeds");
 
@@ -569,7 +562,7 @@ async fn test_composite_primary_key() {
     .bind(user_id)
     .bind(role_id)
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await;
 
     assert!(result.is_err(), "duplicate composite PK must be rejected");
@@ -577,7 +570,7 @@ async fn test_composite_primary_key() {
 
 #[tokio::test]
 async fn test_cascade_delete_user() {
-    let pool = test_pool().await;
+    let db = test_db().await;
 
     let user_id = UserId::new();
     let role_id = RoleId::new();
@@ -597,7 +590,7 @@ async fn test_cascade_delete_user() {
     .bind(true)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert user");
 
@@ -609,7 +602,7 @@ async fn test_cascade_delete_user() {
     .bind(RoleName::new_unchecked("cascade_role".to_string()))
     .bind(None::<String>)
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert role");
 
@@ -621,7 +614,7 @@ async fn test_cascade_delete_user() {
     .bind(PermissionName::new_unchecked("cascade:read".to_string()))
     .bind(None::<String>)
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert permission");
 
@@ -637,7 +630,7 @@ async fn test_cascade_delete_user() {
     .bind(None::<String>)
     .bind(now_str())
     .bind(now_str())
-    .execute(&pool)
+    .execute(db.pool())
     .await
     .expect("insert session");
 
@@ -646,7 +639,7 @@ async fn test_cascade_delete_user() {
         .bind(user_id)
         .bind(role_id)
         .bind(now_str())
-        .execute(&pool)
+        .execute(db.pool())
         .await
         .expect("insert user_role");
 
@@ -654,14 +647,14 @@ async fn test_cascade_delete_user() {
     sqlx::query("INSERT INTO allowthem_user_permissions (user_id, permission_id) VALUES (?, ?)")
         .bind(user_id)
         .bind(perm_id)
-        .execute(&pool)
+        .execute(db.pool())
         .await
         .expect("insert user_permission");
 
     // Delete the user — all dependent rows should cascade
     sqlx::query("DELETE FROM allowthem_users WHERE id = ?")
         .bind(user_id)
-        .execute(&pool)
+        .execute(db.pool())
         .await
         .expect("delete user");
 
@@ -669,7 +662,7 @@ async fn test_cascade_delete_user() {
     let session_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_sessions WHERE user_id = ?")
             .bind(user_id)
-            .fetch_one(&pool)
+            .fetch_one(db.pool())
             .await
             .expect("count sessions");
     assert_eq!(session_count, 0, "sessions must cascade-delete with user");
@@ -678,7 +671,7 @@ async fn test_cascade_delete_user() {
     let user_role_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_user_roles WHERE user_id = ?")
             .bind(user_id)
-            .fetch_one(&pool)
+            .fetch_one(db.pool())
             .await
             .expect("count user_roles");
     assert_eq!(
@@ -690,11 +683,73 @@ async fn test_cascade_delete_user() {
     let user_perm_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_user_permissions WHERE user_id = ?")
             .bind(user_id)
-            .fetch_one(&pool)
+            .fetch_one(db.pool())
             .await
             .expect("count user_permissions");
     assert_eq!(
         user_perm_count, 0,
         "user_permissions must cascade-delete with user"
     );
+}
+
+// --- M2-specific tests ---
+
+#[tokio::test]
+async fn test_migrations_create_all_tables() {
+    let db = test_db().await;
+
+    let mut tables: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'allowthem_%' ORDER BY name")
+            .fetch_all(db.pool())
+            .await
+            .expect("query sqlite_master");
+
+    tables.sort();
+
+    assert_eq!(
+        tables,
+        vec![
+            "allowthem_permissions",
+            "allowthem_role_permissions",
+            "allowthem_roles",
+            "allowthem_sessions",
+            "allowthem_user_permissions",
+            "allowthem_user_roles",
+            "allowthem_users",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_double_init_is_safe() {
+    let pool = SqlitePool::connect_with(
+        SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("valid connection string")
+            .pragma("foreign_keys", "ON"),
+    )
+    .await
+    .expect("create pool");
+
+    Db::new(pool.clone()).await.expect("first Db::new succeeds");
+    Db::new(pool)
+        .await
+        .expect("second Db::new succeeds — idempotent");
+}
+
+#[tokio::test]
+async fn test_foreign_keys_enabled_via_connect() {
+    let db = test_db().await;
+
+    let fk_enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(db.pool())
+        .await
+        .expect("PRAGMA foreign_keys");
+
+    assert_eq!(fk_enabled, 1, "foreign_keys must be ON");
+}
+
+#[tokio::test]
+async fn test_connect_invalid_url() {
+    let result = Db::connect("not://valid").await;
+    assert!(result.is_err(), "invalid URL must return Err");
 }
