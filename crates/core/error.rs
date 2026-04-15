@@ -20,4 +20,16 @@ pub enum AuthError {
 
     #[error("jwt error: {0}")]
     Jwt(String),
+
+    #[error("OAuth state invalid or expired")]
+    OAuthStateMismatch,
+
+    #[error("OAuth token exchange failed: {0}")]
+    OAuthTokenExchange(String),
+
+    #[error("OAuth user info fetch failed: {0}")]
+    OAuthUserInfoFetch(String),
+
+    #[error("OAuth HTTP error: {0}")]
+    OAuthHttp(String),
 }
