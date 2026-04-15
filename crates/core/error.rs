@@ -17,4 +17,7 @@ pub enum AuthError {
 
     #[error("email error: {0}")]
     Email(String),
+
+    #[error("jwt error: {0}")]
+    Jwt(String),
 }

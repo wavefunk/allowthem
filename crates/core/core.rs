@@ -4,6 +4,7 @@ pub mod db;
 pub mod email;
 pub mod error;
 pub mod handle;
+pub mod jwt;
 pub mod password;
 pub mod password_reset;
 pub mod permissions;
@@ -18,6 +19,7 @@ pub use db::Db;
 pub use email::{EmailMessage, EmailSender, LogEmailSender};
 pub use error::AuthError;
 pub use handle::{AllowThem, AllowThemBuilder, BuildError};
+pub use jwt::{Claims, JwtConfig, generate_token as generate_jwt, validate_token};
 pub use sessions::{
     SessionConfig, generate_token, hash_token, parse_session_cookie, session_cookie,
 };
