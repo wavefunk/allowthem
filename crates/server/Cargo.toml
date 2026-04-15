@@ -20,8 +20,8 @@ chrono.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
-totp-rs.workspace = true
 
 [dev-dependencies]
 sqlx.workspace = true
 tempfile = "3.8"
+totp-rs.workspace = true
