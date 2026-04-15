@@ -77,6 +77,10 @@ impl PasswordHash {
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
     }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// SHA-256 hash of the raw session token, stored in the DB.

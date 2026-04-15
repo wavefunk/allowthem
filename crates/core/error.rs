@@ -11,4 +11,7 @@ pub enum AuthError {
 
     #[error("conflict: {0}")]
     Conflict(String),
+
+    #[error("invalid password hash: {0}")]
+    InvalidPasswordHash(String),
 }
