@@ -306,11 +306,7 @@ impl AllowThem {
         self.db().create_mfa_secret(user_id, self.mfa_key()?).await
     }
 
-    pub async fn enable_mfa(
-        &self,
-        user_id: UserId,
-        code: &str,
-    ) -> Result<Vec<String>, AuthError> {
+    pub async fn enable_mfa(&self, user_id: UserId, code: &str) -> Result<Vec<String>, AuthError> {
         self.db().enable_mfa(user_id, code, self.mfa_key()?).await
     }
 
@@ -356,24 +352,16 @@ mod tests {
 
     async fn make_user(db: &Db) -> UserId {
         let email = Email::new("mfa@example.com".to_string()).unwrap();
-        db.create_user(email, "password123", None)
-            .await
-            .unwrap()
-            .id
+        db.create_user(email, "password123", None).await.unwrap().id
     }
 
     /// Helper: create MFA secret, generate a valid current code from it, enable MFA.
     /// Returns the recovery codes.
     async fn setup_and_enable_mfa(db: &Db, user_id: UserId) -> Vec<String> {
-        let secret_b32 = db
-            .create_mfa_secret(user_id, &TEST_MFA_KEY)
-            .await
-            .unwrap();
+        let secret_b32 = db.create_mfa_secret(user_id, &TEST_MFA_KEY).await.unwrap();
         let totp = build_totp(&secret_b32).unwrap();
         let code = totp.generate_current().unwrap();
-        db.enable_mfa(user_id, &code, &TEST_MFA_KEY)
-            .await
-            .unwrap()
+        db.enable_mfa(user_id, &code, &TEST_MFA_KEY).await.unwrap()
     }
 
     #[tokio::test]
@@ -397,7 +385,10 @@ mod tests {
             uri.starts_with("otpauth://totp/"),
             "URI must start with otpauth://totp/"
         );
-        assert!(uri.contains("user%40example.com"), "URI must contain account name");
+        assert!(
+            uri.contains("user%40example.com"),
+            "URI must contain account name"
+        );
         assert!(uri.contains("allowthem"), "URI must contain issuer");
     }
 
@@ -406,17 +397,11 @@ mod tests {
         let db = test_db().await;
         let user_id = make_user(&db).await;
 
-        let secret_b32 = db
-            .create_mfa_secret(user_id, &TEST_MFA_KEY)
-            .await
-            .unwrap();
+        let secret_b32 = db.create_mfa_secret(user_id, &TEST_MFA_KEY).await.unwrap();
         let totp = build_totp(&secret_b32).unwrap();
         let code = totp.generate_current().unwrap();
 
-        let recovery_codes = db
-            .enable_mfa(user_id, &code, &TEST_MFA_KEY)
-            .await
-            .unwrap();
+        let recovery_codes = db.enable_mfa(user_id, &code, &TEST_MFA_KEY).await.unwrap();
         assert_eq!(recovery_codes.len(), 10, "must return 10 recovery codes");
 
         let enabled = db.has_mfa_enabled(user_id).await.unwrap();
@@ -427,9 +412,7 @@ mod tests {
     async fn enable_rejects_wrong_code() {
         let db = test_db().await;
         let user_id = make_user(&db).await;
-        db.create_mfa_secret(user_id, &TEST_MFA_KEY)
-            .await
-            .unwrap();
+        db.create_mfa_secret(user_id, &TEST_MFA_KEY).await.unwrap();
 
         let result = db.enable_mfa(user_id, "000000", &TEST_MFA_KEY).await;
         assert!(
@@ -456,14 +439,8 @@ mod tests {
         let db = test_db().await;
         let user_id = make_user(&db).await;
 
-        let secret_a = db
-            .create_mfa_secret(user_id, &TEST_MFA_KEY)
-            .await
-            .unwrap();
-        let secret_b = db
-            .create_mfa_secret(user_id, &TEST_MFA_KEY)
-            .await
-            .unwrap();
+        let secret_a = db.create_mfa_secret(user_id, &TEST_MFA_KEY).await.unwrap();
+        let secret_b = db.create_mfa_secret(user_id, &TEST_MFA_KEY).await.unwrap();
         assert_ne!(secret_a, secret_b, "replacement must produce a new secret");
 
         // Enable with code from secret B
@@ -478,15 +455,10 @@ mod tests {
         let db = test_db().await;
         let user_id = make_user(&db).await;
 
-        let secret_b32 = db
-            .create_mfa_secret(user_id, &TEST_MFA_KEY)
-            .await
-            .unwrap();
+        let secret_b32 = db.create_mfa_secret(user_id, &TEST_MFA_KEY).await.unwrap();
         let totp = build_totp(&secret_b32).unwrap();
         let code = totp.generate_current().unwrap();
-        db.enable_mfa(user_id, &code, &TEST_MFA_KEY)
-            .await
-            .unwrap();
+        db.enable_mfa(user_id, &code, &TEST_MFA_KEY).await.unwrap();
 
         // Valid code
         let fresh_code = totp.generate_current().unwrap();
@@ -522,16 +494,10 @@ mod tests {
         let user_id = make_user(&db).await;
         let codes = setup_and_enable_mfa(&db, user_id).await;
 
-        let consumed = db
-            .verify_recovery_code(user_id, &codes[0])
-            .await
-            .unwrap();
+        let consumed = db.verify_recovery_code(user_id, &codes[0]).await.unwrap();
         assert!(consumed, "valid recovery code must be consumed");
 
-        let reuse = db
-            .verify_recovery_code(user_id, &codes[0])
-            .await
-            .unwrap();
+        let reuse = db.verify_recovery_code(user_id, &codes[0]).await.unwrap();
         assert!(!reuse, "used recovery code must not be reusable");
 
         let remaining = db.remaining_recovery_codes(user_id).await.unwrap();
@@ -544,10 +510,7 @@ mod tests {
         let user_id = make_user(&db).await;
         setup_and_enable_mfa(&db, user_id).await;
 
-        let result = db
-            .verify_recovery_code(user_id, "ZZZZZZZZ")
-            .await
-            .unwrap();
+        let result = db.verify_recovery_code(user_id, "ZZZZZZZZ").await.unwrap();
         assert!(!result, "wrong recovery code must return false");
     }
 

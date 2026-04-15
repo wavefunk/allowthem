@@ -174,7 +174,10 @@ impl AllowThem {
 
     /// Returns the MFA encryption key, or `Err(MfaNotConfigured)` if not set.
     pub(crate) fn mfa_key(&self) -> Result<&[u8; 32], AuthError> {
-        self.inner.mfa_key.as_ref().ok_or(AuthError::MfaNotConfigured)
+        self.inner
+            .mfa_key
+            .as_ref()
+            .ok_or(AuthError::MfaNotConfigured)
     }
 
     /// Extract the session token from a `Cookie` header value.

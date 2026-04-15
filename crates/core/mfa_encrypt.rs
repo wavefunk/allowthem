@@ -3,8 +3,8 @@
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use base64ct::{Base64, Encoding};
-use rand::rngs::OsRng;
 use rand::TryRngCore;
+use rand::rngs::OsRng;
 
 use crate::error::AuthError;
 
@@ -74,7 +74,10 @@ mod tests {
         let plaintext = b"same-secret";
         let enc1 = encrypt_secret(plaintext, &KEY_A).expect("encrypt 1");
         let enc2 = encrypt_secret(plaintext, &KEY_A).expect("encrypt 2");
-        assert_ne!(enc1, enc2, "different nonces must produce different ciphertext");
+        assert_ne!(
+            enc1, enc2,
+            "different nonces must produce different ciphertext"
+        );
     }
 
     #[test]
