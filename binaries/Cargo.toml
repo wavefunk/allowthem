@@ -4,6 +4,9 @@ version.workspace = true
 authors.workspace = true
 description = "allowthem server binary"
 edition.workspace = true
+license-file = "LICENSE"
+repository.workspace = true
+publish = false
 
 [[bin]]
 name = "allowthem"

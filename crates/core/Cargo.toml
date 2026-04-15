@@ -4,6 +4,8 @@ version.workspace = true
 authors.workspace = true
 description = "Core types, database, and auth logic for allowthem"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lib]
 path = "./core.rs"
