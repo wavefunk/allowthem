@@ -5,7 +5,9 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
-use allowthem_core::{AllowThem, AuthError, PermissionName, RoleName, User};
+use std::sync::Arc;
+
+use allowthem_core::{AuthClient, AuthError, PermissionName, RoleName, User, parse_session_cookie};
 
 /// Axum middleware that requires a valid authenticated session.
 ///
@@ -20,15 +22,15 @@ pub async fn require_auth<S>(
     next: Next,
 ) -> Response
 where
-    AllowThem: FromRef<S>,
+    Arc<dyn AuthClient>: FromRef<S>,
     S: Send + Sync + Clone,
 {
-    let ath = AllowThem::from_ref(&*state);
+    let client = <Arc<dyn AuthClient>>::from_ref(&*state);
     // Clone the headers out before any await so we don't hold &Request<Body>
     // (Body is not Sync) across an await point.
     let headers = request.headers().clone();
 
-    let user = match authenticate(&ath, &headers).await {
+    let user = match authenticate(&*client, &headers).await {
         Ok(u) => u,
         Err(r) => return r,
     };
@@ -65,7 +67,7 @@ pub fn require_role<S>(
 + Send
 + 'static
 where
-    AllowThem: FromRef<S>,
+    Arc<dyn AuthClient>: FromRef<S>,
     S: Send + Sync + Clone + 'static,
 {
     let role_name = role.into();
@@ -82,19 +84,19 @@ async fn require_role_inner<S>(
     role_name: String,
 ) -> Response
 where
-    AllowThem: FromRef<S>,
+    Arc<dyn AuthClient>: FromRef<S>,
     S: Send + Sync + Clone,
 {
-    let ath = AllowThem::from_ref(&*state);
+    let client = <Arc<dyn AuthClient>>::from_ref(&*state);
     let headers = request.headers().clone();
 
-    let user = match authenticate(&ath, &headers).await {
+    let user = match authenticate(&*client, &headers).await {
         Ok(u) => u,
         Err(r) => return r,
     };
 
     let rn = RoleName::new(role_name);
-    match ath.db().has_role(&user.id, &rn).await {
+    match client.check_role(&user.id, &rn).await {
         Ok(true) => {}
         Ok(false) => {
             return (
@@ -127,7 +129,7 @@ pub fn require_permission<S>(
 + Send
 + 'static
 where
-    AllowThem: FromRef<S>,
+    Arc<dyn AuthClient>: FromRef<S>,
     S: Send + Sync + Clone + 'static,
 {
     let perm_name = permission.into();
@@ -144,19 +146,19 @@ async fn require_permission_inner<S>(
     perm_name: String,
 ) -> Response
 where
-    AllowThem: FromRef<S>,
+    Arc<dyn AuthClient>: FromRef<S>,
     S: Send + Sync + Clone,
 {
-    let ath = AllowThem::from_ref(&*state);
+    let client = <Arc<dyn AuthClient>>::from_ref(&*state);
     let headers = request.headers().clone();
 
-    let user = match authenticate(&ath, &headers).await {
+    let user = match authenticate(&*client, &headers).await {
         Ok(u) => u,
         Err(r) => return r,
     };
 
     let pn = PermissionName::new(perm_name);
-    match ath.db().has_permission(&user.id, &pn).await {
+    match client.check_permission(&user.id, &pn).await {
         Ok(true) => {}
         Ok(false) => {
             return (
@@ -172,46 +174,30 @@ where
     next.run(request).await
 }
 
-/// Shared authentication logic: parse cookie, validate session, fetch user.
+/// Shared authentication logic: parse cookie and validate session.
 ///
 /// Takes the headers directly so the caller does not hold a `&Request<Body>` reference
 /// across await points (Body is not Sync).
 ///
 /// Returns the active `User` on success, or an `IntoResponse` error response.
-async fn authenticate(ath: &AllowThem, headers: &axum::http::HeaderMap) -> Result<User, Response> {
+async fn authenticate(
+    client: &dyn AuthClient,
+    headers: &axum::http::HeaderMap,
+) -> Result<User, Response> {
     let cookie_header = headers
         .get(COOKIE)
         .and_then(|v| v.to_str().ok())
         .ok_or_else(unauthenticated)?
         .to_string();
 
-    let token = ath
-        .parse_session_cookie(&cookie_header)
+    let token = parse_session_cookie(&cookie_header, client.session_cookie_name())
         .ok_or_else(unauthenticated)?;
 
-    let session = ath
-        .db()
-        .validate_session(&token, ath.session_config().ttl)
+    let user = client
+        .validate_session(&token)
         .await
         .map_err(internal_error)?
         .ok_or_else(unauthenticated)?;
-
-    let user = ath
-        .db()
-        .get_user(session.user_id)
-        .await
-        .map_err(|e| match e {
-            AuthError::NotFound => unauthenticated(),
-            other => internal_error(other),
-        })?;
-
-    if !user.is_active {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            axum::Json(json!({"error": "account inactive"})),
-        )
-            .into_response());
-    }
 
     Ok(user)
 }
@@ -235,13 +221,30 @@ fn internal_error(err: AuthError) -> Response {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
-    use allowthem_core::{AllowThemBuilder, Email, generate_token, hash_token};
+    use allowthem_core::{
+        AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, generate_token,
+        hash_token,
+    };
+    use axum::extract::FromRef;
     use axum::http::StatusCode;
     use axum::routing::get;
     use axum::{Router, middleware};
     use chrono::{Duration, Utc};
     use tower::ServiceExt;
+
+    #[derive(Clone)]
+    struct TestState {
+        auth: Arc<dyn AuthClient>,
+    }
+
+    impl FromRef<TestState> for Arc<dyn AuthClient> {
+        fn from_ref(s: &TestState) -> Self {
+            Arc::clone(&s.auth)
+        }
+    }
 
     /// Build AllowThem, create a user with an active session, return (AllowThem, cookie_value).
     async fn test_setup() -> (AllowThem, String) {
@@ -276,32 +279,41 @@ mod tests {
     }
 
     fn auth_app(ath: AllowThem) -> Router {
+        let auth: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath, "/login"));
+        let state = TestState { auth };
         Router::new()
             .route("/protected", get(ok_handler))
-            .layer(middleware::from_fn_with_state(ath.clone(), require_auth))
-            .with_state(ath)
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                require_auth::<TestState>,
+            ))
+            .with_state(state)
     }
 
     fn role_app(ath: AllowThem, role: &str) -> Router {
         let role = role.to_string();
+        let auth: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath, "/login"));
+        let state = TestState { auth };
         Router::new()
             .route("/protected", get(ok_handler))
             .layer(middleware::from_fn_with_state(
-                ath.clone(),
-                require_role::<AllowThem>(role),
+                state.clone(),
+                require_role::<TestState>(role),
             ))
-            .with_state(ath)
+            .with_state(state)
     }
 
     fn perm_app(ath: AllowThem, perm: &str) -> Router {
         let perm = perm.to_string();
+        let auth: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath, "/login"));
+        let state = TestState { auth };
         Router::new()
             .route("/protected", get(ok_handler))
             .layer(middleware::from_fn_with_state(
-                ath.clone(),
-                require_permission::<AllowThem>(perm),
+                state.clone(),
+                require_permission::<TestState>(perm),
             ))
-            .with_state(ath)
+            .with_state(state)
     }
 
     fn make_request(cookie: Option<&str>) -> axum::http::Request<Body> {
