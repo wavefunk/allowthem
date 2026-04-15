@@ -24,6 +24,8 @@ base64ct.workspace = true
 jsonwebtoken.workspace = true
 totp-rs.workspace = true
 aes-gcm.workspace = true
+reqwest.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 tempfile = "3.8"
