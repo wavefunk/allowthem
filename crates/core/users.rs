@@ -9,7 +9,7 @@ use crate::types::{Email, User, UserId, Username};
 ///
 /// SQLite UNIQUE violations include the constraint name in the message,
 /// e.g. "UNIQUE constraint failed: allowthem_users.email".
-fn map_unique_violation(err: sqlx::Error) -> AuthError {
+pub(crate) fn map_unique_violation(err: sqlx::Error) -> AuthError {
     if let sqlx::Error::Database(ref db_err) = err {
         let msg = db_err.message();
         if msg.contains("UNIQUE constraint failed") {
@@ -197,7 +197,11 @@ impl Db {
     /// Update a user's password. Hashes `new_password` with Argon2id and stores it.
     ///
     /// Returns `AuthError::NotFound` if no user with `id` exists.
-    pub async fn update_user_password(&self, id: UserId, new_password: &str) -> Result<(), AuthError> {
+    pub async fn update_user_password(
+        &self,
+        id: UserId,
+        new_password: &str,
+    ) -> Result<(), AuthError> {
         let pw_hash = hash_password(new_password)?;
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         let result = sqlx::query(
