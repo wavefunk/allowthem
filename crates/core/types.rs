@@ -47,6 +47,7 @@ id_newtype!(PermissionId);
 pub struct Email(String);
 
 impl Email {
+    #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
     }
@@ -58,6 +59,7 @@ impl Email {
 pub struct Username(String);
 
 impl Username {
+    #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
     }
@@ -71,6 +73,7 @@ impl Username {
 pub struct PasswordHash(String);
 
 impl PasswordHash {
+    #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
     }
@@ -84,6 +87,7 @@ impl PasswordHash {
 pub struct TokenHash(String);
 
 impl TokenHash {
+    #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
     }
@@ -95,6 +99,7 @@ impl TokenHash {
 pub struct RoleName(String);
 
 impl RoleName {
+    #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
     }
@@ -106,6 +111,7 @@ impl RoleName {
 pub struct PermissionName(String);
 
 impl PermissionName {
+    #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
     }
