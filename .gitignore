@@ -9,3 +9,5 @@ data/
 
 # Dolt database files (added by bd init)
 .dolt/
+/docs/superpowers/**/*.md
+/.claude/

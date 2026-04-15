@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A unified authentication system for all wavefunk projects. Eliminates duplicate auth implementations across speakwith, immersiq, and substrukt by providing a single, well-tested auth library. In standalone mode, serves as a self-hosted auth0 alternative — an OIDC provider that external applications can integrate with for authentication.
+A unified authentication system for all wavefunk projects. Eliminates duplicate auth implementations across speakwith, immersiq, substrukt, is-still-online, transfer-these-files, and sendword by providing a single, well-tested auth library. In standalone mode, serves as a self-hosted auth0 alternative — an OIDC provider that external applications can integrate with for authentication.
 
 ## Dual-Mode Architecture
 
@@ -22,9 +22,25 @@ A self-contained binary with its own database, server-rendered UI (MiniJinja + H
 - **Hosted Login Pages** — per-application branding (logo, colors, app name) applied to login/register/MFA pages when accessed via the OIDC flow.
 - **User Self-Service** — profile, change password, manage linked OAuth accounts, MFA settings.
 
-Wavefunk projects (speakwith, immersiq, substrukt) use embedded mode. External apps use standalone mode via OIDC.
+Wavefunk projects (speakwith, immersiq, substrukt, is-still-online, transfer-these-files, sendword) use embedded mode. If scaling requires it, a project can switch to external mode by flipping a configuration flag — no code changes needed in the consuming project (see Client Trait below). External apps use standalone mode via OIDC.
 
 ## Key Design Decisions
+
+### Client Trait (Mode Abstraction)
+Consuming projects code against an `AuthClient` trait, not the `AllowThem` handle directly. This allows flipping between embedded and external mode without changing application code.
+
+**Trait surface:**
+- `validate_session(token) -> AuthUser` — embedded: DB lookup; external: JWT validation via JWKS
+- `check_role(user_id, role) -> bool` — embedded: DB query; external: JWT claims
+- `check_permission(user_id, perm) -> bool` — embedded: DB query; external: JWT claims
+- `logout(token)` — embedded: delete session; external: revoke token via API
+- `login_url() -> &str` — embedded: returns local path (e.g., `"/login"`); external: returns allowthem authorize URL with client_id and redirect_uri
+
+**Login is mode-aware, not trait-abstracted.** In embedded mode, the consuming project renders its own login form and calls `AllowThem.login(email, password)` directly. In external mode, the consuming project redirects to `auth.login_url()` and handles the OIDC callback. This is intentional — the external mode never sees passwords; only allowthem's hosted login page handles credentials.
+
+**Crate placement:** Trait definition and embedded impl live in `allowthem-core`. External impl will live in a future `allowthem-client` crate, built when standalone mode is ready.
+
+**Configuration:** In external mode, the consuming project provides the allowthem base URL at startup via the builder (e.g., `AllowThemBuilder::new().external("https://auth.wavefunk.io").build()`). The builder returns the appropriate `AuthClient` impl based on whether a pool (embedded) or URL (external) is provided.
 
 ### Identity
 - **Email required** as the canonical identity (needed for password reset, OAuth, MFA)
@@ -134,95 +150,91 @@ All prefixed with `allowthem_` in embedded mode:
 
 ## Milestones
 
-### Phase 1: Data Foundation
+Priority: embedded-first, early integration with sendword, standalone/OIDC later. First integration target: sendword (simplest auth surface — session-based, no roles, no OAuth/MFA).
+
+### Block 1: Core (data + auth primitives)
 1. Core types and database schema
-2. Db handle and migration runner
+2. DB handle and migration runner
 3. Password hashing module
 4. User CRUD
-
-### Phase 2: Sessions
 5. Session token generation and storage
 6. Session lifecycle and cookie helpers
-
-### Phase 3: Roles and Permissions
 7. Roles — CRUD and user assignment
 8. Permissions — CRUD and role/user assignment
 
-### Phase 4: Embeddable Library API
+### Block 2: Embeddable API + Axum Integration
 9. Builder and AllowThem handle
-
-### Phase 5: Axum Integration
 10. AuthUser extractor
 11. CSRF middleware
 12. Auth-required middleware
+13. Email sending abstraction (EmailSender trait + LogEmailSender for dev)
+14. Password reset — backend (tokens, validation)
+15. Password reset — reusable Axum route handlers (mountable by consuming projects in embedded mode)
 
-### Phase 6: Standalone Server
-13. Server bootstrap
-14. Template engine and CSS switching
-15. Registration route and form
-16. Login route and form
-17. Logout route
+### Block 3: Client Trait
+16. AuthClient trait definition + embedded impl + login_url() helper
 
-### Phase 7: Audit
+### Block 4: Sendword Integration
+17. Migrate sendword to allowthem (first integration — validates embedded API)
+
+### Block 5: Audit + API Tokens
 18. Audit logging
-
-### Phase 8: API Tokens
-19. JWT token generation and validation
+19. JWT token generation and validation (HS256 for embedded)
 20. API token management and bearer extractor
 
-### Phase 9: Password Reset
-21. Email sending abstraction
-22. Password reset — backend
-23. Password reset — routes and forms
+### Block 6: OAuth
+21. OAuth2 core and provider trait
+22. Google OAuth provider
+23. GitHub OAuth provider
+24. OAuth account linking
 
-### Phase 10: OAuth
-24. OAuth2 core and provider trait
-25. Google OAuth provider
-26. GitHub OAuth provider
-27. OAuth account linking
+### Block 7: MFA
+25. TOTP core
+26. MFA setup flow
+27. MFA login challenge
+28. MFA recovery codes
 
-### Phase 11: MFA
-28. TOTP core
-29. MFA setup flow
-30. MFA login challenge
-31. MFA recovery codes
+### Block 8: Standalone Server
+29. Server bootstrap
+30. Template engine and CSS switching
+31. Registration route and form
+32. Login route and form
+33. Logout route
+34. User settings page and change password
 
-### Phase 6b: User Self-Service (depends on Phase 6, not Phase 12)
-32. User settings page and change password
+### Block 9: Application Registry
+35. Application model and OIDC database tables
+36. Application CRUD in core
+37. Application management admin UI
 
-### Phase 12: Integration (Embedded — can proceed in parallel with Phases 13+)
-33. First integration — migrate one project
+### Block 10: OIDC Provider
+38. RS256 key management, JWKS endpoint, and OIDC discovery
+39. Authorization endpoint
+40. Consent screen
+41. Token endpoint — authorization code grant
+42. Token endpoint — refresh token grant
+43. UserInfo endpoint
 
-### Phase 13: Application Registry
-34. Application model and OIDC database tables
-35. Application CRUD in core
-36. Application management admin UI
+### Block 11: External Client
+44. allowthem-client crate — AuthClient external impl (JWT validation via JWKS, HTTP calls for logout/revoke)
 
-### Phase 14: OIDC Provider
-37. RS256 key management, JWKS endpoint, and OIDC discovery
-38. Authorization endpoint
-39. Consent screen
-40. Token endpoint — authorization code grant
-41. Token endpoint — refresh token grant
-42. UserInfo endpoint
+### Block 12: Admin Dashboard
+45. User directory
+46. Session viewer
+47. Audit log viewer
 
-### Phase 15: Admin Dashboard
-43. User directory
-44. Session viewer
-45. Audit log viewer
+### Block 13: Hosted Login Branding
+48. Per-application branding config
+49. Branded auth pages
 
-### Phase 16: Hosted Login Branding
-46. Per-application branding config
-47. Branded auth pages
-
-### Phase 17: Playwright Testing
-48. Playwright test infrastructure
-49. AI-verify + codify auth flows (register, login, logout)
-50. AI-verify + codify password reset flow
-51. AI-verify + codify OAuth login flows
-52. AI-verify + codify MFA flows
-53. AI-verify + codify admin dashboard flows
-54. AI-verify + codify OIDC provider flows
+### Block 14: Playwright Testing
+50. Playwright test infrastructure
+51. AI-verify + codify auth flows (register, login, logout)
+52. AI-verify + codify password reset flow
+53. AI-verify + codify OAuth login flows
+54. AI-verify + codify MFA flows
+55. AI-verify + codify admin dashboard flows
+56. AI-verify + codify OIDC provider flows
 
 ## Derived From
 
