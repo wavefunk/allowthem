@@ -9,6 +9,7 @@ pub mod jwt;
 mod mfa_encrypt;
 pub mod oauth;
 pub mod oauth_github;
+pub mod oauth_google;
 pub mod password;
 pub mod password_reset;
 pub mod permissions;
@@ -27,6 +28,7 @@ pub use handle::{AllowThem, AllowThemBuilder, BuildError};
 pub use jwt::{Claims, JwtConfig, generate_token as generate_jwt, validate_token};
 pub use oauth::{OAuthProvider, OAuthStateInfo, OAuthUserInfo};
 pub use oauth_github::GitHubProvider;
+pub use oauth_google::GoogleProvider;
 pub use sessions::{
     SessionConfig, generate_token, hash_token, parse_session_cookie, session_cookie,
 };
