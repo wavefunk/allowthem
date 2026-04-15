@@ -326,6 +326,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_invitation_with_invited_by_stores_user_id() {
+        let db = test_db().await;
+        let email = Email::new("creator@example.com".to_string()).unwrap();
+        let user = db
+            .create_user(email, "password123", None)
+            .await
+            .expect("create user");
+        let expires = Utc::now() + Duration::hours(24);
+
+        let (_, inv) = db
+            .create_invitation(None, None, Some(user.id), expires)
+            .await
+            .expect("create with invited_by");
+
+        assert_eq!(inv.invited_by, Some(user.id));
+    }
+
+    #[tokio::test]
     async fn delete_invitation_removes_it() {
         let db = test_db().await;
         let expires = Utc::now() + Duration::hours(24);
