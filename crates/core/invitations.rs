@@ -94,6 +94,31 @@ impl Db {
         Ok((raw_token, inv))
     }
 
+    /// Mark an invitation as consumed.
+    ///
+    /// Uses `consumed_at IS NULL` as a concurrency guard. Returns `Ok(())`
+    /// on success. Returns `Err(AuthError::Gone)` if already consumed — the
+    /// caller should treat this as a race loss.
+    pub async fn consume_invitation(&self, id: InvitationId) -> Result<(), AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        let result = sqlx::query(
+            "UPDATE allowthem_invitations SET consumed_at = ? \
+             WHERE id = ? AND consumed_at IS NULL",
+        )
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await
+        .map_err(AuthError::Database)?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::Gone);
+        }
+
+        Ok(())
+    }
+
     /// Validate a raw invitation token.
     ///
     /// Returns `Some(Invitation)` if the token exists, is not expired, and has
@@ -124,6 +149,7 @@ mod tests {
     use chrono::{Duration, Utc};
 
     use crate::db::Db;
+    use crate::error::AuthError;
     use crate::types::Email;
 
     async fn test_db() -> Db {
@@ -199,5 +225,42 @@ mod tests {
 
         let result = db.validate_invitation(&raw).await.expect("validate");
         assert!(result.is_none(), "expired invitation must return None");
+    }
+
+    #[tokio::test]
+    async fn consume_marks_invitation_consumed() {
+        let db = test_db().await;
+        let expires = Utc::now() + Duration::hours(24);
+        let (raw, inv) = db
+            .create_invitation(None, None, None, expires)
+            .await
+            .unwrap();
+
+        db.consume_invitation(inv.id).await.expect("consume");
+
+        // Validation must now return None.
+        let result = db.validate_invitation(&raw).await.expect("validate");
+        assert!(result.is_none(), "consumed invitation must not validate");
+    }
+
+    #[tokio::test]
+    async fn consume_twice_returns_gone() {
+        let db = test_db().await;
+        let expires = Utc::now() + Duration::hours(24);
+        let (_, inv) = db
+            .create_invitation(None, None, None, expires)
+            .await
+            .unwrap();
+
+        db.consume_invitation(inv.id).await.expect("first consume");
+
+        let err = db
+            .consume_invitation(inv.id)
+            .await
+            .expect_err("second consume should fail");
+        assert!(
+            matches!(err, AuthError::Gone),
+            "expected AuthError::Gone, got {err:?}"
+        );
     }
 }
