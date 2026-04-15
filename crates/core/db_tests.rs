@@ -1689,3 +1689,222 @@ async fn test_get_user_roles() {
     assert!(names.contains(&r1.name));
     assert!(names.contains(&r2.name));
 }
+
+// --- M8: Permission CRUD and assignment tests ---
+
+#[tokio::test]
+async fn test_create_and_get_permission() {
+    let db = test_db().await;
+
+    let name = PermissionName::new_unchecked("posts:read".to_string());
+    let perm = db
+        .create_permission(&name, Some("Read posts"))
+        .await
+        .expect("create_permission");
+
+    assert_eq!(perm.name, name);
+    assert_eq!(perm.description.as_deref(), Some("Read posts"));
+
+    let by_id = db
+        .get_permission(&perm.id)
+        .await
+        .expect("get_permission")
+        .expect("must exist by id");
+    assert_eq!(by_id.id, perm.id);
+
+    let by_name = db
+        .get_permission_by_name(&name)
+        .await
+        .expect("get_permission_by_name")
+        .expect("must exist by name");
+    assert_eq!(by_name.id, perm.id);
+}
+
+#[tokio::test]
+async fn test_duplicate_permission_name_returns_conflict() {
+    let db = test_db().await;
+
+    let name = PermissionName::new_unchecked("unique:perm".to_string());
+    db.create_permission(&name, None)
+        .await
+        .expect("first create succeeds");
+
+    let result = db.create_permission(&name, Some("duplicate")).await;
+    assert!(
+        matches!(result, Err(AuthError::Conflict(_))),
+        "duplicate permission name must return Conflict, got: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_has_permission_via_role() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "perm_role@example.com").await;
+
+    let role = db
+        .create_role(&RoleName::new_unchecked("writer".to_string()), None)
+        .await
+        .expect("create_role");
+    let perm = db
+        .create_permission(
+            &PermissionName::new_unchecked("posts:write".to_string()),
+            None,
+        )
+        .await
+        .expect("create_permission");
+
+    db.assign_role(&user_id, &role.id)
+        .await
+        .expect("assign_role");
+    db.assign_permission_to_role(&role.id, &perm.id)
+        .await
+        .expect("assign_permission_to_role");
+
+    let has = db
+        .has_permission(&user_id, &perm.name)
+        .await
+        .expect("has_permission");
+    assert!(has, "must have permission via role");
+}
+
+#[tokio::test]
+async fn test_has_permission_via_direct_assignment() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "perm_direct@example.com").await;
+
+    let perm = db
+        .create_permission(
+            &PermissionName::new_unchecked("admin:read".to_string()),
+            None,
+        )
+        .await
+        .expect("create_permission");
+
+    db.assign_permission_to_user(&user_id, &perm.id)
+        .await
+        .expect("assign_permission_to_user");
+
+    let has = db
+        .has_permission(&user_id, &perm.name)
+        .await
+        .expect("has_permission");
+    assert!(has, "must have permission via direct assignment");
+}
+
+#[tokio::test]
+async fn test_has_permission_no_assignment_returns_false() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "perm_none@example.com").await;
+
+    let perm = db
+        .create_permission(
+            &PermissionName::new_unchecked("secret:op".to_string()),
+            None,
+        )
+        .await
+        .expect("create_permission");
+
+    let has = db
+        .has_permission(&user_id, &perm.name)
+        .await
+        .expect("has_permission");
+    assert!(!has, "must return false when user has no assignment");
+}
+
+#[tokio::test]
+async fn test_get_user_permissions_deduplicated() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "perm_dedup@example.com").await;
+
+    let role = db
+        .create_role(&RoleName::new_unchecked("dedup_role".to_string()), None)
+        .await
+        .expect("create_role");
+    let p1 = db
+        .create_permission(
+            &PermissionName::new_unchecked("dedup:read".to_string()),
+            None,
+        )
+        .await
+        .expect("create p1");
+    let p2 = db
+        .create_permission(
+            &PermissionName::new_unchecked("dedup:write".to_string()),
+            None,
+        )
+        .await
+        .expect("create p2");
+
+    // p1 via both role and direct — must appear only once
+    db.assign_role(&user_id, &role.id)
+        .await
+        .expect("assign_role");
+    db.assign_permission_to_role(&role.id, &p1.id)
+        .await
+        .expect("p1 to role");
+    db.assign_permission_to_user(&user_id, &p1.id)
+        .await
+        .expect("p1 direct");
+    // p2 via direct only
+    db.assign_permission_to_user(&user_id, &p2.id)
+        .await
+        .expect("p2 direct");
+
+    let perms = db
+        .get_user_permissions(&user_id)
+        .await
+        .expect("get_user_permissions");
+    assert_eq!(perms.len(), 2, "p1 must not be duplicated; got {perms:?}");
+    let perm_names: Vec<_> = perms.iter().map(|p| p.name.clone()).collect();
+    assert!(perm_names.contains(&p1.name));
+    assert!(perm_names.contains(&p2.name));
+}
+
+#[tokio::test]
+async fn test_unassign_permission_from_role_and_user() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "perm_unassign@example.com").await;
+
+    let role = db
+        .create_role(&RoleName::new_unchecked("unassign_role".to_string()), None)
+        .await
+        .expect("create_role");
+    let perm = db
+        .create_permission(
+            &PermissionName::new_unchecked("unassign:op".to_string()),
+            None,
+        )
+        .await
+        .expect("create_permission");
+
+    db.assign_permission_to_role(&role.id, &perm.id)
+        .await
+        .expect("assign to role");
+    db.assign_permission_to_user(&user_id, &perm.id)
+        .await
+        .expect("assign to user");
+
+    let removed_role = db
+        .unassign_permission_from_role(&role.id, &perm.id)
+        .await
+        .expect("unassign from role");
+    assert!(removed_role, "must return true when assignment existed");
+
+    let removed_role_again = db
+        .unassign_permission_from_role(&role.id, &perm.id)
+        .await
+        .expect("unassign from role again");
+    assert!(!removed_role_again, "must return false when already gone");
+
+    let removed_user = db
+        .unassign_permission_from_user(&user_id, &perm.id)
+        .await
+        .expect("unassign from user");
+    assert!(removed_user, "must return true when assignment existed");
+
+    let removed_user_again = db
+        .unassign_permission_from_user(&user_id, &perm.id)
+        .await
+        .expect("unassign from user again");
+    assert!(!removed_user_again, "must return false when already gone");
+}
