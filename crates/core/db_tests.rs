@@ -1521,3 +1521,171 @@ fn test_email_validation() {
         "domain without dot must fail"
     );
 }
+
+// --- M7: Role CRUD and assignment tests ---
+
+#[tokio::test]
+async fn test_create_and_get_role() {
+    let db = test_db().await;
+
+    let name = RoleName::new_unchecked("admin".to_string());
+    let role = db
+        .create_role(&name, Some("Administrator"))
+        .await
+        .expect("create_role");
+
+    assert_eq!(role.name, name);
+    assert_eq!(role.description.as_deref(), Some("Administrator"));
+
+    let by_id = db
+        .get_role(&role.id)
+        .await
+        .expect("get_role")
+        .expect("role must exist");
+    assert_eq!(by_id.id, role.id);
+
+    let by_name = db
+        .get_role_by_name(&name)
+        .await
+        .expect("get_role_by_name")
+        .expect("role must exist by name");
+    assert_eq!(by_name.id, role.id);
+}
+
+#[tokio::test]
+async fn test_list_roles_empty_and_populated() {
+    let db = test_db().await;
+
+    let empty = db.list_roles().await.expect("list_roles empty");
+    assert!(empty.is_empty(), "no roles yet");
+
+    db.create_role(&RoleName::new_unchecked("viewer".to_string()), None)
+        .await
+        .expect("create viewer");
+    db.create_role(&RoleName::new_unchecked("editor".to_string()), None)
+        .await
+        .expect("create editor");
+
+    let roles = db.list_roles().await.expect("list_roles");
+    assert_eq!(roles.len(), 2);
+}
+
+#[tokio::test]
+async fn test_delete_role() {
+    let db = test_db().await;
+
+    let role = db
+        .create_role(&RoleName::new_unchecked("temp".to_string()), None)
+        .await
+        .expect("create_role");
+
+    let deleted = db.delete_role(&role.id).await.expect("delete_role");
+    assert!(deleted, "must return true when role existed");
+
+    let not_found = db.get_role(&role.id).await.expect("get_role");
+    assert!(not_found.is_none(), "role must be gone after delete");
+
+    // Second delete on the same ID must return false
+    let deleted_again = db.delete_role(&role.id).await.expect("delete_role again");
+    assert!(!deleted_again, "must return false when role already gone");
+}
+
+#[tokio::test]
+async fn test_duplicate_role_name_returns_conflict() {
+    let db = test_db().await;
+
+    let name = RoleName::new_unchecked("unique_role".to_string());
+    db.create_role(&name, None)
+        .await
+        .expect("first create succeeds");
+
+    let result = db.create_role(&name, Some("duplicate")).await;
+    assert!(
+        matches!(result, Err(AuthError::Conflict(_))),
+        "duplicate role name must return Conflict, got: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_assign_and_unassign_role() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "roles_user@example.com").await;
+
+    let role = db
+        .create_role(&RoleName::new_unchecked("moderator".to_string()), None)
+        .await
+        .expect("create_role");
+
+    db.assign_role(&user_id, &role.id)
+        .await
+        .expect("assign_role");
+
+    // Assigning again must be idempotent (no error)
+    db.assign_role(&user_id, &role.id)
+        .await
+        .expect("assign_role idempotent");
+
+    let removed = db
+        .unassign_role(&user_id, &role.id)
+        .await
+        .expect("unassign_role");
+    assert!(removed, "must return true when assignment existed");
+
+    let removed_again = db
+        .unassign_role(&user_id, &role.id)
+        .await
+        .expect("unassign again");
+    assert!(
+        !removed_again,
+        "must return false when assignment already gone"
+    );
+}
+
+#[tokio::test]
+async fn test_has_role_true_and_false() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "has_role_user@example.com").await;
+
+    let name = RoleName::new_unchecked("superuser".to_string());
+    let role = db.create_role(&name, None).await.expect("create_role");
+
+    let before = db.has_role(&user_id, &name).await.expect("has_role before");
+    assert!(!before, "must be false before assignment");
+
+    db.assign_role(&user_id, &role.id)
+        .await
+        .expect("assign_role");
+
+    let after = db.has_role(&user_id, &name).await.expect("has_role after");
+    assert!(after, "must be true after assignment");
+}
+
+#[tokio::test]
+async fn test_get_user_roles() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "user_roles@example.com").await;
+
+    let empty = db
+        .get_user_roles(&user_id)
+        .await
+        .expect("get_user_roles empty");
+    assert!(empty.is_empty(), "no roles assigned yet");
+
+    let r1 = db
+        .create_role(&RoleName::new_unchecked("read".to_string()), None)
+        .await
+        .expect("create r1");
+    let r2 = db
+        .create_role(&RoleName::new_unchecked("write".to_string()), None)
+        .await
+        .expect("create r2");
+
+    db.assign_role(&user_id, &r1.id).await.expect("assign r1");
+    db.assign_role(&user_id, &r2.id).await.expect("assign r2");
+
+    let roles = db.get_user_roles(&user_id).await.expect("get_user_roles");
+    assert_eq!(roles.len(), 2);
+    let names: Vec<_> = roles.iter().map(|r| r.name.clone()).collect();
+    assert!(names.contains(&r1.name));
+    assert!(names.contains(&r2.name));
+}
