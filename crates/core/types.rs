@@ -48,6 +48,7 @@ id_newtype!(OAuthStateId);
 id_newtype!(MfaSecretId);
 id_newtype!(MfaRecoveryCodeId);
 id_newtype!(MfaChallengeId);
+id_newtype!(InvitationId);
 
 /// Email address. Validated at construction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
