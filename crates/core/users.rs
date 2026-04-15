@@ -181,4 +181,37 @@ impl Db {
         }
         Ok(())
     }
+
+    /// List all users ordered by `created_at ASC`. Returns User with `password_hash = None`.
+    pub async fn list_users(&self) -> Result<Vec<User>, AuthError> {
+        sqlx::query_as::<_, User>(
+            "SELECT id, email, username, NULL as password_hash, \
+             email_verified, is_active, created_at, updated_at \
+             FROM allowthem_users ORDER BY created_at ASC",
+        )
+        .fetch_all(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
+
+    /// Update a user's password. Hashes `new_password` with Argon2id and stores it.
+    ///
+    /// Returns `AuthError::NotFound` if no user with `id` exists.
+    pub async fn update_user_password(&self, id: UserId, new_password: &str) -> Result<(), AuthError> {
+        let pw_hash = hash_password(new_password)?;
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let result = sqlx::query(
+            "UPDATE allowthem_users SET password_hash = ?1, updated_at = ?2 WHERE id = ?3",
+        )
+        .bind(&pw_hash)
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+        Ok(())
+    }
 }
