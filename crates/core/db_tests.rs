@@ -715,7 +715,10 @@ async fn test_migrations_create_all_tables() {
     assert_eq!(
         tables,
         vec![
+            "allowthem_api_tokens",
             "allowthem_audit_log",
+            "allowthem_oauth_accounts",
+            "allowthem_oauth_states",
             "allowthem_password_reset_tokens",
             "allowthem_permissions",
             "allowthem_role_permissions",

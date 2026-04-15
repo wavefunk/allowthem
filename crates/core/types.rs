@@ -42,6 +42,9 @@ id_newtype!(RoleId);
 id_newtype!(PermissionId);
 id_newtype!(ResetTokenId);
 id_newtype!(AuditEntryId);
+id_newtype!(ApiTokenId);
+id_newtype!(OAuthAccountId);
+id_newtype!(OAuthStateId);
 
 /// Email address. Validated at construction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
@@ -232,4 +235,15 @@ pub struct RolePermission {
 pub struct UserPermission {
     pub user_id: UserId,
     pub permission_id: PermissionId,
+}
+
+/// Metadata for an API token. Does not include the token hash.
+/// The raw token is only returned once, at creation time.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct ApiTokenInfo {
+    pub id: ApiTokenId,
+    pub user_id: UserId,
+    pub name: String,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
