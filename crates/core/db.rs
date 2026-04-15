@@ -24,8 +24,13 @@ impl Db {
     /// Migrations are idempotent: safe to call on a pool that has already
     /// been migrated. SQLx tracks applied migrations in `_sqlx_migrations`
     /// and `CREATE TABLE IF NOT EXISTS` in the SQL is a no-op on existing tables.
+    ///
+    /// `ignore_missing` is set so that migrations from the integrating application
+    /// already recorded in `_sqlx_migrations` do not cause an error — those are
+    /// the integrator's own migrations, not allowthem's.
     pub async fn new(pool: SqlitePool) -> Result<Self, AuthError> {
         sqlx::migrate!("./migrations")
+            .set_ignore_missing(true)
             .run(&pool)
             .await
             .map_err(sqlx::Error::from)?;
