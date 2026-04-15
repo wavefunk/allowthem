@@ -1,6 +1,7 @@
 use axum::extract::{Extension, State};
 use axum::http::header::COOKIE;
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -14,21 +15,33 @@ struct MfaConfig {
     issuer: String,
 }
 
-/// Create a router with MFA setup route handlers.
+/// Create a router with MFA route handlers.
 ///
-/// Returns a `Router<AllowThem>` with three endpoints:
+/// Returns a `Router<AllowThem>` with four endpoints:
 /// - `POST /mfa/setup` — generates TOTP secret, returns otpauth URI and base32 secret
 /// - `POST /mfa/confirm` — validates TOTP code, enables MFA, returns recovery codes
 /// - `POST /mfa/disable` — disables MFA, deletes secret and recovery codes
+/// - `POST /mfa/verify` — completes MFA login challenge with TOTP or recovery code
 ///
-/// All endpoints require an authenticated session (cookie-based).
-/// The `issuer` parameter is used in the otpauth URI (e.g., "allowthem").
+/// Setup/confirm/disable require an authenticated session (cookie-based).
+/// Verify requires an mfa_token (from the two-step login flow).
+///
+/// ## Two-step login flow (for integrators)
+///
+/// When a user with MFA enabled logs in:
+/// 1. Integrator verifies password via `db.find_for_login()` + `verify_password()`
+/// 2. Integrator checks `db.has_mfa_enabled(user_id)` — if true:
+/// 3. Integrator calls `db.create_mfa_challenge(user_id)` → returns `mfa_token`
+/// 4. Integrator returns `{ mfa_required: true, mfa_token }` to client
+/// 5. Client sends `POST /mfa/verify { mfa_token, code }` with TOTP or recovery code
+/// 6. On success, a session is created and returned via Set-Cookie
 pub fn mfa_routes(issuer: String) -> Router<AllowThem> {
     let config = MfaConfig { issuer };
     Router::new()
         .route("/mfa/setup", post(setup))
         .route("/mfa/confirm", post(confirm))
         .route("/mfa/disable", post(disable))
+        .route("/mfa/verify", post(verify_mfa))
         .layer(Extension(config))
 }
 
@@ -192,6 +205,99 @@ async fn disable(
     ath.disable_mfa(user.id).await.map_err(map_mfa_error)?;
 
     Ok((StatusCode::OK, Json(json!({"message": "MFA disabled"}))))
+}
+
+#[derive(Deserialize)]
+struct VerifyBody {
+    mfa_token: String,
+    code: String,
+}
+
+/// POST /mfa/verify
+///
+/// Completes the MFA login challenge. The client provides the `mfa_token`
+/// (received after password verification) and a TOTP code or recovery code.
+///
+/// On success: creates a session and sets the session cookie.
+/// On wrong code: returns 401 (the challenge token is NOT consumed, allowing retry).
+/// On invalid/expired token: returns 401.
+async fn verify_mfa(State(ath): State<AllowThem>, Json(body): Json<VerifyBody>) -> Response {
+    let user_id = match ath.db().validate_mfa_challenge(&body.mfa_token).await {
+        Ok(Some(uid)) => uid,
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "invalid or expired MFA token"})),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("MFA challenge validation error: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "internal error"})),
+            )
+                .into_response();
+        }
+    };
+
+    // Try TOTP first
+    let totp_valid = match ath.verify_totp(user_id, &body.code).await {
+        Ok(v) => v,
+        Err(e) => return map_mfa_error(e).into_response(),
+    };
+
+    if !totp_valid {
+        // Try recovery code
+        let recovery_valid = match ath.db().verify_recovery_code(user_id, &body.code).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("recovery code verification error: {e}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "internal error"})),
+                )
+                    .into_response();
+            }
+        };
+
+        if !recovery_valid {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "invalid TOTP or recovery code"})),
+            )
+                .into_response();
+        }
+    }
+
+    // Code is valid — consume the challenge and create a session
+    let _ = ath.db().consume_mfa_challenge(&body.mfa_token).await;
+
+    let token = allowthem_core::generate_token();
+    let token_hash = allowthem_core::hash_token(&token);
+    let expires = chrono::Utc::now() + ath.session_config().ttl;
+
+    if let Err(e) = ath
+        .db()
+        .create_session(user_id, token_hash, None, None, expires)
+        .await
+    {
+        tracing::error!("session creation error: {e}");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "internal error"})),
+        )
+            .into_response();
+    }
+
+    let cookie_value = ath.session_cookie(&token);
+
+    (
+        StatusCode::OK,
+        [(axum::http::header::SET_COOKIE, cookie_value)],
+        Json(json!({"message": "MFA verification successful"})),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -383,5 +489,152 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
         let body = read_body(resp).await;
         assert_eq!(body["error"], "unauthenticated");
+    }
+
+    /// Helper: create user, enable MFA, return (user_id, TOTP instance, recovery_codes)
+    async fn setup_mfa_user(ath: &AllowThem) -> (allowthem_core::types::UserId, TOTP, Vec<String>) {
+        let email = Email::new("mfa-login@example.com".to_string()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
+
+        let secret_b32 = ath.create_mfa_secret(user.id).await.unwrap();
+        let totp = TOTP::new(
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            Secret::Encoded(secret_b32).to_bytes().unwrap(),
+            None,
+            String::new(),
+        )
+        .unwrap();
+        let code = totp.generate_current().unwrap();
+        let recovery_codes = ath.enable_mfa(user.id, &code).await.unwrap();
+
+        (user.id, totp, recovery_codes)
+    }
+
+    #[tokio::test]
+    async fn verify_with_valid_totp_creates_session() {
+        let (ath, app) = test_app().await;
+        let (user_id, totp, _) = setup_mfa_user(&ath).await;
+
+        let mfa_token = ath.db().create_mfa_challenge(user_id).await.unwrap();
+        let code = totp.generate_current().unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mfa/verify")
+            .header("content-type", "application/json")
+            .body(Body::from(format!(
+                r#"{{"mfa_token":"{mfa_token}","code":"{code}"}}"#
+            )))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(
+            resp.headers().get("set-cookie").is_some(),
+            "session cookie must be set"
+        );
+        let body = read_body(resp).await;
+        assert_eq!(body["message"], "MFA verification successful");
+    }
+
+    #[tokio::test]
+    async fn verify_with_wrong_code_fails() {
+        let (ath, app) = test_app().await;
+        let (user_id, _, _) = setup_mfa_user(&ath).await;
+
+        let mfa_token = ath.db().create_mfa_challenge(user_id).await.unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mfa/verify")
+            .header("content-type", "application/json")
+            .body(Body::from(format!(
+                r#"{{"mfa_token":"{mfa_token}","code":"000000"}}"#
+            )))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "invalid TOTP or recovery code");
+    }
+
+    #[tokio::test]
+    async fn verify_with_invalid_token_fails() {
+        let (_ath, app) = test_app().await;
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mfa/verify")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"mfa_token":"garbage-token","code":"123456"}"#,
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "invalid or expired MFA token");
+    }
+
+    #[tokio::test]
+    async fn verify_with_recovery_code_creates_session() {
+        let (ath, app) = test_app().await;
+        let (user_id, _, recovery_codes) = setup_mfa_user(&ath).await;
+
+        let mfa_token = ath.db().create_mfa_challenge(user_id).await.unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mfa/verify")
+            .header("content-type", "application/json")
+            .body(Body::from(format!(
+                r#"{{"mfa_token":"{mfa_token}","code":"{}"}}"#,
+                recovery_codes[0]
+            )))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().get("set-cookie").is_some());
+
+        // Recovery code consumed
+        let remaining = ath.db().remaining_recovery_codes(user_id).await.unwrap();
+        assert_eq!(remaining, 9);
+    }
+
+    #[tokio::test]
+    async fn verify_wrong_code_does_not_consume_challenge() {
+        let (ath, _) = test_app().await;
+        let (user_id, totp, _) = setup_mfa_user(&ath).await;
+
+        let mfa_token = ath.db().create_mfa_challenge(user_id).await.unwrap();
+
+        // First attempt: wrong code
+        let challenge_user = ath.db().validate_mfa_challenge(&mfa_token).await.unwrap();
+        assert!(
+            challenge_user.is_some(),
+            "challenge must exist before retry"
+        );
+
+        // Wrong code doesn't consume it — challenge still valid
+        let still_valid = ath.db().validate_mfa_challenge(&mfa_token).await.unwrap();
+        assert!(
+            still_valid.is_some(),
+            "challenge must survive failed verification"
+        );
+
+        // Now succeed with correct code
+        let code = totp.generate_current().unwrap();
+        let totp_valid = ath.verify_totp(user_id, &code).await.unwrap();
+        assert!(totp_valid);
     }
 }

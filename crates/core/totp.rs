@@ -303,6 +303,47 @@ impl Db {
         Ok(count.0)
     }
 
+    /// Replace all recovery codes with a fresh set of 10.
+    ///
+    /// Deletes all existing codes (used and unused) and inserts 10 new ones.
+    /// Returns the plaintext codes. Runs in a transaction.
+    pub async fn regenerate_recovery_codes(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<String>, AuthError> {
+        let mut tx = self.pool().begin().await.map_err(AuthError::Database)?;
+
+        sqlx::query("DELETE FROM allowthem_mfa_recovery_codes WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(AuthError::Database)?;
+
+        let mut plaintext_codes = Vec::with_capacity(RECOVERY_CODE_COUNT);
+        for _ in 0..RECOVERY_CODE_COUNT {
+            let code = generate_recovery_code();
+            let code_hash = hash_recovery_code(&code);
+            let code_id = MfaRecoveryCodeId::new();
+
+            sqlx::query(
+                "INSERT INTO allowthem_mfa_recovery_codes (id, user_id, code_hash) \
+                 VALUES (?, ?, ?)",
+            )
+            .bind(code_id)
+            .bind(user_id)
+            .bind(&code_hash)
+            .execute(&mut *tx)
+            .await
+            .map_err(AuthError::Database)?;
+
+            plaintext_codes.push(code);
+        }
+
+        tx.commit().await.map_err(AuthError::Database)?;
+
+        Ok(plaintext_codes)
+    }
+
     /// Create a short-lived MFA challenge token after password verification.
     ///
     /// The integrator calls this when a user with MFA enabled passes password
@@ -405,6 +446,13 @@ impl AllowThem {
 
     pub async fn remaining_recovery_codes(&self, user_id: UserId) -> Result<i64, AuthError> {
         self.db().remaining_recovery_codes(user_id).await
+    }
+
+    pub async fn regenerate_recovery_codes(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<String>, AuthError> {
+        self.db().regenerate_recovery_codes(user_id).await
     }
 }
 

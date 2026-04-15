@@ -26,7 +26,7 @@ pub use email::{EmailMessage, EmailSender, LogEmailSender};
 pub use error::AuthError;
 pub use handle::{AllowThem, AllowThemBuilder, BuildError};
 pub use jwt::{Claims, JwtConfig, generate_token as generate_jwt, validate_token};
-pub use oauth::{OAuthProvider, OAuthStateInfo, OAuthUserInfo};
+pub use oauth::{OAuthAccountInfo, OAuthProvider, OAuthStateInfo, OAuthUserInfo};
 pub use oauth_github::GitHubProvider;
 pub use oauth_google::GoogleProvider;
 pub use sessions::{

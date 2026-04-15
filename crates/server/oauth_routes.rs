@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
+use axum::http::header::COOKIE;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{Duration, Utc};
 use serde::Deserialize;
@@ -12,8 +13,8 @@ use serde_json::json;
 
 use allowthem_core::oauth::{generate_pkce_verifier, pkce_challenge};
 use allowthem_core::types::Email;
-use allowthem_core::{AllowThem, AuthError, OAuthProvider};
-use allowthem_core::{generate_token, hash_token};
+use allowthem_core::{AllowThem, AuthError, OAuthAccountInfo, OAuthProvider};
+use allowthem_core::{generate_token, hash_token, parse_session_cookie};
 
 #[derive(Clone)]
 struct OAuthConfig {
@@ -64,7 +65,13 @@ async fn authorize(
 
     let raw_state = match ath
         .db()
-        .create_oauth_state(&provider_name, &redirect_uri, &verifier, post_login_ref, None)
+        .create_oauth_state(
+            &provider_name,
+            &redirect_uri,
+            &verifier,
+            post_login_ref,
+            None,
+        )
         .await
     {
         Ok(s) => s,
@@ -163,7 +170,40 @@ async fn callback(
         }
     };
 
-    // Find or create user
+    // If this is a linking callback, link the provider to the existing user.
+    if let Some(linking_user_id) = state_info.linking_user_id {
+        match ath
+            .db()
+            .link_oauth_account(
+                linking_user_id,
+                &provider_name,
+                &user_info.provider_user_id,
+                &user_info.email,
+            )
+            .await
+        {
+            Ok(()) => {}
+            Err(AuthError::Conflict(_)) => {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(json!({"error": "This provider account is already linked to another user."})),
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": e.to_string()})),
+                )
+                    .into_response();
+            }
+        }
+
+        let redirect_to = state_info.post_login_redirect.as_deref().unwrap_or("/");
+        return Redirect::temporary(redirect_to).into_response();
+    }
+
+    // Standard login flow: find or create user.
     let user = match ath
         .db()
         .find_user_by_oauth(&provider_name, &user_info.provider_user_id)
@@ -310,6 +350,203 @@ async fn callback(
     response
 }
 
+// ---------------------------------------------------------------------------
+// Session extraction helper (used by link/unlink/list handlers)
+// ---------------------------------------------------------------------------
+
+/// Extract and validate the session from the Cookie header. Returns the user
+/// or a 401 response.
+#[allow(clippy::result_large_err)]
+async fn require_session(
+    ath: &AllowThem,
+    headers: &axum::http::HeaderMap,
+) -> Result<allowthem_core::User, Response> {
+    let cookie_str = headers
+        .get(COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "unauthenticated"})),
+            )
+                .into_response()
+        })?;
+
+    let token =
+        parse_session_cookie(cookie_str, ath.session_config().cookie_name).ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "unauthenticated"})),
+            )
+                .into_response()
+        })?;
+
+    let session = ath
+        .db()
+        .validate_session(&token, ath.session_config().ttl)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response()
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "unauthenticated"})),
+            )
+                .into_response()
+        })?;
+
+    let user = ath
+        .db()
+        .get_user(session.user_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response()
+        })?;
+
+    if user.is_active {
+        Ok(user)
+    } else {
+        Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "unauthenticated"})),
+        )
+            .into_response())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Account linking routes
+// ---------------------------------------------------------------------------
+
+/// `GET /oauth/:provider/link` — authenticated user initiates provider linking.
+async fn link_authorize(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<OAuthConfig>,
+    Path(provider_name): Path<String>,
+    Query(query): Query<AuthorizeQuery>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let user = match require_session(&ath, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+
+    let provider = match config.providers.get(&provider_name) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "unknown provider"})),
+            )
+                .into_response();
+        }
+    };
+
+    let verifier = generate_pkce_verifier();
+    let challenge = pkce_challenge(&verifier);
+    let redirect_uri = format!("{}/oauth/{}/callback", config.base_url, provider_name);
+
+    let post_login = query.next.as_deref().map(|n| sanitize_redirect(Some(n)));
+    let post_login_ref = post_login.as_deref();
+
+    let raw_state = match ath
+        .db()
+        .create_oauth_state(
+            &provider_name,
+            &redirect_uri,
+            &verifier,
+            post_login_ref,
+            Some(user.id),
+        )
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response();
+        }
+    };
+
+    let url = provider.authorize_url(&redirect_uri, &raw_state, &challenge);
+    Redirect::temporary(&url).into_response()
+}
+
+#[derive(Deserialize)]
+struct UnlinkBody {
+    provider: String,
+}
+
+/// `POST /oauth/unlink` — authenticated user removes a linked provider.
+async fn unlink(
+    State(ath): State<AllowThem>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<UnlinkBody>,
+) -> Response {
+    let user = match require_session(&ath, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+
+    match ath.db().unlink_oauth_account(user.id, &body.provider).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "no linked account for this provider"})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+/// `GET /account/linked-providers` — authenticated user lists linked OAuth accounts.
+async fn list_linked_providers(
+    State(ath): State<AllowThem>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let user = match require_session(&ath, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+
+    match ath.db().get_user_oauth_accounts(user.id).await {
+        Ok(accounts) => {
+            let items: Vec<serde_json::Value> = accounts
+                .into_iter()
+                .map(|a: OAuthAccountInfo| {
+                    json!({
+                        "provider": a.provider,
+                        "provider_user_id": a.provider_user_id,
+                        "email": a.email,
+                        "created_at": a.created_at,
+                    })
+                })
+                .collect();
+            Json(json!({ "accounts": items })).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
 /// Create a router with OAuth authorize and callback routes.
 ///
 /// `providers` maps provider names (e.g. `"google"`) to their implementations.
@@ -325,6 +562,9 @@ pub fn oauth_routes(
     Router::new()
         .route("/oauth/{provider}/authorize", get(authorize))
         .route("/oauth/{provider}/callback", get(callback))
+        .route("/oauth/{provider}/link", get(link_authorize))
+        .route("/oauth/unlink", post(unlink))
+        .route("/account/linked-providers", get(list_linked_providers))
         .layer(Extension(config))
 }
 
@@ -471,7 +711,7 @@ mod tests {
         let redirect_uri = "https://example.com/oauth/mock/callback";
         let raw_state = ath
             .db()
-            .create_oauth_state("mock", redirect_uri, "test-verifier", None)
+            .create_oauth_state("mock", redirect_uri, "test-verifier", None, None)
             .await
             .unwrap();
 
@@ -506,7 +746,7 @@ mod tests {
         let redirect_uri = "https://example.com/oauth/mock/callback";
         let raw_state = ath
             .db()
-            .create_oauth_state("mock", redirect_uri, "test-verifier", None)
+            .create_oauth_state("mock", redirect_uri, "test-verifier", None, None)
             .await
             .unwrap();
 
@@ -541,7 +781,7 @@ mod tests {
         let redirect_uri = "https://example.com/oauth/mock/callback";
         let raw_state = ath
             .db()
-            .create_oauth_state("mock", redirect_uri, "test-verifier", None)
+            .create_oauth_state("mock", redirect_uri, "test-verifier", None, None)
             .await
             .unwrap();
 
@@ -581,7 +821,13 @@ mod tests {
         let redirect_uri = "https://example.com/oauth/mock/callback";
         let raw_state = ath
             .db()
-            .create_oauth_state("mock", redirect_uri, "test-verifier", Some("/settings"))
+            .create_oauth_state(
+                "mock",
+                redirect_uri,
+                "test-verifier",
+                Some("/settings"),
+                None,
+            )
             .await
             .unwrap();
 
@@ -593,5 +839,263 @@ mod tests {
 
         let location = resp.headers().get("location").unwrap().to_str().unwrap();
         assert_eq!(location, "/settings");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Account-linking route tests
+    // ---------------------------------------------------------------------------
+
+    /// Build a session cookie for a given user.
+    async fn make_session_cookie(ath: &AllowThem) -> (allowthem_core::User, String) {
+        use allowthem_core::{Email, generate_token, hash_token};
+        use chrono::Duration;
+
+        let email = Email::new("linked-user@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
+
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        let expires_at = chrono::Utc::now() + Duration::hours(24);
+        ath.db()
+            .create_session(user.id, token_hash, None, None, expires_at)
+            .await
+            .unwrap();
+
+        let set_cookie = ath.session_cookie(&token);
+        let cookie_value = set_cookie.split(';').next().unwrap().to_string();
+        (user, cookie_value)
+    }
+
+    #[tokio::test]
+    async fn link_authorize_requires_authentication() {
+        let (_ath, app) = test_app().await;
+
+        let req = Request::builder()
+            .uri("/oauth/mock/link")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn link_authorize_redirects_to_provider_when_authenticated() {
+        let (ath, app) = test_app().await;
+        let (_user, cookie) = make_session_cookie(&ath).await;
+
+        let req = Request::builder()
+            .uri("/oauth/mock/link")
+            .header("Cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
+        let location = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(location.contains("mock.provider/authorize"));
+    }
+
+    #[tokio::test]
+    async fn callback_with_linking_user_id_links_provider() {
+        let (ath, app) = test_app().await;
+        let (user, _cookie) = make_session_cookie(&ath).await;
+
+        // Create a state with linking_user_id set
+        let redirect_uri = "https://example.com/oauth/mock/callback";
+        let raw_state = ath
+            .db()
+            .create_oauth_state("mock", redirect_uri, "test-verifier", None, Some(user.id))
+            .await
+            .unwrap();
+
+        let uri = format!("/oauth/mock/callback?code=mock-code&state={}", raw_state);
+        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        // Should redirect (no new session, just linked)
+        assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
+        // Should NOT set a new session cookie (link flow doesn't create session)
+        assert!(!resp.headers().contains_key("set-cookie"));
+
+        // Provider should now be linked to the user
+        let found = ath
+            .db()
+            .find_user_by_oauth("mock", "mock-uid-123")
+            .await
+            .unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().id, user.id);
+    }
+
+    #[tokio::test]
+    async fn unlink_requires_authentication() {
+        let (_ath, app) = test_app().await;
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/unlink")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"provider":"mock"}"#))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn unlink_removes_linked_provider() {
+        let (ath, app) = test_app().await;
+        let (user, cookie) = make_session_cookie(&ath).await;
+
+        // Link mock provider first
+        ath.db()
+            .link_oauth_account(user.id, "mock", "mock-uid-123", "linked-user@example.com")
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/unlink")
+            .header("Cookie", &cookie)
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"provider":"mock"}"#))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        // Verify unlinked
+        let found = ath
+            .db()
+            .find_user_by_oauth("mock", "mock-uid-123")
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn unlink_returns_404_when_not_linked() {
+        let (ath, app) = test_app().await;
+        let (_user, cookie) = make_session_cookie(&ath).await;
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/unlink")
+            .header("Cookie", &cookie)
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"provider":"mock"}"#))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn list_linked_providers_requires_authentication() {
+        let (_ath, app) = test_app().await;
+
+        let req = Request::builder()
+            .uri("/account/linked-providers")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn list_linked_providers_returns_linked_accounts() {
+        let (ath, app) = test_app().await;
+        let (user, cookie) = make_session_cookie(&ath).await;
+
+        ath.db()
+            .link_oauth_account(user.id, "mock", "mock-uid-123", "linked-user@example.com")
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .uri("/account/linked-providers")
+            .header("Cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let accounts = body["accounts"].as_array().unwrap();
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0]["provider"], "mock");
+    }
+
+    #[tokio::test]
+    async fn list_linked_providers_returns_empty_when_none_linked() {
+        let (ath, app) = test_app().await;
+        let (_user, cookie) = make_session_cookie(&ath).await;
+
+        let req = Request::builder()
+            .uri("/account/linked-providers")
+            .header("Cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let accounts = body["accounts"].as_array().unwrap();
+        assert!(accounts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn callback_with_already_linked_provider_returns_conflict() {
+        let (ath, app) = test_app().await;
+
+        // Create another user who already has mock-uid-123 linked
+        let email2 = Email::new("other@example.com".into()).unwrap();
+        let other_user = ath
+            .db()
+            .create_oauth_user(email2, "mock", "mock-uid-123")
+            .await
+            .unwrap();
+
+        // Create a different user who tries to link the same provider account
+        let email1 = Email::new("first@example.com".into()).unwrap();
+        let linking_user = ath
+            .db()
+            .create_user(email1, "password123", None)
+            .await
+            .unwrap();
+        let _ = other_user;
+
+        let redirect_uri = "https://example.com/oauth/mock/callback";
+        let raw_state = ath
+            .db()
+            .create_oauth_state(
+                "mock",
+                redirect_uri,
+                "test-verifier",
+                None,
+                Some(linking_user.id),
+            )
+            .await
+            .unwrap();
+
+        let uri = format!("/oauth/mock/callback?code=mock-code&state={}", raw_state);
+        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
     }
 }

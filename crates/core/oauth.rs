@@ -1,7 +1,8 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rand::TryRngCore;
 use rand::rngs::OsRng;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::auth_client::AuthFuture;
@@ -30,6 +31,18 @@ pub struct OAuthStateInfo {
     pub redirect_uri: String,
     pub pkce_verifier: String,
     pub post_login_redirect: Option<String>,
+    /// Non-null for the link flow: the authenticated user that initiated linking.
+    /// Null for the standard login/register flow.
+    pub linking_user_id: Option<UserId>,
+}
+
+/// A linked OAuth account for a user — provider name, provider user id, and email.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct OAuthAccountInfo {
+    pub provider: String,
+    pub provider_user_id: String,
+    pub email: String,
+    pub created_at: DateTime<Utc>,
 }
 
 // ---------------------------------------------------------------------------
@@ -107,12 +120,17 @@ fn hash_state(raw: &str) -> String {
 
 impl Db {
     /// Create an OAuth state record. Returns the raw state value (for the authorize URL).
+    ///
+    /// `linking_user_id` is `Some` when initiating the account-linking flow (the user is
+    /// already authenticated and wants to add a provider). It is `None` for the standard
+    /// login/register flow.
     pub async fn create_oauth_state(
         &self,
         provider: &str,
         redirect_uri: &str,
         pkce_verifier: &str,
         post_login_redirect: Option<&str>,
+        linking_user_id: Option<UserId>,
     ) -> Result<String, AuthError> {
         let raw_state = generate_state();
         let state_hash = hash_state(&raw_state);
@@ -123,8 +141,8 @@ impl Db {
 
         sqlx::query(
             "INSERT INTO allowthem_oauth_states \
-             (id, state_hash, provider, redirect_uri, pkce_verifier, post_login_redirect, expires_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (id, state_hash, provider, redirect_uri, pkce_verifier, post_login_redirect, expires_at, linking_user_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(&state_hash)
@@ -133,6 +151,7 @@ impl Db {
         .bind(pkce_verifier)
         .bind(post_login_redirect)
         .bind(&expires_at)
+        .bind(linking_user_id)
         .execute(self.pool())
         .await?;
 
@@ -151,7 +170,7 @@ impl Db {
         sqlx::query_as::<_, OAuthStateInfo>(
             "DELETE FROM allowthem_oauth_states \
              WHERE state_hash = ? AND expires_at > ? \
-             RETURNING provider, redirect_uri, pkce_verifier, post_login_redirect",
+             RETURNING provider, redirect_uri, pkce_verifier, post_login_redirect, linking_user_id",
         )
         .bind(&state_hash)
         .bind(&now)
@@ -256,6 +275,42 @@ impl Db {
         .await
         .map_err(AuthError::Database)
     }
+
+    /// List all OAuth accounts linked to a user.
+    pub async fn get_user_oauth_accounts(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<OAuthAccountInfo>, AuthError> {
+        sqlx::query_as::<_, OAuthAccountInfo>(
+            "SELECT provider, provider_user_id, email, created_at \
+             FROM allowthem_oauth_accounts \
+             WHERE user_id = ? \
+             ORDER BY created_at ASC",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
+
+    /// Remove an OAuth account link for a user + provider.
+    ///
+    /// Returns `true` if a row was deleted, `false` if no link existed.
+    pub async fn unlink_oauth_account(
+        &self,
+        user_id: UserId,
+        provider: &str,
+    ) -> Result<bool, AuthError> {
+        let result =
+            sqlx::query("DELETE FROM allowthem_oauth_accounts WHERE user_id = ? AND provider = ?")
+                .bind(user_id)
+                .bind(provider)
+                .execute(self.pool())
+                .await
+                .map_err(AuthError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }
 
 #[cfg(test)]
@@ -310,6 +365,7 @@ mod tests {
                 "https://example.com/callback",
                 "verifier123",
                 None,
+                None,
             )
             .await
             .expect("create state");
@@ -320,7 +376,13 @@ mod tests {
     async fn validate_state_returns_info_for_valid_state() {
         let db = test_db().await;
         let raw = db
-            .create_oauth_state("google", "https://example.com/cb", "my-verifier", None)
+            .create_oauth_state(
+                "google",
+                "https://example.com/cb",
+                "my-verifier",
+                None,
+                None,
+            )
             .await
             .expect("create");
         let info = db.validate_oauth_state(&raw).await.expect("validate");
@@ -335,7 +397,7 @@ mod tests {
     async fn validate_state_is_single_use() {
         let db = test_db().await;
         let raw = db
-            .create_oauth_state("github", "https://example.com/cb", "v", None)
+            .create_oauth_state("github", "https://example.com/cb", "v", None, None)
             .await
             .expect("create");
         let first = db.validate_oauth_state(&raw).await.expect("first");
@@ -358,7 +420,13 @@ mod tests {
     async fn validate_state_preserves_post_login_redirect() {
         let db = test_db().await;
         let raw = db
-            .create_oauth_state("google", "https://example.com/cb", "v", Some("/settings"))
+            .create_oauth_state(
+                "google",
+                "https://example.com/cb",
+                "v",
+                Some("/settings"),
+                None,
+            )
             .await
             .expect("create");
         let info = db
@@ -373,7 +441,7 @@ mod tests {
     async fn validate_state_returns_none_for_post_login_redirect_when_not_set() {
         let db = test_db().await;
         let raw = db
-            .create_oauth_state("google", "https://example.com/cb", "v", None)
+            .create_oauth_state("google", "https://example.com/cb", "v", None, None)
             .await
             .expect("create");
         let info = db
@@ -484,5 +552,124 @@ mod tests {
             .expect("find")
             .unwrap();
         assert!(user.password_hash.is_none());
+    }
+
+    // --- linking_user_id state tests ---
+
+    #[tokio::test]
+    async fn validate_state_preserves_linking_user_id() {
+        let db = test_db().await;
+        let user_id = UserId::new();
+        let raw = db
+            .create_oauth_state("google", "https://example.com/cb", "v", None, Some(user_id))
+            .await
+            .expect("create");
+        let info = db
+            .validate_oauth_state(&raw)
+            .await
+            .expect("validate")
+            .unwrap();
+        assert_eq!(info.linking_user_id, Some(user_id));
+    }
+
+    #[tokio::test]
+    async fn validate_state_linking_user_id_is_none_for_login_flow() {
+        let db = test_db().await;
+        let raw = db
+            .create_oauth_state("google", "https://example.com/cb", "v", None, None)
+            .await
+            .expect("create");
+        let info = db
+            .validate_oauth_state(&raw)
+            .await
+            .expect("validate")
+            .unwrap();
+        assert!(info.linking_user_id.is_none());
+    }
+
+    // --- get_user_oauth_accounts tests ---
+
+    #[tokio::test]
+    async fn get_user_oauth_accounts_returns_linked_providers() {
+        let db = test_db().await;
+        let email = Email::new("accts@example.com".into()).unwrap();
+        let user = db
+            .create_user(email, "password123", None)
+            .await
+            .expect("create");
+        db.link_oauth_account(user.id, "google", "g-1", "accts@example.com")
+            .await
+            .expect("link google");
+        db.link_oauth_account(user.id, "github", "gh-1", "accts@example.com")
+            .await
+            .expect("link github");
+
+        let accounts = db
+            .get_user_oauth_accounts(user.id)
+            .await
+            .expect("list accounts");
+        assert_eq!(accounts.len(), 2);
+        let providers: Vec<&str> = accounts.iter().map(|a| a.provider.as_str()).collect();
+        assert!(providers.contains(&"google"));
+        assert!(providers.contains(&"github"));
+    }
+
+    #[tokio::test]
+    async fn get_user_oauth_accounts_returns_empty_for_no_links() {
+        let db = test_db().await;
+        let email = Email::new("nolinks@example.com".into()).unwrap();
+        let user = db
+            .create_user(email, "password123", None)
+            .await
+            .expect("create");
+
+        let accounts = db
+            .get_user_oauth_accounts(user.id)
+            .await
+            .expect("list accounts");
+        assert!(accounts.is_empty());
+    }
+
+    // --- unlink_oauth_account tests ---
+
+    #[tokio::test]
+    async fn unlink_oauth_account_removes_link() {
+        let db = test_db().await;
+        let email = Email::new("unlink@example.com".into()).unwrap();
+        let user = db
+            .create_user(email, "password123", None)
+            .await
+            .expect("create");
+        db.link_oauth_account(user.id, "google", "g-unlink", "unlink@example.com")
+            .await
+            .expect("link");
+
+        let removed = db
+            .unlink_oauth_account(user.id, "google")
+            .await
+            .expect("unlink");
+        assert!(removed, "should return true when row deleted");
+
+        let found = db
+            .find_user_by_oauth("google", "g-unlink")
+            .await
+            .expect("find");
+        assert!(found.is_none(), "link should be gone");
+    }
+
+    #[tokio::test]
+    async fn unlink_oauth_account_returns_false_when_not_linked() {
+        let db = test_db().await;
+        let email = Email::new("notlinked@example.com".into()).unwrap();
+        let user = db
+            .create_user(email, "password123", None)
+            .await
+            .expect("create");
+
+        let removed = db
+            .unlink_oauth_account(user.id, "google")
+            .await
+            .expect("unlink");
+        assert!(!removed, "should return false when nothing deleted");
     }
 }
