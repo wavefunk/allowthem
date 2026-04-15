@@ -5,6 +5,7 @@ pub mod csrf;
 pub mod error;
 pub mod extractors;
 pub mod middleware;
+pub mod oauth_routes;
 pub mod password_reset_routes;
 
 pub use bearer::BearerAuthUser;
@@ -12,4 +13,5 @@ pub use csrf::{CsrfToken, csrf_middleware};
 pub use error::AuthExtractError;
 pub use extractors::{AuthUser, OptionalAuthUser};
 pub use middleware::{require_auth, require_permission, require_role};
+pub use oauth_routes::oauth_routes;
 pub use password_reset_routes::password_reset_routes;
