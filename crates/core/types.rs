@@ -140,6 +140,10 @@ impl SessionToken {
 pub struct RoleName(String);
 
 impl RoleName {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
     #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
@@ -152,6 +156,10 @@ impl RoleName {
 pub struct PermissionName(String);
 
 impl PermissionName {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
     #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
