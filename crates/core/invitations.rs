@@ -119,6 +119,37 @@ impl Db {
         Ok(())
     }
 
+    /// List unconsumed, non-expired invitations, newest first.
+    pub async fn list_pending_invitations(&self) -> Result<Vec<Invitation>, AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        sqlx::query_as::<_, Invitation>(
+            "SELECT id, email, metadata, invited_by, expires_at, consumed_at, created_at \
+             FROM allowthem_invitations \
+             WHERE consumed_at IS NULL AND expires_at > ? \
+             ORDER BY created_at DESC",
+        )
+        .bind(&now)
+        .fetch_all(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
+
+    /// Delete an invitation outright, whether pending or consumed.
+    pub async fn delete_invitation(&self, id: InvitationId) -> Result<(), AuthError> {
+        let result = sqlx::query("DELETE FROM allowthem_invitations WHERE id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+
+        Ok(())
+    }
+
     /// Validate a raw invitation token.
     ///
     /// Returns `Some(Invitation)` if the token exists, is not expired, and has
@@ -262,5 +293,54 @@ mod tests {
             matches!(err, AuthError::Gone),
             "expected AuthError::Gone, got {err:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn list_pending_excludes_expired_and_consumed() {
+        let db = test_db().await;
+        let future = Utc::now() + Duration::hours(24);
+        let past = Utc::now() - Duration::hours(1);
+
+        // Pending (should appear)
+        let (_, pending) = db
+            .create_invitation(None, Some("pending"), None, future)
+            .await
+            .unwrap();
+
+        // Expired (should not appear)
+        let _ = db
+            .create_invitation(None, Some("expired"), None, past)
+            .await
+            .unwrap();
+
+        // Consumed (should not appear)
+        let (_, consumed) = db
+            .create_invitation(None, Some("consumed"), None, future)
+            .await
+            .unwrap();
+        db.consume_invitation(consumed.id).await.unwrap();
+
+        let list = db.list_pending_invitations().await.expect("list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, pending.id);
+    }
+
+    #[tokio::test]
+    async fn delete_invitation_removes_it() {
+        let db = test_db().await;
+        let expires = Utc::now() + Duration::hours(24);
+        let (raw, inv) = db
+            .create_invitation(None, None, None, expires)
+            .await
+            .unwrap();
+
+        db.delete_invitation(inv.id).await.expect("delete");
+
+        let result = db.validate_invitation(&raw).await.expect("validate");
+        assert!(result.is_none(), "deleted invitation must not validate");
+
+        // List should be empty.
+        let list = db.list_pending_invitations().await.expect("list");
+        assert!(list.is_empty());
     }
 }
