@@ -47,4 +47,7 @@ pub enum AuthError {
 
     #[error("MFA encryption error: {0}")]
     MfaEncryption(String),
+
+    #[error("resource already consumed")]
+    Gone,
 }
