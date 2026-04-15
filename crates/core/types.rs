@@ -47,6 +47,22 @@ id_newtype!(PermissionId);
 pub struct Email(String);
 
 impl Email {
+    /// Create an `Email` after basic format validation.
+    ///
+    /// Checks: exactly one `@`, non-empty local part, non-empty domain
+    /// with at least one `.`. Not RFC 5322 compliant — intentionally simple.
+    pub fn new(s: String) -> Result<Self, crate::error::AuthError> {
+        let trimmed = s.trim().to_string();
+        let parts: Vec<&str> = trimmed.splitn(3, '@').collect();
+        if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+            return Err(crate::error::AuthError::InvalidEmail);
+        }
+        if !parts[1].contains('.') {
+            return Err(crate::error::AuthError::InvalidEmail);
+        }
+        Ok(Self(trimmed))
+    }
+
     #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
