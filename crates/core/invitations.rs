@@ -97,7 +97,8 @@ impl Db {
     /// Mark an invitation as consumed.
     ///
     /// Uses `consumed_at IS NULL` as a concurrency guard. Returns `Ok(())`
-    /// on success. Returns `Err(AuthError::Gone)` if already consumed — the
+    /// on success. Returns `Err(AuthError::NotFound)` if the ID does not
+    /// exist. Returns `Err(AuthError::Gone)` if already consumed — the
     /// caller should treat this as a race loss.
     pub async fn consume_invitation(&self, id: InvitationId) -> Result<(), AuthError> {
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
@@ -113,7 +114,20 @@ impl Db {
         .map_err(AuthError::Database)?;
 
         if result.rows_affected() == 0 {
-            return Err(AuthError::Gone);
+            // Distinguish "does not exist" from "already consumed".
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM allowthem_invitations WHERE id = ?)",
+            )
+            .bind(id)
+            .fetch_one(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+
+            return Err(if exists {
+                AuthError::Gone
+            } else {
+                AuthError::NotFound
+            });
         }
 
         Ok(())
@@ -360,5 +374,33 @@ mod tests {
         // List should be empty.
         let list = db.list_pending_invitations().await.expect("list");
         assert!(list.is_empty());
+    }
+
+    #[tokio::test]
+    async fn consume_nonexistent_returns_not_found() {
+        let db = test_db().await;
+        let fake_id = crate::types::InvitationId::new();
+        let err = db
+            .consume_invitation(fake_id)
+            .await
+            .expect_err("consume nonexistent should fail");
+        assert!(
+            matches!(err, AuthError::NotFound),
+            "expected AuthError::NotFound, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_returns_not_found() {
+        let db = test_db().await;
+        let fake_id = crate::types::InvitationId::new();
+        let err = db
+            .delete_invitation(fake_id)
+            .await
+            .expect_err("delete nonexistent should fail");
+        assert!(
+            matches!(err, AuthError::NotFound),
+            "expected AuthError::NotFound, got {err:?}"
+        );
     }
 }
