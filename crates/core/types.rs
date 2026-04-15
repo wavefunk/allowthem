@@ -97,6 +97,22 @@ impl TokenHash {
     }
 }
 
+/// A raw session token — 32 random bytes encoded as base64url (no padding).
+/// This is what is placed in the session cookie. Never persisted to the database.
+/// The SHA-256 hash of this value is stored as `TokenHash`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionToken(String);
+
+impl SessionToken {
+    pub(crate) fn from_encoded(s: String) -> Self {
+        Self(s)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A role name as defined by the integrating application.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(transparent)]

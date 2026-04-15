@@ -3,6 +3,7 @@ use sqlx::sqlite::SqliteConnectOptions;
 use std::str::FromStr;
 
 use crate::db::Db;
+use crate::sessions::{generate_token, hash_token};
 use crate::types::{
     Email, PasswordHash, Permission, PermissionId, PermissionName, Role, RoleId, RoleName,
     RolePermission, Session, SessionId, TokenHash, User, UserId, UserPermission, UserRole,
@@ -752,4 +753,127 @@ async fn test_foreign_keys_enabled_via_connect() {
 async fn test_connect_invalid_url() {
     let result = Db::connect("not://valid").await;
     assert!(result.is_err(), "invalid URL must return Err");
+}
+
+// --- M5: Session token tests ---
+
+#[test]
+fn test_generate_token_length() {
+    let token = generate_token();
+    assert_eq!(
+        token.as_str().len(),
+        43,
+        "base64url of 32 bytes must be 43 chars (no padding)"
+    );
+}
+
+#[test]
+fn test_two_tokens_differ() {
+    let t1 = generate_token();
+    let t2 = generate_token();
+    assert_ne!(t1, t2, "two generated tokens must be different");
+}
+
+#[test]
+fn test_hash_differs_from_token() {
+    let token = generate_token();
+    let hash = hash_token(&token);
+    // Token is 43 chars (base64url); SHA-256 hex is 64 chars — they differ structurally.
+    // We verify the hash is 64 hex chars by round-tripping through Debug.
+    let hash_debug = format!("{hash:?}");
+    // Debug output: TokenHash("...64 hex chars...")
+    // Extract the inner string by stripping the wrapper
+    let inner = hash_debug
+        .strip_prefix("TokenHash(\"")
+        .and_then(|s| s.strip_suffix("\")"))
+        .expect("Debug format matches");
+    assert_eq!(inner.len(), 64, "SHA-256 hex is 64 chars");
+    assert_ne!(inner, token.as_str(), "hash must differ from raw token");
+}
+
+#[tokio::test]
+async fn test_create_and_lookup_session() {
+    let db = test_db().await;
+
+    // Insert a user first (FK constraint)
+    let user_id = UserId::new();
+    sqlx::query(
+        "INSERT INTO allowthem_users (id, email, username, password_hash, email_verified, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(Email::new_unchecked("session_user@example.com".to_string()))
+    .bind(None::<Username>)
+    .bind(None::<PasswordHash>)
+    .bind(false)
+    .bind(true)
+    .bind(now_str())
+    .bind(now_str())
+    .execute(db.pool())
+    .await
+    .expect("insert user");
+
+    let token = generate_token();
+    let token_hash = hash_token(&token);
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+
+    let created = db
+        .create_session(
+            user_id,
+            token_hash,
+            Some("127.0.0.1"),
+            Some("TestAgent"),
+            expires_at,
+        )
+        .await
+        .expect("create_session");
+
+    assert_eq!(created.user_id, user_id);
+    assert_eq!(created.ip_address.as_deref(), Some("127.0.0.1"));
+    assert_eq!(created.user_agent.as_deref(), Some("TestAgent"));
+
+    let found = db
+        .lookup_session(&token)
+        .await
+        .expect("lookup_session")
+        .expect("session must exist");
+
+    assert_eq!(found.id, created.id);
+    assert_eq!(found.user_id, user_id);
+}
+
+#[tokio::test]
+async fn test_expired_session_not_returned() {
+    let db = test_db().await;
+
+    // Insert a user
+    let user_id = UserId::new();
+    sqlx::query(
+        "INSERT INTO allowthem_users (id, email, username, password_hash, email_verified, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(Email::new_unchecked("expired_user@example.com".to_string()))
+    .bind(None::<Username>)
+    .bind(None::<PasswordHash>)
+    .bind(false)
+    .bind(true)
+    .bind(now_str())
+    .bind(now_str())
+    .execute(db.pool())
+    .await
+    .expect("insert user");
+
+    let token = generate_token();
+    let token_hash = hash_token(&token);
+    // expires_at in the past
+    let expires_at = chrono::Utc::now() - chrono::Duration::hours(1);
+
+    db.create_session(user_id, token_hash, None, None, expires_at)
+        .await
+        .expect("create expired session");
+
+    let result = db.lookup_session(&token).await.expect("lookup_session");
+
+    assert!(result.is_none(), "expired session must not be returned");
 }
