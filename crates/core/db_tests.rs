@@ -2,6 +2,7 @@ use sqlx::SqlitePool;
 use sqlx::sqlite::SqliteConnectOptions;
 use std::str::FromStr;
 
+use crate::audit::AuditEvent;
 use crate::db::Db;
 use crate::error::AuthError;
 use crate::password::verify_password;
@@ -714,6 +715,7 @@ async fn test_migrations_create_all_tables() {
     assert_eq!(
         tables,
         vec![
+            "allowthem_audit_log",
             "allowthem_password_reset_tokens",
             "allowthem_permissions",
             "allowthem_role_permissions",
@@ -1908,4 +1910,155 @@ async fn test_unassign_permission_from_role_and_user() {
         .await
         .expect("unassign from user again");
     assert!(!removed_user_again, "must return false when already gone");
+}
+
+// ── Audit log tests ──────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_audit_log_round_trip() {
+    let db = test_db().await;
+    let user_id = UserId::new();
+
+    db.log_audit(
+        AuditEvent::Login,
+        Some(&user_id),
+        None,
+        Some("127.0.0.1"),
+        Some("Mozilla/5.0"),
+        Some(r#"{"status":"ok"}"#),
+    )
+    .await
+    .expect("log audit event");
+
+    let entries = db.get_audit_log(None, 10, 0).await.expect("get audit log");
+
+    assert_eq!(entries.len(), 1);
+    let entry = &entries[0];
+    assert_eq!(entry.event_type, AuditEvent::Login);
+    assert_eq!(entry.user_id, Some(user_id));
+    assert_eq!(entry.ip_address.as_deref(), Some("127.0.0.1"));
+    assert_eq!(entry.user_agent.as_deref(), Some("Mozilla/5.0"));
+    assert_eq!(entry.detail.as_deref(), Some(r#"{"status":"ok"}"#));
+}
+
+#[tokio::test]
+async fn test_audit_log_filter_by_user() {
+    let db = test_db().await;
+    let user_a = UserId::new();
+    let user_b = UserId::new();
+
+    db.log_audit(AuditEvent::Login, Some(&user_a), None, None, None, None)
+        .await
+        .expect("log user_a login");
+    db.log_audit(AuditEvent::Logout, Some(&user_b), None, None, None, None)
+        .await
+        .expect("log user_b logout");
+    db.log_audit(
+        AuditEvent::PasswordChange,
+        Some(&user_a),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("log user_a password change");
+
+    let entries_a = db
+        .get_audit_log(Some(&user_a), 10, 0)
+        .await
+        .expect("get user_a audit log");
+    assert_eq!(entries_a.len(), 2);
+    for entry in &entries_a {
+        assert_eq!(entry.user_id, Some(user_a));
+    }
+
+    let entries_b = db
+        .get_audit_log(Some(&user_b), 10, 0)
+        .await
+        .expect("get user_b audit log");
+    assert_eq!(entries_b.len(), 1);
+    assert_eq!(entries_b[0].event_type, AuditEvent::Logout);
+}
+
+#[tokio::test]
+async fn test_audit_log_filter_by_event_type() {
+    let db = test_db().await;
+    let user_id = UserId::new();
+
+    db.log_audit(AuditEvent::Login, Some(&user_id), None, None, None, None)
+        .await
+        .expect("log login");
+    db.log_audit(AuditEvent::Login, Some(&user_id), None, None, None, None)
+        .await
+        .expect("log login again");
+    db.log_audit(AuditEvent::Logout, Some(&user_id), None, None, None, None)
+        .await
+        .expect("log logout");
+    db.log_audit(AuditEvent::Register, Some(&user_id), None, None, None, None)
+        .await
+        .expect("log register");
+
+    let logins = db
+        .get_audit_log_by_event(AuditEvent::Login, 10, 0)
+        .await
+        .expect("get logins");
+    assert_eq!(logins.len(), 2);
+    for entry in &logins {
+        assert_eq!(entry.event_type, AuditEvent::Login);
+    }
+
+    let logouts = db
+        .get_audit_log_by_event(AuditEvent::Logout, 10, 0)
+        .await
+        .expect("get logouts");
+    assert_eq!(logouts.len(), 1);
+}
+
+#[tokio::test]
+async fn test_audit_log_pagination() {
+    let db = test_db().await;
+    let user_id = UserId::new();
+
+    for _ in 0..5 {
+        db.log_audit(AuditEvent::Login, Some(&user_id), None, None, None, None)
+            .await
+            .expect("log login");
+    }
+
+    let page1 = db.get_audit_log(None, 2, 0).await.expect("get page 1");
+    assert_eq!(page1.len(), 2);
+
+    let page2 = db.get_audit_log(None, 2, 2).await.expect("get page 2");
+    assert_eq!(page2.len(), 2);
+
+    let page3 = db.get_audit_log(None, 2, 4).await.expect("get page 3");
+    assert_eq!(page3.len(), 1);
+
+    // Pages must not overlap
+    assert_ne!(page1[0].id, page2[0].id);
+    assert_ne!(page2[0].id, page3[0].id);
+}
+
+#[tokio::test]
+async fn test_audit_log_null_user_id() {
+    let db = test_db().await;
+
+    // A failed login attempt — no valid user associated
+    db.log_audit(
+        AuditEvent::LoginFailed,
+        None,
+        None,
+        Some("10.0.0.1"),
+        None,
+        Some(r#"{"email":"unknown@example.com"}"#),
+    )
+    .await
+    .expect("log failed login with no user_id");
+
+    let entries = db.get_audit_log(None, 10, 0).await.expect("get audit log");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].event_type, AuditEvent::LoginFailed);
+    assert!(entries[0].user_id.is_none());
+    assert_eq!(entries[0].ip_address.as_deref(), Some("10.0.0.1"));
 }

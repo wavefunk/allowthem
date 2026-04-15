@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod auth_client;
 pub mod db;
 pub mod email;
@@ -11,6 +12,7 @@ pub mod sessions;
 pub mod types;
 pub mod users;
 
+pub use audit::{AuditEntry, AuditEvent};
 pub use auth_client::{AuthClient, AuthFuture, EmbeddedAuthClient};
 pub use db::Db;
 pub use email::{EmailMessage, EmailSender, LogEmailSender};

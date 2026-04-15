@@ -41,6 +41,7 @@ id_newtype!(SessionId);
 id_newtype!(RoleId);
 id_newtype!(PermissionId);
 id_newtype!(ResetTokenId);
+id_newtype!(AuditEntryId);
 
 /// Email address. Validated at construction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
