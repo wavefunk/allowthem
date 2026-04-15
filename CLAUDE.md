@@ -1,24 +1,29 @@
 # Project Overview : allowthem
-An embeddable authentication system. Can be used as a library (where the integrator controls tables, data, and configuration) or as a standalone service with its own frontend and auth endpoints.
+An embeddable authentication system for all wavefunk projects (speakwith, immersiq, substrukt, is-still-online, transfer-these-files, sendword). Can be used as a library (where the integrator controls tables, data, and configuration) or as a standalone service with its own frontend and auth endpoints. Consuming projects code against an `AuthClient` trait so they can flip between embedded and external mode without code changes.
 
 ## Tech Stack
 Web framework = Axum
 Database = SQLite via SQLx
 Async runtime = Tokio
+Rust toolchain = nightly-2026-01-05 (pinned in rust-toolchain.toml)
 
 ## Local development
 
 Nix, direnv and flake to manage local dev environment
 just to run often used commands
+Migrations live in `crates/core/migrations/`. Run `just sqlx-prepare` after changing queries to update the .sqlx/ offline cache.
+
+## Commits
+Do not add Co-Authored-By or any Claude/AI attribution to commit messages.
 
 ## Work Structure
-Always create a plan,
-then review the plan,
-then apply the reviews to the plan,
-then create an implementation plan,
-review the implementation plan
-then apply the implentation reviews
-AND then actually start writing code.
+1. Create a plan
+2. Review the plan
+3. Apply review feedback
+4. Create an implementation plan
+5. Review the implementation plan
+6. Apply implementation review feedback
+7. Write code
 
 Always create a git branch for the work.
 Create atomic commits for coherent work done.
@@ -27,11 +32,13 @@ Integration tests (if required, not mandatory) should be in rust as well.
 
 ## Planning Style
 - Small milestones - never more than 5-10 tasks per milestone.
-- use `bd` for task tracking
+- Use `bd` for task tracking. Run `bd ready` to find available work.
+- Plan and implement each task separately — don't batch planning across milestones.
+- Design spec: `docs/superpowers/specs/2026-03-19-allowthem-design.md`
 
 ## Code Style
 
-- Idiotmatic rust code
+- Idiomatic rust code
 - Workspace isolation of responsibilities.
 - Optimized for readability first
 - Avoid long format!() chains and other allocations. Be memory efficient.
@@ -55,5 +62,24 @@ allowthem/
 ├── sqlx.toml              # sqlx configuration
 └── CLAUDE.md
 
-## Available commands
-The just file has available commands. Be mindful of commands that you run often, add it to the justfile. Adjust the justfile to match commands that you use often.
+## Key Architecture Decisions
+- **AuthClient trait**: Consuming projects use this trait, not AllowThem handle directly. Enables embedded-to-external mode switch via config flag.
+- **Login is mode-aware**: Embedded mode renders own login form + direct call. External mode redirects to OIDC. Login is NOT part of the AuthClient trait (security: external mode never handles passwords).
+- **JWT validation for external mode**: RS256 tokens validated locally via JWKS. No round-trip per request.
+- **Table prefix**: `allowthem_` prefix in embedded mode (configurable). No prefix in standalone mode.
+
+## Commands
+```
+just build        # cargo build --workspace
+just check        # cargo check --workspace
+just test         # cargo test --workspace
+just clippy       # cargo clippy --workspace -- -D warnings
+just fmt          # cargo fmt --all
+just watch        # bacon (watch mode)
+just dev          # run standalone server
+just migrate      # run SQLx migrations
+just migrate-new NAME  # create new migration
+just sqlx-prepare # regenerate .sqlx/ offline cache
+just sqlx-reset   # delete dev DB and re-migrate
+```
+Add frequently used commands to the justfile.

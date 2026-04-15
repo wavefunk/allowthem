@@ -11,3 +11,4 @@ data/
 .dolt/
 /docs/superpowers/**/*.md
 /.claude/
+/.beads/.beads-credential-key

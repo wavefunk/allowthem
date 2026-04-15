@@ -23,19 +23,32 @@
           config.allowUnfree = true;
         };
         toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-        beads-latest = (pkgs.beads.override {
-          buildGoModule = pkgs.buildGoModule.override { go = pkgs.go_1_26; };
-        }).overrideAttrs (old: rec {
-          version = "0.60.0";
-          src = pkgs.fetchFromGitHub {
-            owner = "steveyegge";
-            repo = "beads";
-            rev = "v${version}";
-            hash = "sha256-z3EDtaBHB3ltPRT7vuBFURD7UwgAJBXAPozRnkjejeU=";
-          };
-          vendorHash = "sha256-1BJsEPP5SYZFGCWHLn532IUKlzcGDg5nhrqGWylEHgY=";
-          doCheck = false;
-        });
+        playwrightDeps = with pkgs; [
+          glib
+          nss
+          nspr
+          atk
+          at-spi2-atk
+          cups.lib
+          dbus
+          libdrm
+          expat
+          libxkbcommon
+          xorg.libX11
+          xorg.libXcomposite
+          xorg.libXdamage
+          xorg.libXext
+          xorg.libXfixes
+          xorg.libXrandr
+          xorg.libxcb
+          mesa
+          pango
+          cairo
+          alsa-lib
+          gtk3
+          systemd
+          libgbm
+        ];
       in
       {
         devShells.default =
@@ -46,12 +59,11 @@
               just
               cargo-expand
               bacon
-              claude-code
-              cargo-dist
-              nodejs_22
-              dotnet-sdk_8
               dolt
-              beads-latest
+              tailwindcss
+              esbuild
+              nodejs
+              cargo-dist
             ];
 
             buildInputs = [
@@ -59,6 +71,11 @@
               pkg-config
               toolchain
             ];
+
+            shellHook = ''
+              export LD_LIBRARY_PATH="${lib.makeLibraryPath playwrightDeps}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+              export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+            '';
           };
       }
     );
