@@ -1,5 +1,6 @@
 pub mod db;
 pub mod error;
+pub mod handle;
 pub mod password;
 pub mod permissions;
 pub mod roles;
@@ -9,6 +10,7 @@ pub mod users;
 
 pub use db::Db;
 pub use error::AuthError;
+pub use handle::{AllowThem, AllowThemBuilder, BuildError};
 pub use sessions::{
     SessionConfig, generate_token, hash_token, parse_session_cookie, session_cookie,
 };
