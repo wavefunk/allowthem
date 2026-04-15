@@ -3,7 +3,9 @@ use sqlx::sqlite::SqliteConnectOptions;
 use std::str::FromStr;
 
 use crate::db::Db;
-use crate::sessions::{generate_token, hash_token};
+use crate::sessions::{
+    SessionConfig, generate_token, hash_token, parse_session_cookie, session_cookie,
+};
 use crate::types::{
     Email, PasswordHash, Permission, PermissionId, PermissionName, Role, RoleId, RoleName,
     RolePermission, Session, SessionId, TokenHash, User, UserId, UserPermission, UserRole,
@@ -876,4 +878,266 @@ async fn test_expired_session_not_returned() {
     let result = db.lookup_session(&token).await.expect("lookup_session");
 
     assert!(result.is_none(), "expired session must not be returned");
+}
+
+// --- M6: Session lifecycle tests ---
+
+async fn insert_test_user(db: &Db, email: &str) -> UserId {
+    let user_id = UserId::new();
+    sqlx::query(
+        "INSERT INTO allowthem_users (id, email, username, password_hash, email_verified, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(Email::new_unchecked(email.to_string()))
+    .bind(None::<Username>)
+    .bind(None::<PasswordHash>)
+    .bind(false)
+    .bind(true)
+    .bind(now_str())
+    .bind(now_str())
+    .execute(db.pool())
+    .await
+    .expect("insert test user");
+    user_id
+}
+
+#[tokio::test]
+async fn test_validate_session_non_expired_returns_session() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "validate1@example.com").await;
+
+    let token = generate_token();
+    let token_hash = hash_token(&token);
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(24);
+
+    db.create_session(user_id, token_hash, None, None, expires_at)
+        .await
+        .expect("create_session");
+
+    let ttl = chrono::Duration::hours(24);
+    let session = db
+        .validate_session(&token, ttl)
+        .await
+        .expect("validate_session")
+        .expect("session must exist");
+
+    assert_eq!(session.user_id, user_id);
+}
+
+#[tokio::test]
+async fn test_validate_session_expired_returns_none() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "validate2@example.com").await;
+
+    let token = generate_token();
+    let token_hash = hash_token(&token);
+    let expires_at = chrono::Utc::now() - chrono::Duration::hours(1);
+
+    db.create_session(user_id, token_hash, None, None, expires_at)
+        .await
+        .expect("create_session");
+
+    let ttl = chrono::Duration::hours(24);
+    let result = db
+        .validate_session(&token, ttl)
+        .await
+        .expect("validate_session");
+
+    assert!(result.is_none(), "expired session must not be returned");
+}
+
+#[tokio::test]
+async fn test_validate_session_past_halfway_extends() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "validate3@example.com").await;
+
+    let token = generate_token();
+    let token_hash = hash_token(&token);
+    let ttl = chrono::Duration::hours(24);
+    // Place expiry just 30 minutes from now — well past the halfway point (12 hours from now)
+    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(30);
+
+    db.create_session(user_id, token_hash, None, None, expires_at)
+        .await
+        .expect("create_session");
+
+    let session = db
+        .validate_session(&token, ttl)
+        .await
+        .expect("validate_session")
+        .expect("session must exist");
+
+    // After renewal the session should expire roughly ttl from now, not in 30 min
+    let remaining = session.expires_at - chrono::Utc::now();
+    assert!(
+        remaining > chrono::Duration::hours(20),
+        "session must have been extended; remaining: {remaining}"
+    );
+}
+
+#[tokio::test]
+async fn test_validate_session_before_halfway_does_not_extend() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "validate4@example.com").await;
+
+    let token = generate_token();
+    let token_hash = hash_token(&token);
+    let ttl = chrono::Duration::hours(24);
+    // Place expiry 23 hours from now — before halfway point (12 hours = ttl/2 from now)
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(23);
+
+    db.create_session(user_id, token_hash, None, None, expires_at)
+        .await
+        .expect("create_session");
+
+    let session = db
+        .validate_session(&token, ttl)
+        .await
+        .expect("validate_session")
+        .expect("session must exist");
+
+    // Expiry should not have been pushed further than what was set
+    let remaining = session.expires_at - chrono::Utc::now();
+    assert!(
+        remaining < chrono::Duration::hours(24),
+        "session must NOT have been extended beyond original; remaining: {remaining}"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_session() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "delete1@example.com").await;
+
+    let token = generate_token();
+    let token_hash = hash_token(&token);
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+
+    db.create_session(user_id, token_hash, None, None, expires_at)
+        .await
+        .expect("create_session");
+
+    let deleted = db.delete_session(&token).await.expect("delete_session");
+    assert!(
+        deleted,
+        "delete_session must return true when session existed"
+    );
+
+    // A second delete on the same token must return false
+    let deleted_again = db
+        .delete_session(&token)
+        .await
+        .expect("delete_session again");
+    assert!(
+        !deleted_again,
+        "delete_session must return false when session already gone"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_user_sessions() {
+    let db = test_db().await;
+    let user_id = insert_test_user(&db, "delete_all@example.com").await;
+
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+
+    // Create three sessions for the same user
+    for _ in 0..3 {
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        db.create_session(user_id, token_hash, None, None, expires_at)
+            .await
+            .expect("create_session");
+    }
+
+    let count = db
+        .delete_user_sessions(&user_id)
+        .await
+        .expect("delete_user_sessions");
+    assert_eq!(count, 3, "must delete exactly 3 sessions");
+
+    // Confirm none remain
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_sessions WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("count remaining");
+    assert_eq!(
+        remaining, 0,
+        "no sessions must remain after delete_user_sessions"
+    );
+}
+
+// --- M6: Cookie helper tests ---
+
+#[test]
+fn test_session_cookie_format() {
+    let config = SessionConfig {
+        ttl: chrono::Duration::hours(24),
+        cookie_name: "allowthem_session",
+        secure: true,
+    };
+    let token = generate_token();
+    let cookie = session_cookie(&token, &config, "example.com");
+
+    assert!(
+        cookie.starts_with("allowthem_session="),
+        "must start with cookie name"
+    );
+    assert!(cookie.contains("HttpOnly"), "must have HttpOnly");
+    assert!(cookie.contains("SameSite=Lax"), "must have SameSite=Lax");
+    assert!(cookie.contains("Path=/"), "must have Path=/");
+    assert!(
+        cookie.contains("Max-Age=86400"),
+        "must have Max-Age=86400 (24h in seconds)"
+    );
+    assert!(
+        cookie.contains("Secure"),
+        "must have Secure when config.secure=true"
+    );
+    assert!(cookie.contains("Domain=example.com"), "must include domain");
+}
+
+#[test]
+fn test_session_cookie_no_secure_in_dev() {
+    let config = SessionConfig {
+        ttl: chrono::Duration::hours(1),
+        cookie_name: "allowthem_session",
+        secure: false,
+    };
+    let token = generate_token();
+    let cookie = session_cookie(&token, &config, "");
+
+    assert!(
+        !cookie.contains("Secure"),
+        "must NOT have Secure when config.secure=false"
+    );
+    assert!(
+        !cookie.contains("Domain="),
+        "must NOT have Domain when domain is empty"
+    );
+}
+
+#[test]
+fn test_parse_session_cookie_present() {
+    let token = generate_token();
+    let header = format!(
+        "other_cookie=abc123; allowthem_session={}; another=xyz",
+        token.as_str()
+    );
+    let parsed = parse_session_cookie(&header, "allowthem_session").expect("cookie must be found");
+    assert_eq!(
+        parsed.as_str(),
+        token.as_str(),
+        "parsed token must match original"
+    );
+}
+
+#[test]
+fn test_parse_session_cookie_missing() {
+    let header = "other_cookie=abc123; yet_another=xyz";
+    let result = parse_session_cookie(header, "allowthem_session");
+    assert!(result.is_none(), "must return None when cookie is absent");
 }
