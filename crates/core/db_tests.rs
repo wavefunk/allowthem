@@ -3,6 +3,8 @@ use sqlx::sqlite::SqliteConnectOptions;
 use std::str::FromStr;
 
 use crate::db::Db;
+use crate::error::AuthError;
+use crate::password::verify_password;
 use crate::sessions::{
     SessionConfig, generate_token, hash_token, parse_session_cookie, session_cookie,
 };
@@ -1140,4 +1142,370 @@ fn test_parse_session_cookie_missing() {
     let header = "other_cookie=abc123; yet_another=xyz";
     let result = parse_session_cookie(header, "allowthem_session");
     assert!(result.is_none(), "must return None when cookie is absent");
+}
+
+// --- M4: User CRUD tests ---
+
+#[tokio::test]
+async fn test_create_user() {
+    let db = test_db().await;
+    let email = Email::new("alice@example.com".into()).expect("valid email");
+    let username = Username::new_unchecked("alice".into());
+
+    let user = db
+        .create_user(email.clone(), "strong-password-123", Some(username.clone()))
+        .await
+        .expect("create_user");
+
+    assert_eq!(user.email, email);
+    assert_eq!(user.username, Some(username));
+    assert!(user.is_active);
+    assert!(!user.email_verified);
+    assert!(
+        user.password_hash.is_none(),
+        "create_user must not return password_hash"
+    );
+}
+
+#[tokio::test]
+async fn test_create_user_without_username() {
+    let db = test_db().await;
+    let email = Email::new("noname@example.com".into()).expect("valid email");
+
+    let user = db
+        .create_user(email, "password", None)
+        .await
+        .expect("create_user");
+
+    assert!(user.username.is_none());
+}
+
+#[tokio::test]
+async fn test_get_user() {
+    let db = test_db().await;
+    let email = Email::new("getme@example.com".into()).expect("valid email");
+
+    let created = db
+        .create_user(email.clone(), "password", None)
+        .await
+        .expect("create_user");
+
+    let fetched = db.get_user(created.id).await.expect("get_user");
+
+    assert_eq!(fetched.id, created.id);
+    assert_eq!(fetched.email, email);
+    assert!(
+        fetched.password_hash.is_none(),
+        "get_user must not return password_hash"
+    );
+}
+
+#[tokio::test]
+async fn test_get_user_by_email() {
+    let db = test_db().await;
+    let email = Email::new("byemail@example.com".into()).expect("valid email");
+
+    let created = db
+        .create_user(email.clone(), "password", None)
+        .await
+        .expect("create_user");
+
+    let fetched = db.get_user_by_email(&email).await.expect("get_user_by_email");
+
+    assert_eq!(fetched.id, created.id);
+}
+
+#[tokio::test]
+async fn test_get_user_by_username() {
+    let db = test_db().await;
+    let email = Email::new("byusername@example.com".into()).expect("valid email");
+    let username = Username::new_unchecked("lookmeup".into());
+
+    let created = db
+        .create_user(email, "password", Some(username.clone()))
+        .await
+        .expect("create_user");
+
+    let fetched = db
+        .get_user_by_username(&username)
+        .await
+        .expect("get_user_by_username");
+
+    assert_eq!(fetched.id, created.id);
+}
+
+#[tokio::test]
+async fn test_get_user_not_found() {
+    let db = test_db().await;
+    let result = db.get_user(UserId::new()).await;
+    assert!(
+        matches!(result, Err(AuthError::NotFound)),
+        "get_user for non-existent ID must return NotFound"
+    );
+}
+
+#[tokio::test]
+async fn test_find_for_login_by_email() {
+    let db = test_db().await;
+    let email = Email::new("login_email@example.com".into()).expect("valid email");
+
+    db.create_user(email, "mypassword", None)
+        .await
+        .expect("create_user");
+
+    let user = db
+        .find_for_login("login_email@example.com")
+        .await
+        .expect("find_for_login");
+
+    assert!(
+        user.password_hash.is_some(),
+        "find_for_login must return password_hash"
+    );
+}
+
+#[tokio::test]
+async fn test_find_for_login_by_username() {
+    let db = test_db().await;
+    let email = Email::new("login_uname@example.com".into()).expect("valid email");
+    let username = Username::new_unchecked("loginuser".into());
+
+    db.create_user(email, "mypassword", Some(username))
+        .await
+        .expect("create_user");
+
+    let user = db
+        .find_for_login("loginuser")
+        .await
+        .expect("find_for_login");
+
+    assert!(
+        user.password_hash.is_some(),
+        "find_for_login by username must return password_hash"
+    );
+}
+
+#[tokio::test]
+async fn test_find_for_login_verify_password() {
+    let db = test_db().await;
+    let email = Email::new("verify@example.com".into()).expect("valid email");
+
+    db.create_user(email, "correct-horse", None)
+        .await
+        .expect("create_user");
+
+    let user = db
+        .find_for_login("verify@example.com")
+        .await
+        .expect("find_for_login");
+
+    let hash = user.password_hash.as_ref().expect("password_hash present");
+    assert!(
+        verify_password("correct-horse", hash).expect("verify_password"),
+        "correct password must verify"
+    );
+    assert!(
+        !verify_password("wrong-password", hash).expect("verify_password"),
+        "wrong password must not verify"
+    );
+}
+
+#[tokio::test]
+async fn test_find_for_login_not_found() {
+    let db = test_db().await;
+    let result = db.find_for_login("nonexistent").await;
+    assert!(
+        matches!(result, Err(AuthError::NotFound)),
+        "find_for_login for non-existent identifier must return NotFound"
+    );
+}
+
+#[tokio::test]
+async fn test_duplicate_email_returns_conflict() {
+    let db = test_db().await;
+    let email = Email::new("dupe@example.com".into()).expect("valid email");
+
+    db.create_user(email.clone(), "pass1", None)
+        .await
+        .expect("first create_user");
+
+    let result = db.create_user(email, "pass2", None).await;
+
+    assert!(
+        matches!(result, Err(AuthError::Conflict(ref msg)) if msg.contains("email")),
+        "duplicate email must return Conflict with 'email' in message, got: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_duplicate_username_returns_conflict() {
+    let db = test_db().await;
+    let username = Username::new_unchecked("samename".into());
+
+    db.create_user(
+        Email::new("user1@example.com".into()).expect("valid"),
+        "pass1",
+        Some(username.clone()),
+    )
+    .await
+    .expect("first create_user");
+
+    let result = db
+        .create_user(
+            Email::new("user2@example.com".into()).expect("valid"),
+            "pass2",
+            Some(username),
+        )
+        .await;
+
+    assert!(
+        matches!(result, Err(AuthError::Conflict(ref msg)) if msg.contains("username")),
+        "duplicate username must return Conflict with 'username' in message, got: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_update_user_email() {
+    let db = test_db().await;
+    let old_email = Email::new("old@example.com".into()).expect("valid email");
+    let new_email = Email::new("new@example.com".into()).expect("valid email");
+
+    let user = db
+        .create_user(old_email.clone(), "password", None)
+        .await
+        .expect("create_user");
+
+    db.update_user_email(user.id, new_email.clone())
+        .await
+        .expect("update_user_email");
+
+    let fetched = db
+        .get_user_by_email(&new_email)
+        .await
+        .expect("get by new email");
+    assert_eq!(fetched.id, user.id);
+
+    let old_result = db.get_user_by_email(&old_email).await;
+    assert!(
+        matches!(old_result, Err(AuthError::NotFound)),
+        "old email must no longer resolve"
+    );
+}
+
+#[tokio::test]
+async fn test_update_user_username() {
+    let db = test_db().await;
+    let email = Email::new("update_uname@example.com".into()).expect("valid email");
+    let username = Username::new_unchecked("original".into());
+    let new_username = Username::new_unchecked("updated".into());
+
+    let user = db
+        .create_user(email, "password", Some(username))
+        .await
+        .expect("create_user");
+
+    // Update to new username
+    db.update_user_username(user.id, Some(new_username.clone()))
+        .await
+        .expect("update_user_username");
+
+    let fetched = db
+        .get_user_by_username(&new_username)
+        .await
+        .expect("get by new username");
+    assert_eq!(fetched.id, user.id);
+
+    // Clear username
+    db.update_user_username(user.id, None)
+        .await
+        .expect("update_user_username to None");
+
+    let fetched2 = db.get_user(user.id).await.expect("get_user");
+    assert!(fetched2.username.is_none(), "username must be cleared");
+}
+
+#[tokio::test]
+async fn test_update_user_active() {
+    let db = test_db().await;
+    let email = Email::new("active@example.com".into()).expect("valid email");
+
+    let user = db
+        .create_user(email, "password", None)
+        .await
+        .expect("create_user");
+
+    assert!(user.is_active, "new user must be active");
+
+    db.update_user_active(user.id, false)
+        .await
+        .expect("update_user_active");
+
+    let fetched = db.get_user(user.id).await.expect("get_user");
+    assert!(!fetched.is_active, "user must be deactivated");
+}
+
+#[tokio::test]
+async fn test_update_nonexistent_user() {
+    let db = test_db().await;
+    let email = Email::new("phantom@example.com".into()).expect("valid email");
+    let result = db.update_user_email(UserId::new(), email).await;
+    assert!(
+        matches!(result, Err(AuthError::NotFound)),
+        "updating non-existent user must return NotFound"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_user_crud() {
+    let db = test_db().await;
+    let email = Email::new("deleteme@example.com".into()).expect("valid email");
+
+    let user = db
+        .create_user(email, "password", None)
+        .await
+        .expect("create_user");
+
+    db.delete_user(user.id).await.expect("delete_user");
+
+    let result = db.get_user(user.id).await;
+    assert!(
+        matches!(result, Err(AuthError::NotFound)),
+        "deleted user must return NotFound"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_nonexistent_user() {
+    let db = test_db().await;
+    let result = db.delete_user(UserId::new()).await;
+    assert!(
+        matches!(result, Err(AuthError::NotFound)),
+        "deleting non-existent user must return NotFound"
+    );
+}
+
+#[test]
+fn test_email_validation() {
+    assert!(Email::new("valid@example.com".into()).is_ok());
+    assert!(Email::new(" spaced@example.com ".into()).is_ok(), "whitespace should be trimmed");
+    assert!(
+        matches!(Email::new("nope".into()), Err(AuthError::InvalidEmail)),
+        "no @ must fail"
+    );
+    assert!(
+        matches!(Email::new("".into()), Err(AuthError::InvalidEmail)),
+        "empty must fail"
+    );
+    assert!(
+        matches!(Email::new("@domain.com".into()), Err(AuthError::InvalidEmail)),
+        "empty local part must fail"
+    );
+    assert!(
+        matches!(Email::new("user@".into()), Err(AuthError::InvalidEmail)),
+        "empty domain must fail"
+    );
+    assert!(
+        matches!(Email::new("user@nodot".into()), Err(AuthError::InvalidEmail)),
+        "domain without dot must fail"
+    );
 }
