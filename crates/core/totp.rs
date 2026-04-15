@@ -46,6 +46,11 @@ fn generate_recovery_code() -> String {
         .collect()
 }
 
+fn hash_mfa_challenge(raw: &str) -> String {
+    let digest = Sha256::digest(raw.as_bytes());
+    format!("{digest:x}")
+}
+
 fn hash_recovery_code(code: &str) -> String {
     let normalized = code.to_ascii_uppercase();
     let digest = Sha256::digest(normalized.as_bytes());
@@ -296,6 +301,74 @@ impl Db {
         .await?;
 
         Ok(count.0)
+    }
+
+    /// Create a short-lived MFA challenge token after password verification.
+    ///
+    /// The integrator calls this when a user with MFA enabled passes password
+    /// verification. Returns the raw token string to send to the client. The
+    /// client presents this token along with a TOTP code to complete login.
+    /// Challenge tokens expire after 5 minutes.
+    pub async fn create_mfa_challenge(&self, user_id: UserId) -> Result<String, AuthError> {
+        use crate::sessions::generate_token;
+        use crate::types::MfaChallengeId;
+
+        let token = generate_token();
+        let token_hash = hash_mfa_challenge(token.as_str());
+        let id = MfaChallengeId::new();
+        let expires_at = Utc::now() + chrono::Duration::minutes(5);
+        let expires_at_str = expires_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        sqlx::query(
+            "INSERT INTO allowthem_mfa_challenges (id, token_hash, user_id, expires_at) \
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(&token_hash)
+        .bind(user_id)
+        .bind(&expires_at_str)
+        .execute(self.pool())
+        .await?;
+
+        Ok(token.as_str().to_string())
+    }
+
+    /// Validate an MFA challenge token without consuming it.
+    ///
+    /// Returns `Some(user_id)` if the token is valid and not expired,
+    /// `None` otherwise. Does not consume the token so the user can retry
+    /// if they mistype the TOTP code.
+    pub async fn validate_mfa_challenge(
+        &self,
+        raw_token: &str,
+    ) -> Result<Option<UserId>, AuthError> {
+        let token_hash = hash_mfa_challenge(raw_token);
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        let row: Option<(UserId,)> = sqlx::query_as(
+            "SELECT user_id FROM allowthem_mfa_challenges \
+             WHERE token_hash = ? AND expires_at > ?",
+        )
+        .bind(&token_hash)
+        .bind(&now)
+        .fetch_optional(self.pool())
+        .await?;
+
+        Ok(row.map(|(uid,)| uid))
+    }
+
+    /// Consume an MFA challenge token after successful TOTP verification.
+    ///
+    /// Uses `DELETE ... RETURNING` for atomicity.
+    pub async fn consume_mfa_challenge(&self, raw_token: &str) -> Result<(), AuthError> {
+        let token_hash = hash_mfa_challenge(raw_token);
+
+        sqlx::query("DELETE FROM allowthem_mfa_challenges WHERE token_hash = ?")
+            .bind(&token_hash)
+            .execute(self.pool())
+            .await?;
+
+        Ok(())
     }
 }
 

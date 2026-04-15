@@ -64,7 +64,7 @@ async fn authorize(
 
     let raw_state = match ath
         .db()
-        .create_oauth_state(&provider_name, &redirect_uri, &verifier, post_login_ref)
+        .create_oauth_state(&provider_name, &redirect_uri, &verifier, post_login_ref, None)
         .await
     {
         Ok(s) => s,
