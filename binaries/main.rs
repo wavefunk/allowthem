@@ -16,7 +16,7 @@ use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
 use allowthem_core::{AllowThemBuilder, AuthClient, EmbeddedAuthClient};
-use allowthem_server::csrf_middleware;
+use allowthem_server::{csrf_middleware, well_known_routes};
 
 use crate::state::AppState;
 
@@ -59,10 +59,13 @@ async fn main() -> Result<()> {
     }
     let ath = builder.build().await?;
 
-    // 5. Templates
+    // 5. Well-known router (resolved before ath is moved into AppState)
+    let wk_router = well_known_routes(config.base_url.clone()).with_state(ath.clone());
+
+    // 6. Templates
     let templates = templates::build_template_env()?;
 
-    // 6. App state
+    // 7. App state
     let auth_client: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
     let state = AppState {
         ath,
@@ -73,7 +76,7 @@ async fn main() -> Result<()> {
         login_attempts: Arc::new(dashmap::DashMap::new()),
     };
 
-    // 7. Router
+    // 8. Router
     let app = Router::new()
         .route("/health", get(health))
         .route(
@@ -90,6 +93,7 @@ async fn main() -> Result<()> {
             "/settings/password",
             axum::routing::post(settings::post_change_password),
         )
+        .merge(wk_router)
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
         .with_state(state);

@@ -8,6 +8,7 @@ pub mod mfa_routes;
 pub mod middleware;
 pub mod oauth_routes;
 pub mod password_reset_routes;
+pub mod well_known_routes;
 
 pub use bearer::BearerAuthUser;
 pub use csrf::{CsrfToken, csrf_middleware};
@@ -17,3 +18,4 @@ pub use mfa_routes::mfa_routes;
 pub use middleware::{require_auth, require_permission, require_role};
 pub use oauth_routes::oauth_routes;
 pub use password_reset_routes::password_reset_routes;
+pub use well_known_routes::well_known_routes;
