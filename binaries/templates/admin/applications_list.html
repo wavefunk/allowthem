@@ -1,4 +1,4 @@
-{% extends "../base.html" %}
+{% extends "base.html" %}
 
 {% block title %}Applications — allowthem{% endblock %}
 
@@ -36,8 +36,9 @@
                         </a>
                     </td>
                     <td class="py-3 pr-4">
-                        <code class="text-xs text-gray-600" title="{{ app.client_id }}">
-                            {{ app.client_id[:20] }}...
+                        <code class="text-xs text-gray-600 truncate max-w-[12rem] inline-block align-bottom"
+                              title="{{ app.client_id }}">
+                            {{ app.client_id }}
                         </code>
                     </td>
                     <td class="py-3 pr-4">
