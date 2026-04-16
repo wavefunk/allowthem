@@ -12,3 +12,6 @@ data/
 /docs/superpowers/**/*.md
 /.claude/
 /.beads/.beads-credential-key
+
+# Build artifacts
+binaries/static/css/style.css
