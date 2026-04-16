@@ -165,8 +165,6 @@ struct Inner {
     session_config: SessionConfig,
     cookie_domain: String,
     mfa_key: Option<[u8; 32]>,
-    // Used by signing key operations (M39+). Suppressed until first use.
-    #[allow(dead_code)]
     signing_key: Option<[u8; 32]>,
     base_url: Option<String>,
 }
@@ -212,8 +210,6 @@ impl AllowThem {
     }
 
     /// Returns the signing key encryption key, or `Err(SigningKeyNotConfigured)` if not set.
-    // Used by signing key operations (M39+). Suppressed until first use.
-    #[allow(dead_code)]
     pub(crate) fn signing_key(&self) -> Result<&[u8; 32], AuthError> {
         self.inner
             .signing_key
@@ -227,6 +223,19 @@ impl AllowThem {
             .base_url
             .as_deref()
             .ok_or(AuthError::BaseUrlNotConfigured)
+    }
+
+    /// Fetch the active signing key and decrypt its private key PEM.
+    ///
+    /// Combines the encryption key, active key lookup, and decryption into
+    /// a single call. Keeps the raw encryption key private to the core crate.
+    pub async fn get_decrypted_signing_key(
+        &self,
+    ) -> Result<(crate::signing_keys::SigningKey, String), AuthError> {
+        let enc_key = self.signing_key()?;
+        let key = self.db().get_active_signing_key().await?;
+        let pem = crate::signing_keys::decrypt_private_key(&key, enc_key)?;
+        Ok((key, pem))
     }
 
     /// Extract the session token from a `Cookie` header value.
