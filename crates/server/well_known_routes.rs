@@ -71,7 +71,10 @@ async fn jwks(State(ath): State<AllowThem>) -> Response {
 pub fn well_known_routes(base_url: String) -> Router<AllowThem> {
     let config = WellKnownConfig { base_url };
     Router::new()
-        .route("/.well-known/openid-configuration", get(openid_configuration))
+        .route(
+            "/.well-known/openid-configuration",
+            get(openid_configuration),
+        )
         .route("/.well-known/jwks.json", get(jwks))
         .layer(Extension(config))
 }

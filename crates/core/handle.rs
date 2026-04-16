@@ -151,6 +151,8 @@ struct Inner {
     session_config: SessionConfig,
     cookie_domain: String,
     mfa_key: Option<[u8; 32]>,
+    // Used by signing key operations (M39+). Suppressed until first use.
+    #[allow(dead_code)]
     signing_key: Option<[u8; 32]>,
 }
 
@@ -195,6 +197,8 @@ impl AllowThem {
     }
 
     /// Returns the signing key encryption key, or `Err(SigningKeyNotConfigured)` if not set.
+    // Used by signing key operations (M39+). Suppressed until first use.
+    #[allow(dead_code)]
     pub(crate) fn signing_key(&self) -> Result<&[u8; 32], AuthError> {
         self.inner
             .signing_key
@@ -335,6 +339,9 @@ mod tests {
             .await
             .unwrap();
         let result = ath.signing_key();
-        assert!(matches!(result, Err(crate::error::AuthError::SigningKeyNotConfigured)));
+        assert!(matches!(
+            result,
+            Err(crate::error::AuthError::SigningKeyNotConfigured)
+        ));
     }
 }

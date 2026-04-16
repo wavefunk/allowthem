@@ -99,8 +99,8 @@ where
             .ok_or(redirect)?;
 
         let redirect = BrowserAuthRedirect::new(parts.uri.path());
-        let token = parse_session_cookie(cookie_header, client.session_cookie_name())
-            .ok_or(redirect)?;
+        let token =
+            parse_session_cookie(cookie_header, client.session_cookie_name()).ok_or(redirect)?;
 
         let redirect = BrowserAuthRedirect::new(parts.uri.path());
         let user = client

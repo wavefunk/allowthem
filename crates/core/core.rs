@@ -37,8 +37,7 @@ pub use sessions::{
     SessionConfig, generate_token, hash_token, parse_session_cookie, session_cookie,
 };
 pub use signing_keys::{
-    JwkEntry, JwkSet, OidcDiscovery, SigningKey,
-    build_discovery, build_jwks, decrypt_private_key,
+    JwkEntry, JwkSet, OidcDiscovery, SigningKey, build_discovery, build_jwks, decrypt_private_key,
 };
 pub use types::*;
 

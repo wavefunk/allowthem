@@ -11,10 +11,7 @@ use allowthem_core::{AllowThem, AuditEvent};
 /// logs an audit event, and redirects to /login. If the user is already
 /// unauthenticated (no cookie or unknown token), the handler still redirects
 /// gracefully.
-pub async fn handler(
-    State(ath): State<AllowThem>,
-    headers: HeaderMap,
-) -> Response {
+pub async fn handler(State(ath): State<AllowThem>, headers: HeaderMap) -> Response {
     let cookie_name = ath.session_config().cookie_name;
     let secure = ath.session_config().secure;
 
@@ -25,9 +22,7 @@ pub async fn handler(
 
     if let Some(ref token) = token {
         let ip = extract_ip(&headers);
-        let ua = headers
-            .get(USER_AGENT)
-            .and_then(|v| v.to_str().ok());
+        let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
 
         match ath.db().lookup_session(token).await {
             Ok(Some(session)) => {
@@ -88,18 +83,20 @@ fn extract_ip(headers: &HeaderMap) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use axum::routing::get;
-    use axum::Router;
     use chrono::{Duration, Utc};
     use tower::ServiceExt;
 
-    use allowthem_core::{
-        AllowThemBuilder, AuditEvent, Email, generate_token, hash_token,
-    };
+    use allowthem_core::{AllowThemBuilder, AuditEvent, Email, generate_token, hash_token};
 
-    async fn setup() -> (allowthem_core::AllowThem, String, allowthem_core::types::SessionToken) {
+    async fn setup() -> (
+        allowthem_core::AllowThem,
+        String,
+        allowthem_core::types::SessionToken,
+    ) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .build()
@@ -107,7 +104,11 @@ mod tests {
             .unwrap();
 
         let email = Email::new("test@example.com".into()).unwrap();
-        let user = ath.db().create_user(email, "password123", None).await.unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
 
         let token = generate_token();
         let token_hash = hash_token(&token);
@@ -158,7 +159,10 @@ mod tests {
 
         let set_cookie = resp.headers().get("set-cookie").unwrap().to_str().unwrap();
         assert!(set_cookie.contains("Max-Age=0"), "cookie should be expired");
-        assert!(set_cookie.contains("allowthem_session=;"), "cookie value should be empty");
+        assert!(
+            set_cookie.contains("allowthem_session=;"),
+            "cookie value should be empty"
+        );
     }
 
     #[tokio::test]
@@ -191,7 +195,10 @@ mod tests {
 
         let entries = ath.db().get_audit_log(None, 10, 0).await.unwrap();
         let logout_entry = entries.iter().find(|e| e.event_type == AuditEvent::Logout);
-        assert!(logout_entry.is_some(), "logout audit event should be recorded");
+        assert!(
+            logout_entry.is_some(),
+            "logout audit event should be recorded"
+        );
     }
 
     #[tokio::test]

@@ -5,8 +5,8 @@ use axum::response::{Html, IntoResponse, Response};
 use minijinja::context;
 use serde::Deserialize;
 
-use allowthem_core::{AuditEvent, AuthError, Email, OAuthAccountInfo, Username};
 use allowthem_core::types::UserId;
+use allowthem_core::{AuditEvent, AuthError, Email, OAuthAccountInfo, Username};
 use allowthem_server::{BrowserAuthUser, CsrfToken};
 
 use crate::error::AppError;
@@ -294,11 +294,7 @@ pub async fn post_change_password(
     }
 
     // 3. Verify current password
-    let fetched_user = state
-        .ath
-        .db()
-        .find_for_login(user.email.as_str())
-        .await?;
+    let fetched_user = state.ath.db().find_for_login(user.email.as_str()).await?;
 
     let password_ok = match fetched_user.password_hash {
         Some(ref h) => {
@@ -380,11 +376,7 @@ pub async fn post_change_password(
     };
     let html = render_settings(&state, csrf.as_str(), &ctx)?;
 
-    Ok((
-        [(axum::http::header::SET_COOKIE, cookie)],
-        html,
-    )
-        .into_response())
+    Ok(([(axum::http::header::SET_COOKIE, cookie)], html).into_response())
 }
 
 #[cfg(test)]
@@ -445,7 +437,10 @@ mod tests {
 
     fn test_app(state: AppState) -> Router {
         Router::new()
-            .route("/settings", get(super::get_settings).post(super::post_settings))
+            .route(
+                "/settings",
+                get(super::get_settings).post(super::post_settings),
+            )
             .route("/settings/password", post(super::post_change_password))
             .layer(axum::middleware::from_fn(csrf_middleware))
             .with_state(state)
@@ -482,7 +477,12 @@ mod tests {
         String::from_utf8(bytes.to_vec()).unwrap()
     }
 
-    fn profile_request(csrf: &str, session_cookie: &str, email: &str, username: &str) -> Request<Body> {
+    fn profile_request(
+        csrf: &str,
+        session_cookie: &str,
+        email: &str,
+        username: &str,
+    ) -> Request<Body> {
         let enc = |s: &str| s.replace('@', "%40");
         let body = format!(
             "csrf_token={}&email={}&username={}",
@@ -494,7 +494,10 @@ mod tests {
             .method("POST")
             .uri("/settings")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("{session_cookie}; csrf_token={csrf}"))
+            .header(
+                header::COOKIE,
+                format!("{session_cookie}; csrf_token={csrf}"),
+            )
             .body(Body::from(body))
             .unwrap()
     }
@@ -513,7 +516,10 @@ mod tests {
             .method("POST")
             .uri("/settings/password")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("{session_cookie}; csrf_token={csrf}"))
+            .header(
+                header::COOKIE,
+                format!("{session_cookie}; csrf_token={csrf}"),
+            )
             .body(Body::from(body))
             .unwrap()
     }
@@ -711,7 +717,10 @@ mod tests {
         let updated = entries
             .iter()
             .find(|e| e.event_type == AuditEvent::UserUpdated);
-        assert!(updated.is_some(), "UserUpdated audit event should be recorded");
+        assert!(
+            updated.is_some(),
+            "UserUpdated audit event should be recorded"
+        );
     }
 
     #[tokio::test]
@@ -737,7 +746,13 @@ mod tests {
         let (ath, state, cookie) = setup().await;
         let app = test_app(state);
         let csrf = get_csrf_token(&app, &cookie).await;
-        let req = password_request(&csrf, &cookie, "password123", "newpassword456", "newpassword456");
+        let req = password_request(
+            &csrf,
+            &cookie,
+            "password123",
+            "newpassword456",
+            "newpassword456",
+        );
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let html = body_string(resp).await;
@@ -760,7 +775,13 @@ mod tests {
         let (_, state, cookie) = setup().await;
         let app = test_app(state);
         let csrf = get_csrf_token(&app, &cookie).await;
-        let req = password_request(&csrf, &cookie, "wrongpassword", "newpassword456", "newpassword456");
+        let req = password_request(
+            &csrf,
+            &cookie,
+            "wrongpassword",
+            "newpassword456",
+            "newpassword456",
+        );
         let resp = app.oneshot(req).await.unwrap();
         let html = body_string(resp).await;
         assert!(html.contains("Current password is incorrect"));
@@ -782,7 +803,13 @@ mod tests {
         let (_, state, cookie) = setup().await;
         let app = test_app(state);
         let csrf = get_csrf_token(&app, &cookie).await;
-        let req = password_request(&csrf, &cookie, "password123", "newpassword1", "newpassword2");
+        let req = password_request(
+            &csrf,
+            &cookie,
+            "password123",
+            "newpassword1",
+            "newpassword2",
+        );
         let resp = app.oneshot(req).await.unwrap();
         let html = body_string(resp).await;
         assert!(html.contains("New passwords do not match"));
@@ -805,7 +832,13 @@ mod tests {
 
         let app = test_app(state);
         let csrf = get_csrf_token(&app, &cookie).await;
-        let req = password_request(&csrf, &cookie, "password123", "newpassword456", "newpassword456");
+        let req = password_request(
+            &csrf,
+            &cookie,
+            "password123",
+            "newpassword456",
+            "newpassword456",
+        );
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
@@ -828,7 +861,13 @@ mod tests {
         let (_, state, cookie) = setup().await;
         let app = test_app(state.clone());
         let csrf = get_csrf_token(&app, &cookie).await;
-        let req = password_request(&csrf, &cookie, "password123", "newpassword456", "newpassword456");
+        let req = password_request(
+            &csrf,
+            &cookie,
+            "password123",
+            "newpassword456",
+            "newpassword456",
+        );
         let resp = app.oneshot(req).await.unwrap();
 
         // Extract the new session cookie
@@ -860,7 +899,13 @@ mod tests {
         let (ath, state, cookie) = setup().await;
         let app = test_app(state);
         let csrf = get_csrf_token(&app, &cookie).await;
-        let req = password_request(&csrf, &cookie, "password123", "newpassword456", "newpassword456");
+        let req = password_request(
+            &csrf,
+            &cookie,
+            "password123",
+            "newpassword456",
+            "newpassword456",
+        );
         app.oneshot(req).await.unwrap();
 
         let entries = ath.db().get_audit_log(None, 10, 0).await.unwrap();
@@ -930,7 +975,13 @@ mod tests {
 
         let app = test_app(state);
         let csrf = get_csrf_token(&app, &cookie).await;
-        let req = password_request(&csrf, &cookie, "anypassword", "newpassword456", "newpassword456");
+        let req = password_request(
+            &csrf,
+            &cookie,
+            "anypassword",
+            "newpassword456",
+            "newpassword456",
+        );
         let resp = app.oneshot(req).await.unwrap();
         let html = body_string(resp).await;
         assert!(html.contains("Current password is incorrect"));
