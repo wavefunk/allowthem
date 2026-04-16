@@ -13,6 +13,7 @@ use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
 use allowthem_core::{AllowThemBuilder, AuthClient, EmbeddedAuthClient};
+use allowthem_server::csrf_middleware;
 
 use crate::state::AppState;
 
@@ -64,6 +65,7 @@ async fn main() -> Result<()> {
         .route("/health", get(health))
         .route("/logout", get(logout::handler).post(logout::handler))
         .nest_service("/static", ServeDir::new("binaries/static"))
+        .layer(axum::middleware::from_fn(csrf_middleware))
         .with_state(state);
 
     // 8. Serve
