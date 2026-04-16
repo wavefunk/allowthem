@@ -1,6 +1,9 @@
 use std::net::SocketAddr;
 
-use figment::{Figment, providers::{Env, Format, Serialized, Toml}};
+use figment::{
+    Figment,
+    providers::{Env, Format, Serialized, Toml},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -28,9 +31,10 @@ impl Default for ServerConfig {
     }
 }
 
-pub fn load() -> Result<ServerConfig, figment::Error> {
+pub fn load() -> Result<ServerConfig, Box<figment::Error>> {
     Figment::from(Serialized::defaults(ServerConfig::default()))
         .merge(Toml::file("allowthem.toml"))
         .merge(Env::prefixed("ALLOWTHEM_").split("__"))
         .extract()
+        .map_err(Box::new)
 }
