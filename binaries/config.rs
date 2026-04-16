@@ -15,6 +15,7 @@ pub struct ServerConfig {
     pub cookie_domain: String,
     pub session_ttl_hours: u64,
     pub mfa_key_hex: Option<String>,
+    pub signing_key_hex: Option<String>,
     pub is_production: bool,
 }
 
@@ -28,6 +29,7 @@ impl Default for ServerConfig {
             cookie_domain: String::new(),
             session_ttl_hours: 24,
             mfa_key_hex: None,
+            signing_key_hex: None,
             is_production: false,
         }
     }

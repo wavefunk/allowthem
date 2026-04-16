@@ -36,7 +36,13 @@ async fn main() -> Result<()> {
 
     // 3. MFA key
     let mfa_key: Option<[u8; 32]> = match &config.mfa_key_hex {
-        Some(hex) => Some(decode_mfa_key(hex)?),
+        Some(hex) => Some(decode_hex_key(hex)?),
+        None => None,
+    };
+
+    // 3b. Signing key
+    let signing_key: Option<[u8; 32]> = match &config.signing_key_hex {
+        Some(hex) => Some(decode_hex_key(hex)?),
         None => None,
     };
 
@@ -47,6 +53,9 @@ async fn main() -> Result<()> {
         .cookie_domain(&config.cookie_domain);
     if let Some(key) = mfa_key {
         builder = builder.mfa_key(key);
+    }
+    if let Some(key) = signing_key {
+        builder = builder.signing_key(key);
     }
     let ath = builder.build().await?;
 
@@ -109,10 +118,10 @@ async fn shutdown_signal() {
     tracing::info!("shutdown signal received");
 }
 
-fn decode_mfa_key(hex: &str) -> Result<[u8; 32]> {
+fn decode_hex_key(hex: &str) -> Result<[u8; 32]> {
     if hex.len() != 64 {
         eyre::bail!(
-            "mfa_key_hex must be 64 hex chars (32 bytes), got {} chars",
+            "hex key must be 64 hex chars (32 bytes), got {} chars",
             hex.len()
         );
     }
@@ -120,10 +129,10 @@ fn decode_mfa_key(hex: &str) -> Result<[u8; 32]> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16))
         .collect::<Result<Vec<u8>, _>>()
-        .map_err(|e| eyre::eyre!("invalid mfa_key_hex: {e}"))?;
+        .map_err(|e| eyre::eyre!("invalid hex key: {e}"))?;
     bytes
         .try_into()
-        .map_err(|_: Vec<u8>| eyre::eyre!("mfa_key_hex decode failed"))
+        .map_err(|_: Vec<u8>| eyre::eyre!("hex key decode failed"))
 }
 
 #[cfg(test)]
@@ -142,6 +151,7 @@ mod tests {
         assert_eq!(c.cookie_domain, "");
         assert_eq!(c.session_ttl_hours, 24);
         assert!(c.mfa_key_hex.is_none());
+        assert!(c.signing_key_hex.is_none());
         assert!(!c.is_production);
     }
 
@@ -216,31 +226,31 @@ mod tests {
     }
 
     #[test]
-    fn decode_mfa_key_valid() {
+    fn decode_hex_key_valid() {
         let hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        let key = decode_mfa_key(hex).unwrap();
+        let key = decode_hex_key(hex).unwrap();
         assert_eq!(key[0], 0x01);
         assert_eq!(key[1], 0x23);
         assert_eq!(key[31], 0xef);
     }
 
     #[test]
-    fn decode_mfa_key_invalid_hex() {
+    fn decode_hex_key_invalid_hex() {
         let hex = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";
-        assert!(decode_mfa_key(hex).is_err());
+        assert!(decode_hex_key(hex).is_err());
     }
 
     #[test]
-    fn decode_mfa_key_wrong_length() {
+    fn decode_hex_key_wrong_length() {
         let hex = "0123456789abcdef0123456789abcdef"; // 32 chars = 16 bytes, not 32
-        assert!(decode_mfa_key(hex).is_err());
+        assert!(decode_hex_key(hex).is_err());
     }
 
     #[test]
-    fn decode_mfa_key_odd_length() {
+    fn decode_hex_key_odd_length() {
         // 63 chars — odd length would panic on &hex[62..64] without the length guard
         let hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde";
-        assert!(decode_mfa_key(hex).is_err());
+        assert!(decode_hex_key(hex).is_err());
     }
 
     #[tokio::test]
