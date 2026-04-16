@@ -56,4 +56,7 @@ pub enum AuthError {
 
     #[error("signing key not configured -- provide signing_key to AllowThemBuilder")]
     SigningKeyNotConfigured,
+
+    #[error("invalid redirect URI: {0}")]
+    InvalidRedirectUri(String),
 }
