@@ -3,6 +3,7 @@ mod error;
 mod login;
 mod logout;
 mod register;
+mod settings;
 mod state;
 mod templates;
 
@@ -72,6 +73,14 @@ async fn main() -> Result<()> {
         )
         .route("/login", get(login::get_login).post(login::post_login))
         .route("/logout", get(logout::handler).post(logout::handler))
+        .route(
+            "/settings",
+            get(settings::get_settings).post(settings::post_settings),
+        )
+        .route(
+            "/settings/password",
+            axum::routing::post(settings::post_change_password),
+        )
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
         .with_state(state);
