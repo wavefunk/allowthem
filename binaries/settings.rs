@@ -888,4 +888,51 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
+
+    #[tokio::test]
+    async fn post_password_oauth_only_user_shows_error() {
+        // OAuth-only users have no password_hash — attempting to change password
+        // must return "Current password is incorrect", not a crash or 500.
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+        let auth_client: Arc<dyn AuthClient> =
+            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let templates = crate::templates::build_template_env().unwrap();
+
+        let email = Email::new("oauth@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_oauth_user(email, "google", "google-uid-123")
+            .await
+            .unwrap();
+
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        let expires = chrono::Utc::now() + chrono::Duration::hours(24);
+        ath.db()
+            .create_session(user.id, token_hash, None, None, expires)
+            .await
+            .unwrap();
+        let set_cookie = ath.session_cookie(&token);
+        let cookie = set_cookie.split(';').next().unwrap().to_string();
+
+        let state = AppState {
+            ath: ath.clone(),
+            auth_client,
+            base_url: "http://localhost:3000".into(),
+            templates,
+            is_production: false,
+            login_attempts: Arc::new(dashmap::DashMap::new()),
+        };
+
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app, &cookie).await;
+        let req = password_request(&csrf, &cookie, "anypassword", "newpassword456", "newpassword456");
+        let resp = app.oneshot(req).await.unwrap();
+        let html = body_string(resp).await;
+        assert!(html.contains("Current password is incorrect"));
+    }
 }
