@@ -420,6 +420,7 @@ mod tests {
     use super::*;
     use crate::signing_keys::decrypt_private_key;
     use crate::types::Email;
+    use jsonwebtoken::Algorithm;
     use sqlx::SqlitePool;
     use sqlx::sqlite::SqliteConnectOptions;
     use std::str::FromStr;
@@ -767,5 +768,141 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("invalid")));
+    }
+
+    #[tokio::test]
+    async fn exchange_expired_code() {
+        let db = test_db().await;
+        let email = Email::new("expired@example.com".into()).unwrap();
+        let user = db.create_user(email, "password123", None).await.unwrap();
+
+        let (app, _) = db
+            .create_application(
+                "ExpiredApp".to_string(),
+                vec!["https://example.com/callback".to_string()],
+                false, Some(user.id), None, None,
+            )
+            .await
+            .unwrap();
+
+        let key = db.create_signing_key(&ENC_KEY).await.unwrap();
+        db.activate_signing_key(key.id).await.unwrap();
+        let pem = decrypt_private_key(&key, &ENC_KEY).unwrap();
+
+        let code_verifier = "test_verifier_expired";
+        let digest = Sha256::digest(code_verifier.as_bytes());
+        let code_challenge = Base64UrlUnpadded::encode_string(&digest);
+
+        let raw_code = crate::authorization::generate_authorization_code();
+        let code_hash = hash_authorization_code(&raw_code);
+        db.create_authorization_code(
+            app.id, user.id, &code_hash, "https://example.com/callback",
+            &["openid".to_string()], &code_challenge, "S256", None,
+        ).await.unwrap();
+
+        // Expire the code
+        sqlx::query(
+            "UPDATE allowthem_authorization_codes SET expires_at = '2020-01-01T00:00:00.000Z' WHERE code_hash = ?",
+        )
+        .bind(&code_hash)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        let err = exchange_authorization_code(
+            &db, &raw_code, "https://example.com/callback", code_verifier,
+            &app, ISSUER, &key, &pem,
+        ).await.unwrap_err();
+        assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("expired")));
+    }
+
+    #[tokio::test]
+    async fn exchange_wrong_client() {
+        let db = test_db().await;
+        let (_, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let email_b = Email::new("other@example.com".into()).unwrap();
+        let user_b = db.create_user(email_b, "password123", None).await.unwrap();
+        let (app_b, _) = db
+            .create_application(
+                "OtherApp".to_string(),
+                vec!["https://other.example.com/callback".to_string()],
+                false, Some(user_b.id), None, None,
+            )
+            .await
+            .unwrap();
+
+        let err = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app_b, ISSUER, &key, &pem,
+        ).await.unwrap_err();
+        assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("different client")));
+    }
+
+    #[tokio::test]
+    async fn access_token_has_correct_typ_header() {
+        let db = test_db().await;
+        let key = db.create_signing_key(&ENC_KEY).await.unwrap();
+        let pem = decrypt_private_key(&key, &ENC_KEY).unwrap();
+
+        let token = mint_access_token(
+            UserId::new(), ISSUER, "client", "openid", &key.id.to_string(), &pem, 3600,
+        ).unwrap();
+
+        let header = jsonwebtoken::decode_header(&token).unwrap();
+        assert_eq!(header.typ.as_deref(), Some("at+jwt"));
+        assert_eq!(header.alg, Algorithm::RS256);
+        assert!(header.kid.is_some());
+    }
+
+    #[tokio::test]
+    async fn id_token_has_correct_typ_header() {
+        let db = test_db().await;
+        let key = db.create_signing_key(&ENC_KEY).await.unwrap();
+        let pem = decrypt_private_key(&key, &ENC_KEY).unwrap();
+
+        let token = mint_id_token(
+            UserId::new(), ISSUER, "client", None, "hash", 0, &key.id.to_string(), &pem, 3600,
+        ).unwrap();
+
+        let header = jsonwebtoken::decode_header(&token).unwrap();
+        assert_eq!(header.typ.as_deref(), Some("JWT"));
+        assert_eq!(header.alg, Algorithm::RS256);
+    }
+
+    #[tokio::test]
+    async fn exchange_id_token_at_hash_matches_access_token() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let resp = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        ).await.unwrap();
+
+        let parts: Vec<&str> = resp.id_token.splitn(3, '.').collect();
+        let payload = base64ct::Base64UrlUnpadded::decode_vec(parts[1]).unwrap();
+        let claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+
+        let expected = compute_at_hash(&resp.access_token);
+        assert_eq!(claims["at_hash"].as_str().unwrap(), expected);
+    }
+
+    #[tokio::test]
+    async fn exchange_creates_refresh_token_in_db() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let resp = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        ).await.unwrap();
+
+        let refresh_hash = hash_refresh_token(&resp.refresh_token);
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM allowthem_refresh_tokens WHERE token_hash = ?",
+        )
+        .bind(&refresh_hash)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+        assert_eq!(count.0, 1, "refresh token should be stored in DB");
     }
 }

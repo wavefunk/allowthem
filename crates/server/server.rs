@@ -11,7 +11,6 @@ pub mod oauth_bearer;
 pub mod oauth_routes;
 pub mod userinfo_route;
 pub mod password_reset_routes;
-pub mod token_route;
 pub mod well_known_routes;
 
 pub use bearer::BearerAuthUser;
@@ -25,6 +24,7 @@ pub use middleware::{require_auth, require_permission, require_role};
 pub use oauth_routes::oauth_routes;
 pub use password_reset_routes::password_reset_routes;
 pub use well_known_routes::well_known_routes;
-pub use authorize_routes::authorize_routes;
-
-pub use token_route::token_route;
+pub use authorize_routes::{
+    authorize_post, check_authorization, AuthorizeOutcome, AuthorizeParams,
+    ConsentContext, ValidatedAuthorize,
+};

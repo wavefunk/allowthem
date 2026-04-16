@@ -548,4 +548,149 @@ mod tests {
         let body = read_body(resp).await;
         assert_eq!(body["error"], "invalid_grant");
     }
+
+    #[tokio::test]
+    async fn wrong_grant_type_returns_400() {
+        let (ath, app) = test_app().await;
+        let (application, secret, code, verifier, redirect_uri) =
+            setup_code_exchange(&ath).await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "client_credentials")
+            .append_pair("code", &code)
+            .append_pair("redirect_uri", &redirect_uri)
+            .append_pair("code_verifier", &verifier)
+            .append_pair("client_id", application.client_id.as_str())
+            .append_pair("client_secret", &secret)
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "unsupported_grant_type");
+    }
+
+    #[tokio::test]
+    async fn missing_code_returns_400() {
+        let (ath, app) = test_app().await;
+        let (application, secret, _, verifier, redirect_uri) = setup_code_exchange(&ath).await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "authorization_code")
+            .append_pair("redirect_uri", &redirect_uri)
+            .append_pair("code_verifier", &verifier)
+            .append_pair("client_id", application.client_id.as_str())
+            .append_pair("client_secret", &secret)
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "invalid_request");
+    }
+
+    #[tokio::test]
+    async fn missing_redirect_uri_returns_400() {
+        let (ath, app) = test_app().await;
+        let (application, secret, code, verifier, _) = setup_code_exchange(&ath).await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "authorization_code")
+            .append_pair("code", &code)
+            .append_pair("code_verifier", &verifier)
+            .append_pair("client_id", application.client_id.as_str())
+            .append_pair("client_secret", &secret)
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "invalid_request");
+    }
+
+    #[tokio::test]
+    async fn missing_code_verifier_returns_400() {
+        let (ath, app) = test_app().await;
+        let (application, secret, code, _, redirect_uri) = setup_code_exchange(&ath).await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "authorization_code")
+            .append_pair("code", &code)
+            .append_pair("redirect_uri", &redirect_uri)
+            .append_pair("client_id", application.client_id.as_str())
+            .append_pair("client_secret", &secret)
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "invalid_request");
+    }
+
+    #[tokio::test]
+    async fn missing_client_credentials_returns_401() {
+        let (_ath, app) = test_app().await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "authorization_code")
+            .append_pair("code", "test")
+            .append_pair("redirect_uri", "https://example.com/callback")
+            .append_pair("code_verifier", "test")
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "invalid_client");
+    }
+
+    #[tokio::test]
+    async fn success_response_has_pragma_no_cache() {
+        let (ath, app) = test_app().await;
+        let (application, secret, code, verifier, redirect_uri) =
+            setup_code_exchange(&ath).await;
+        let body = build_token_body(&application, &secret, &code, &verifier, &redirect_uri);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let pragma = resp.headers().get("pragma").unwrap().to_str().unwrap();
+        assert_eq!(pragma, "no-cache");
+    }
 }

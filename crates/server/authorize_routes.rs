@@ -1,9 +1,8 @@
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::header::COOKIE;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
-use axum::{Form, Json, Router};
+use axum::{Form, Json};
 use serde::Deserialize;
 use serde_json::json;
 use url::Url;
@@ -43,25 +42,37 @@ impl OAuthErrorCode {
 // Request / response types
 // ---------------------------------------------------------------------------
 
+/// Result of the full authorization check: either a redirect response
+/// or a signal that the consent screen should be rendered.
+pub enum AuthorizeOutcome {
+    /// Redirect the user (success with code, error, or login redirect).
+    Redirect(Response),
+    /// Consent is needed — render the consent screen.
+    ConsentNeeded {
+        context: ConsentContext,
+        params: ValidatedAuthorize,
+    },
+}
+
 /// Query parameters for GET /oauth/authorize.
 /// All fields are Option so we can produce specific error messages for each.
 /// RF-2: client_id is `Option<ClientId>` — ClientId derives Deserialize,
 /// so Axum deserializes it directly without needing `new_unchecked`.
 #[derive(Deserialize)]
 pub struct AuthorizeParams {
-    client_id: Option<ClientId>,
-    redirect_uri: Option<String>,
-    response_type: Option<String>,
-    scope: Option<String>,
-    state: Option<String>,
-    code_challenge: Option<String>,
-    code_challenge_method: Option<String>,
-    nonce: Option<String>,
+    pub client_id: Option<ClientId>,
+    pub redirect_uri: Option<String>,
+    pub response_type: Option<String>,
+    pub scope: Option<String>,
+    pub state: Option<String>,
+    pub code_challenge: Option<String>,
+    pub code_challenge_method: Option<String>,
+    pub nonce: Option<String>,
 }
 
 /// Form body for POST /oauth/authorize (consent submission).
 #[derive(Deserialize)]
-struct ConsentSubmission {
+pub struct ConsentSubmission {
     client_id: Option<ClientId>,
     redirect_uri: Option<String>,
     response_type: Option<String>,
@@ -84,15 +95,15 @@ pub struct ConsentContext {
     pub scopes: Vec<String>,
 }
 
-/// Internal validated parameters after all checks pass.
-struct ValidatedAuthorize {
-    application: Application,
-    redirect_uri: String,
-    scopes: Vec<String>,
-    state: String,
-    code_challenge: String,
-    code_challenge_method: String,
-    nonce: Option<String>,
+/// Validated parameters after all authorization checks pass.
+pub struct ValidatedAuthorize {
+    pub application: Application,
+    pub redirect_uri: String,
+    pub scopes: Vec<String>,
+    pub state: String,
+    pub code_challenge: String,
+    pub code_challenge_method: String,
+    pub nonce: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +147,7 @@ fn display_error(status: StatusCode, message: &str) -> Response {
 /// Resolve the authenticated user from session cookie, or None if not authenticated.
 /// Uses the same pattern as `require_session` in oauth_routes.rs:
 /// session_config().cookie_name -> db().validate_session() -> db().get_user() -> is_active check
-async fn resolve_user(
+pub async fn resolve_user(
     ath: &AllowThem,
     headers: &HeaderMap,
 ) -> Result<Option<allowthem_core::User>, AuthError> {
@@ -176,7 +187,7 @@ async fn resolve_user(
 
 /// Validate authorization request parameters (steps 1-7 from the spec).
 /// Steps 1-3 return display errors. Steps 4-7 return redirect errors.
-async fn validate_authorize_params(
+pub async fn validate_authorize_params(
     ath: &AllowThem,
     params: &AuthorizeParams,
 ) -> Result<ValidatedAuthorize, Response> {
@@ -338,7 +349,7 @@ fn login_redirect(params: &AuthorizeParams) -> Response {
 }
 
 /// Generate an authorization code, store it, and redirect with code+state.
-async fn issue_code_and_redirect(
+pub async fn issue_code_and_redirect(
     ath: &AllowThem,
     validated: &ValidatedAuthorize,
     user_id: UserId,
@@ -373,31 +384,33 @@ async fn issue_code_and_redirect(
 }
 
 // ---------------------------------------------------------------------------
-// Handlers
+// Authorization check (used by binaries/consent.rs GET handler)
 // ---------------------------------------------------------------------------
 
-async fn authorize_get(
-    State(ath): State<AllowThem>,
-    headers: HeaderMap,
-    Query(params): Query<AuthorizeParams>,
-) -> Response {
-    let validated = match validate_authorize_params(&ath, &params).await {
+/// Run the full authorization flow: validate params, check session,
+/// check consent, and either produce a redirect or signal consent needed.
+pub async fn check_authorization(
+    ath: &AllowThem,
+    headers: &HeaderMap,
+    params: &AuthorizeParams,
+) -> AuthorizeOutcome {
+    let validated = match validate_authorize_params(ath, params).await {
         Ok(v) => v,
-        Err(resp) => return resp,
+        Err(resp) => return AuthorizeOutcome::Redirect(resp),
     };
 
-    // Check if user is authenticated (RF-1: correct session resolution pattern)
-    let user = match resolve_user(&ath, &headers).await {
+    // Check if user is authenticated
+    let user = match resolve_user(ath, headers).await {
         Ok(Some(u)) => u,
-        Ok(None) => return login_redirect(&params),
+        Ok(None) => return AuthorizeOutcome::Redirect(login_redirect(params)),
         Err(_) => {
-            return error_redirect(
+            return AuthorizeOutcome::Redirect(error_redirect(
                 &validated.redirect_uri,
                 OAuthErrorCode::ServerError,
                 "internal error",
                 &validated.state,
                 StatusCode::FOUND,
-            )
+            ))
         }
     };
 
@@ -412,53 +425,37 @@ async fn authorize_get(
         {
             Ok(has) => !has,
             Err(_) => {
-                return error_redirect(
+                return AuthorizeOutcome::Redirect(error_redirect(
                     &validated.redirect_uri,
                     OAuthErrorCode::ServerError,
                     "internal error",
                     &validated.state,
                     StatusCode::FOUND,
-                )
+                ))
             }
         }
     };
 
     if needs_consent {
-        // Return consent context as JSON. M40 will replace with rendered HTML.
-        let ctx = ConsentContext {
+        let context = ConsentContext {
             application_name: validated.application.name.clone(),
             logo_url: validated.application.logo_url.clone(),
             primary_color: validated.application.primary_color.clone(),
             scopes: validated.scopes.clone(),
         };
-        return (
-            StatusCode::OK,
-            Json(json!({
-                "consent_required": true,
-                "application_name": ctx.application_name,
-                "logo_url": ctx.logo_url,
-                "primary_color": ctx.primary_color,
-                "scopes": ctx.scopes,
-                "authorize_params": {
-                    "client_id": validated.application.client_id.as_str(),
-                    "redirect_uri": &validated.redirect_uri,
-                    "response_type": "code",
-                    "scope": validated.scopes.join(" "),
-                    "state": &validated.state,
-                    "code_challenge": &validated.code_challenge,
-                    "code_challenge_method": &validated.code_challenge_method,
-                    "nonce": &validated.nonce,
-                },
-            })),
-        )
-            .into_response();
+        return AuthorizeOutcome::ConsentNeeded {
+            context,
+            params: validated,
+        };
     }
 
     // Consent exists or app is trusted — generate code and redirect
-    issue_code_and_redirect(&ath, &validated, user.id, StatusCode::FOUND).await
+    AuthorizeOutcome::Redirect(
+        issue_code_and_redirect(ath, &validated, user.id, StatusCode::FOUND).await,
+    )
 }
 
-async fn authorize_post(
+pub async fn authorize_post(
     State(ath): State<AllowThem>,
     headers: HeaderMap,
     Form(form): Form<ConsentSubmission>,
@@ -526,12 +523,8 @@ async fn authorize_post(
 }
 
 // ---------------------------------------------------------------------------
-// Router
+// Handlers
 // ---------------------------------------------------------------------------
-
-pub fn authorize_routes() -> Router<AllowThem> {
-    Router::new().route("/oauth/authorize", get(authorize_get).post(authorize_post))
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -544,18 +537,16 @@ mod tests {
     use allowthem_core::types::Email;
     use axum::body::Body;
     use axum::http::Request;
+    use axum::routing::post;
+    use axum::Router;
     use tower::ServiceExt;
 
-    async fn test_app() -> (AllowThem, Router) {
-        let ath = AllowThemBuilder::new("sqlite::memory:")
+    async fn test_ath() -> AllowThem {
+        AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .build()
             .await
-            .unwrap();
-
-        let routes = authorize_routes();
-        let app = routes.with_state(ath.clone());
-        (ath, app)
+            .unwrap()
     }
 
     async fn setup_application(ath: &AllowThem) -> Application {
@@ -581,16 +572,27 @@ mod tests {
         app
     }
 
-    fn authorize_uri(app: &Application) -> String {
-        format!(
-            "/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid+profile&state=xyz&code_challenge=abc123&code_challenge_method=S256",
-            app.client_id.as_str(),
-            url::form_urlencoded::byte_serialize(b"https://example.com/callback").collect::<String>()
-        )
+    fn authorize_params(app: &Application) -> AuthorizeParams {
+        AuthorizeParams {
+            client_id: Some(app.client_id.clone()),
+            redirect_uri: Some("https://example.com/callback".into()),
+            response_type: Some("code".into()),
+            scope: Some("openid profile".into()),
+            state: Some("xyz".into()),
+            code_challenge: Some("abc123".into()),
+            code_challenge_method: Some("S256".into()),
+            nonce: None,
+        }
     }
 
-    async fn read_status(resp: axum::http::Response<Body>) -> StatusCode {
-        resp.status()
+    /// Extract a redirect response from AuthorizeOutcome, panicking if consent.
+    fn expect_redirect(outcome: AuthorizeOutcome) -> Response {
+        match outcome {
+            AuthorizeOutcome::Redirect(resp) => resp,
+            AuthorizeOutcome::ConsentNeeded { .. } => {
+                panic!("expected Redirect, got ConsentNeeded")
+            }
+        }
     }
 
     async fn read_body(resp: axum::http::Response<Body>) -> serde_json::Value {
@@ -600,249 +602,7 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
     }
 
-    // Display error tests (steps 1-3)
-
-    #[tokio::test]
-    async fn missing_client_id_returns_400() {
-        let (_ath, app) = test_app().await;
-        let req = Request::builder()
-            .method("GET")
-            .uri("/oauth/authorize?redirect_uri=x&response_type=code&scope=openid&state=s&code_challenge=c&code_challenge_method=S256")
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = read_body(resp).await;
-        assert_eq!(body["error"], "missing client_id");
-    }
-
-    #[tokio::test]
-    async fn unknown_client_id_returns_400() {
-        let (_ath, app) = test_app().await;
-        let req = Request::builder()
-            .method("GET")
-            .uri("/oauth/authorize?client_id=ath_nonexistent&redirect_uri=x&response_type=code&scope=openid&state=s&code_challenge=c&code_challenge_method=S256")
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = read_body(resp).await;
-        assert_eq!(body["error"], "unknown client_id");
-    }
-
-    #[tokio::test]
-    async fn unregistered_redirect_uri_returns_400() {
-        let (ath, app) = test_app().await;
-        let application = setup_application(&ath).await;
-        let req = Request::builder()
-            .method("GET")
-            .uri(&format!(
-                "/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid&state=s&code_challenge=c&code_challenge_method=S256",
-                application.client_id.as_str(),
-                "https://evil.example.com/callback"
-            ))
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = read_body(resp).await;
-        assert_eq!(body["error"], "redirect_uri not registered");
-    }
-
-    // Redirect error tests (steps 4-7)
-
-    #[tokio::test]
-    async fn missing_state_redirects_with_error() {
-        let (ath, app) = test_app().await;
-        let application = setup_application(&ath).await;
-        let req = Request::builder()
-            .method("GET")
-            .uri(&format!(
-                "/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid&code_challenge=c&code_challenge_method=S256",
-                application.client_id.as_str(),
-                url::form_urlencoded::byte_serialize(b"https://example.com/callback").collect::<String>()
-            ))
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::FOUND);
-        let location = resp.headers().get("location").unwrap().to_str().unwrap();
-        assert!(location.contains("error=invalid_request"));
-    }
-
-    #[tokio::test]
-    async fn bad_response_type_redirects_with_error() {
-        let (ath, app) = test_app().await;
-        let application = setup_application(&ath).await;
-        let req = Request::builder()
-            .method("GET")
-            .uri(&format!(
-                "/oauth/authorize?client_id={}&redirect_uri={}&response_type=token&scope=openid&state=s&code_challenge=c&code_challenge_method=S256",
-                application.client_id.as_str(),
-                url::form_urlencoded::byte_serialize(b"https://example.com/callback").collect::<String>()
-            ))
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::FOUND);
-        let location = resp.headers().get("location").unwrap().to_str().unwrap();
-        assert!(location.contains("error=unsupported_response_type"));
-        assert!(location.contains("state=s"));
-    }
-
-    #[tokio::test]
-    async fn invalid_scope_redirects_with_error() {
-        let (ath, app) = test_app().await;
-        let application = setup_application(&ath).await;
-        let req = Request::builder()
-            .method("GET")
-            .uri(&format!(
-                "/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope=profile&state=s&code_challenge=c&code_challenge_method=S256",
-                application.client_id.as_str(),
-                url::form_urlencoded::byte_serialize(b"https://example.com/callback").collect::<String>()
-            ))
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::FOUND);
-        let location = resp.headers().get("location").unwrap().to_str().unwrap();
-        assert!(location.contains("error=invalid_scope"));
-    }
-
-    #[tokio::test]
-    async fn missing_pkce_redirects_with_error() {
-        let (ath, app) = test_app().await;
-        let application = setup_application(&ath).await;
-        let req = Request::builder()
-            .method("GET")
-            .uri(&format!(
-                "/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid&state=s",
-                application.client_id.as_str(),
-                url::form_urlencoded::byte_serialize(b"https://example.com/callback").collect::<String>()
-            ))
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::FOUND);
-        let location = resp.headers().get("location").unwrap().to_str().unwrap();
-        assert!(location.contains("error=invalid_request"));
-        assert!(location.contains("PKCE"));
-    }
-
-    // Unauthenticated user redirects to login
-
-    #[tokio::test]
-    async fn unauthenticated_redirects_to_login() {
-        let (ath, app) = test_app().await;
-        let application = setup_application(&ath).await;
-        let uri = authorize_uri(&application);
-        let req = Request::builder()
-            .method("GET")
-            .uri(&uri)
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
-        let location = resp.headers().get("location").unwrap().to_str().unwrap();
-        assert!(location.starts_with("/login?next="));
-        // Verify the authorize URL is preserved in the next parameter
-        assert!(location.contains("oauth%2Fauthorize"));
-    }
-
-    // Authenticated user with trusted app skips consent
-
-    #[tokio::test]
-    async fn trusted_app_skips_consent_and_redirects_with_code() {
-        let (ath, app) = test_app().await;
-
-        // Create user and get a session
-        let email = Email::new("trusted@example.com".into()).unwrap();
-        let user = ath
-            .db()
-            .create_user(email, "password123", None)
-            .await
-            .unwrap();
-        let token = allowthem_core::generate_token();
-        let hash = allowthem_core::hash_token(&token);
-        let expires = chrono::Utc::now() + chrono::Duration::hours(24);
-        ath.db()
-            .create_session(user.id, hash, None, None, expires)
-            .await
-            .unwrap();
-        let cookie = format!("allowthem_session={}", token.as_str());
-
-        // Create a trusted application
-        let (trusted_app, _) = ath
-            .db()
-            .create_application(
-                "TrustedApp".to_string(),
-                vec!["https://trusted.example.com/callback".to_string()],
-                true,
-                Some(user.id),
-                None,
-                None,
-            )
-            .await
-            .unwrap();
-
-        let uri = format!(
-            "/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid+profile&state=xyz&code_challenge=abc123&code_challenge_method=S256",
-            trusted_app.client_id.as_str(),
-            url::form_urlencoded::byte_serialize(b"https://trusted.example.com/callback").collect::<String>()
-        );
-
-        let req = Request::builder()
-            .method("GET")
-            .uri(&uri)
-            .header("cookie", &cookie)
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::FOUND);
-        let location = resp.headers().get("location").unwrap().to_str().unwrap();
-        assert!(location.contains("code="));
-        assert!(location.contains("state=xyz"));
-        assert!(location.starts_with("https://trusted.example.com/callback"));
-    }
-
-    // Authenticated user without consent sees consent screen
-
-    #[tokio::test]
-    async fn untrusted_app_without_consent_shows_consent_screen() {
-        let (ath, app) = test_app().await;
-
-        let email = Email::new("consent@example.com".into()).unwrap();
-        let user = ath
-            .db()
-            .create_user(email, "password123", None)
-            .await
-            .unwrap();
-        let token = allowthem_core::generate_token();
-        let hash = allowthem_core::hash_token(&token);
-        let expires = chrono::Utc::now() + chrono::Duration::hours(24);
-        ath.db()
-            .create_session(user.id, hash, None, None, expires)
-            .await
-            .unwrap();
-        let cookie = format!("allowthem_session={}", token.as_str());
-
-        let application = setup_application(&ath).await;
-        let uri = authorize_uri(&application);
-
-        let req = Request::builder()
-            .method("GET")
-            .uri(&uri)
-            .header("cookie", &cookie)
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
-        let body = read_body(resp).await;
-        assert_eq!(body["consent_required"], true);
-        assert_eq!(body["application_name"], "TestApp");
-    }
-
-    // Helper: create a user, session, and return (user_id, session_cookie)
+    // Helper: create a user, session, and return (user_id, session_cookie_header)
     async fn create_session(ath: &AllowThem, email: &str) -> (allowthem_core::types::UserId, String) {
         let email = Email::new(email.into()).unwrap();
         let user = ath.db().create_user(email, "password123", None).await.unwrap();
@@ -854,30 +614,254 @@ mod tests {
         (user.id, cookie)
     }
 
+    fn headers_with_cookie(cookie: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("cookie", cookie.parse().unwrap());
+        headers
+    }
+
+    // Display error tests (steps 1-3)
+
+    #[tokio::test]
+    async fn missing_client_id_returns_400() {
+        let ath = test_ath().await;
+        let params = AuthorizeParams {
+            client_id: None,
+            redirect_uri: Some("x".into()),
+            response_type: Some("code".into()),
+            scope: Some("openid".into()),
+            state: Some("s".into()),
+            code_challenge: Some("c".into()),
+            code_challenge_method: Some("S256".into()),
+            nonce: None,
+        };
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "missing client_id");
+    }
+
+    #[tokio::test]
+    async fn unknown_client_id_returns_400() {
+        let ath = test_ath().await;
+        let params = AuthorizeParams {
+            client_id: serde_json::from_value(serde_json::json!("ath_nonexistent")).ok(),
+            redirect_uri: Some("x".into()),
+            response_type: Some("code".into()),
+            scope: Some("openid".into()),
+            state: Some("s".into()),
+            code_challenge: Some("c".into()),
+            code_challenge_method: Some("S256".into()),
+            nonce: None,
+        };
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "unknown client_id");
+    }
+
+    #[tokio::test]
+    async fn unregistered_redirect_uri_returns_400() {
+        let ath = test_ath().await;
+        let application = setup_application(&ath).await;
+        let params = AuthorizeParams {
+            client_id: Some(application.client_id.clone()),
+            redirect_uri: Some("https://evil.example.com/callback".into()),
+            response_type: Some("code".into()),
+            scope: Some("openid".into()),
+            state: Some("s".into()),
+            code_challenge: Some("c".into()),
+            code_challenge_method: Some("S256".into()),
+            nonce: None,
+        };
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = read_body(resp).await;
+        assert_eq!(body["error"], "redirect_uri not registered");
+    }
+
+    // Redirect error tests (steps 4-7)
+
+    #[tokio::test]
+    async fn missing_state_redirects_with_error() {
+        let ath = test_ath().await;
+        let application = setup_application(&ath).await;
+        let params = AuthorizeParams {
+            client_id: Some(application.client_id.clone()),
+            redirect_uri: Some("https://example.com/callback".into()),
+            response_type: Some("code".into()),
+            scope: Some("openid".into()),
+            state: None,
+            code_challenge: Some("c".into()),
+            code_challenge_method: Some("S256".into()),
+            nonce: None,
+        };
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
+        assert_eq!(resp.status(), StatusCode::FOUND);
+        let location = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(location.contains("error=invalid_request"));
+    }
+
+    #[tokio::test]
+    async fn bad_response_type_redirects_with_error() {
+        let ath = test_ath().await;
+        let application = setup_application(&ath).await;
+        let params = AuthorizeParams {
+            client_id: Some(application.client_id.clone()),
+            redirect_uri: Some("https://example.com/callback".into()),
+            response_type: Some("token".into()),
+            scope: Some("openid".into()),
+            state: Some("s".into()),
+            code_challenge: Some("c".into()),
+            code_challenge_method: Some("S256".into()),
+            nonce: None,
+        };
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
+        assert_eq!(resp.status(), StatusCode::FOUND);
+        let location = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(location.contains("error=unsupported_response_type"));
+        assert!(location.contains("state=s"));
+    }
+
+    #[tokio::test]
+    async fn invalid_scope_redirects_with_error() {
+        let ath = test_ath().await;
+        let application = setup_application(&ath).await;
+        let params = AuthorizeParams {
+            client_id: Some(application.client_id.clone()),
+            redirect_uri: Some("https://example.com/callback".into()),
+            response_type: Some("code".into()),
+            scope: Some("profile".into()),
+            state: Some("s".into()),
+            code_challenge: Some("c".into()),
+            code_challenge_method: Some("S256".into()),
+            nonce: None,
+        };
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
+        assert_eq!(resp.status(), StatusCode::FOUND);
+        let location = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(location.contains("error=invalid_scope"));
+    }
+
+    #[tokio::test]
+    async fn missing_pkce_redirects_with_error() {
+        let ath = test_ath().await;
+        let application = setup_application(&ath).await;
+        let params = AuthorizeParams {
+            client_id: Some(application.client_id.clone()),
+            redirect_uri: Some("https://example.com/callback".into()),
+            response_type: Some("code".into()),
+            scope: Some("openid".into()),
+            state: Some("s".into()),
+            code_challenge: None,
+            code_challenge_method: None,
+            nonce: None,
+        };
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
+        assert_eq!(resp.status(), StatusCode::FOUND);
+        let location = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(location.contains("error=invalid_request"));
+        assert!(location.contains("PKCE"));
+    }
+
+    // Unauthenticated user redirects to login
+
+    #[tokio::test]
+    async fn unauthenticated_redirects_to_login() {
+        let ath = test_ath().await;
+        let application = setup_application(&ath).await;
+        let params = authorize_params(&application);
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        let location = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(location.starts_with("/login?next="));
+        assert!(location.contains("oauth%2Fauthorize"));
+    }
+
+    // Authenticated user with trusted app skips consent
+
+    #[tokio::test]
+    async fn trusted_app_skips_consent_and_redirects_with_code() {
+        let ath = test_ath().await;
+        let (_, cookie) = create_session(&ath, "trusted@example.com").await;
+        let headers = headers_with_cookie(&cookie);
+
+        let (trusted_app, _) = ath
+            .db()
+            .create_application(
+                "TrustedApp".to_string(),
+                vec!["https://trusted.example.com/callback".to_string()],
+                true,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let params = AuthorizeParams {
+            client_id: Some(trusted_app.client_id.clone()),
+            redirect_uri: Some("https://trusted.example.com/callback".into()),
+            response_type: Some("code".into()),
+            scope: Some("openid profile".into()),
+            state: Some("xyz".into()),
+            code_challenge: Some("abc123".into()),
+            code_challenge_method: Some("S256".into()),
+            nonce: None,
+        };
+
+        let resp = expect_redirect(check_authorization(&ath, &headers, &params).await);
+        assert_eq!(resp.status(), StatusCode::FOUND);
+        let location = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(location.contains("code="));
+        assert!(location.contains("state=xyz"));
+        assert!(location.starts_with("https://trusted.example.com/callback"));
+    }
+
+    // Authenticated user without consent gets ConsentNeeded
+
+    #[tokio::test]
+    async fn untrusted_app_without_consent_returns_consent_needed() {
+        let ath = test_ath().await;
+        let (_, cookie) = create_session(&ath, "consent@example.com").await;
+        let headers = headers_with_cookie(&cookie);
+        let application = setup_application(&ath).await;
+        let params = authorize_params(&application);
+
+        let outcome = check_authorization(&ath, &headers, &params).await;
+        match outcome {
+            AuthorizeOutcome::ConsentNeeded { context, .. } => {
+                assert_eq!(context.application_name, "TestApp");
+                assert_eq!(context.scopes, vec!["openid", "profile"]);
+            }
+            AuthorizeOutcome::Redirect(_) => panic!("expected ConsentNeeded, got Redirect"),
+        }
+    }
+
     // Inactive application returns display error
 
     #[tokio::test]
     async fn inactive_application_returns_400() {
-        let (ath, app) = test_app().await;
+        let ath = test_ath().await;
         let application = setup_application(&ath).await;
 
-        // Deactivate the application
         sqlx::query("UPDATE allowthem_applications SET is_active = 0 WHERE id = ?")
             .bind(application.id)
             .execute(ath.db().pool())
             .await
             .unwrap();
 
-        let req = Request::builder()
-            .method("GET")
-            .uri(&format!(
-                "/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid&state=s&code_challenge=c&code_challenge_method=S256",
-                application.client_id.as_str(),
-                url::form_urlencoded::byte_serialize(b"https://example.com/callback").collect::<String>()
-            ))
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
+        let params = AuthorizeParams {
+            client_id: Some(application.client_id.clone()),
+            redirect_uri: Some("https://example.com/callback".into()),
+            response_type: Some("code".into()),
+            scope: Some("openid".into()),
+            state: Some("s".into()),
+            code_challenge: Some("c".into()),
+            code_challenge_method: Some("S256".into()),
+            nonce: None,
+        };
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let body = read_body(resp).await;
         assert_eq!(body["error"], "application is inactive");
@@ -887,18 +871,19 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_pkce_method_redirects_with_error() {
-        let (ath, app) = test_app().await;
+        let ath = test_ath().await;
         let application = setup_application(&ath).await;
-        let req = Request::builder()
-            .method("GET")
-            .uri(&format!(
-                "/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid&state=s&code_challenge=c&code_challenge_method=plain",
-                application.client_id.as_str(),
-                url::form_urlencoded::byte_serialize(b"https://example.com/callback").collect::<String>()
-            ))
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
+        let params = AuthorizeParams {
+            client_id: Some(application.client_id.clone()),
+            redirect_uri: Some("https://example.com/callback".into()),
+            response_type: Some("code".into()),
+            scope: Some("openid".into()),
+            state: Some("s".into()),
+            code_challenge: Some("c".into()),
+            code_challenge_method: Some("plain".into()),
+            nonce: None,
+        };
+        let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::FOUND);
         let location = resp.headers().get("location").unwrap().to_str().unwrap();
         assert!(location.contains("error=invalid_request"));
@@ -909,11 +894,11 @@ mod tests {
 
     #[tokio::test]
     async fn existing_consent_skips_consent_screen() {
-        let (ath, app) = test_app().await;
+        let ath = test_ath().await;
         let (user_id, cookie) = create_session(&ath, "existing_consent@example.com").await;
+        let headers = headers_with_cookie(&cookie);
         let application = setup_application(&ath).await;
 
-        // Pre-grant consent for the scopes that will be requested
         ath.db()
             .upsert_consent(
                 user_id,
@@ -923,26 +908,26 @@ mod tests {
             .await
             .unwrap();
 
-        let uri = authorize_uri(&application);
-        let req = Request::builder()
-            .method("GET")
-            .uri(&uri)
-            .header("cookie", &cookie)
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        // Should redirect with code, not show consent screen
+        let params = authorize_params(&application);
+        let resp = expect_redirect(check_authorization(&ath, &headers, &params).await);
         assert_eq!(resp.status(), StatusCode::FOUND);
         let location = resp.headers().get("location").unwrap().to_str().unwrap();
         assert!(location.contains("code="));
         assert!(location.contains("state=xyz"));
     }
 
-    // POST handler: approve flow
+    // POST handler tests — use a minimal router with just post(authorize_post)
+
+    fn post_app(ath: AllowThem) -> Router {
+        Router::new()
+            .route("/oauth/authorize", post(authorize_post))
+            .with_state(ath)
+    }
 
     #[tokio::test]
     async fn post_approve_creates_code_and_redirects_303() {
-        let (ath, app) = test_app().await;
+        let ath = test_ath().await;
+        let app = post_app(ath.clone());
         let (_, cookie) = create_session(&ath, "post_approve@example.com").await;
         let application = setup_application(&ath).await;
 
@@ -972,11 +957,10 @@ mod tests {
         assert!(location.contains("state=mystate"));
     }
 
-    // POST handler: deny flow
-
     #[tokio::test]
     async fn post_deny_redirects_with_access_denied_303() {
-        let (ath, app) = test_app().await;
+        let ath = test_ath().await;
+        let app = post_app(ath.clone());
         let (_, cookie) = create_session(&ath, "post_deny@example.com").await;
         let application = setup_application(&ath).await;
 
@@ -1005,11 +989,10 @@ mod tests {
         assert!(location.contains("state=mystate"));
     }
 
-    // POST handler: unauthenticated redirects to login
-
     #[tokio::test]
     async fn post_unauthenticated_redirects_to_login() {
-        let (ath, app) = test_app().await;
+        let ath = test_ath().await;
+        let app = post_app(ath.clone());
         let application = setup_application(&ath).await;
 
         let body = url::form_urlencoded::Serializer::new(String::new())
@@ -1035,14 +1018,11 @@ mod tests {
         assert!(location.starts_with("/login?next="));
     }
 
-    // POST handler: re-validates parameters (defense-in-depth)
-
     #[tokio::test]
     async fn post_with_invalid_client_id_returns_400() {
-        let (ath, app) = test_app().await;
+        let ath = test_ath().await;
+        let app = post_app(ath.clone());
         let (_, cookie) = create_session(&ath, "post_revalidate@example.com").await;
-        // Application not created — client_id won't exist
-        let _ = ath; // silence warning
 
         let body = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("client_id", "ath_nonexistent")
@@ -1063,7 +1043,6 @@ mod tests {
             .body(Body::from(body))
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        // Display error — client_id validation fails before redirect
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let body = read_body(resp).await;
         assert_eq!(body["error"], "unknown client_id");
