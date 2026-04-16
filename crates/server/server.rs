@@ -1,5 +1,6 @@
 // allowthem-server: HTTP routes, middleware, and extractors
 
+pub mod authorize_routes;
 pub mod bearer;
 pub mod csrf;
 pub mod error;
@@ -19,3 +20,4 @@ pub use middleware::{require_auth, require_permission, require_role};
 pub use oauth_routes::oauth_routes;
 pub use password_reset_routes::password_reset_routes;
 pub use well_known_routes::well_known_routes;
+pub use authorize_routes::authorize_routes;

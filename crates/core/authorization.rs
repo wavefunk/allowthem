@@ -174,6 +174,7 @@ impl Db {
     }
 
     /// Create an authorization code record. Expires after 10 minutes.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_authorization_code(
         &self,
         application_id: ApplicationId,
