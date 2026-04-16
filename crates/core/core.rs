@@ -17,6 +17,7 @@ pub mod password_reset;
 pub mod permissions;
 pub mod roles;
 pub mod sessions;
+pub mod signing_keys;
 pub mod totp;
 pub mod types;
 pub mod users;
@@ -34,6 +35,10 @@ pub use oauth_github::GitHubProvider;
 pub use oauth_google::GoogleProvider;
 pub use sessions::{
     SessionConfig, generate_token, hash_token, parse_session_cookie, session_cookie,
+};
+pub use signing_keys::{
+    JwkEntry, JwkSet, OidcDiscovery, SigningKey,
+    build_discovery, build_jwks, decrypt_private_key,
 };
 pub use types::*;
 
