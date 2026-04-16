@@ -24,4 +24,7 @@ pub use middleware::{require_auth, require_permission, require_role};
 pub use oauth_routes::oauth_routes;
 pub use password_reset_routes::password_reset_routes;
 pub use well_known_routes::well_known_routes;
-pub use authorize_routes::authorize_routes;
+pub use authorize_routes::{
+    authorize_post, check_authorization, AuthorizeOutcome, AuthorizeParams,
+    ConsentContext, ValidatedAuthorize,
+};
