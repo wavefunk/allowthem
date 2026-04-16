@@ -34,6 +34,7 @@ pub struct AllowThemBuilder {
     cookie_secure: Option<bool>,
     cookie_domain: String,
     mfa_key: Option<[u8; 32]>,
+    signing_key: Option<[u8; 32]>,
 }
 
 impl AllowThemBuilder {
@@ -49,6 +50,7 @@ impl AllowThemBuilder {
             cookie_secure: None,
             cookie_domain: String::new(),
             mfa_key: None,
+            signing_key: None,
         }
     }
 
@@ -64,6 +66,7 @@ impl AllowThemBuilder {
             cookie_secure: None,
             cookie_domain: String::new(),
             mfa_key: None,
+            signing_key: None,
         }
     }
 
@@ -105,6 +108,15 @@ impl AllowThemBuilder {
         self
     }
 
+    /// Set the AES-256-GCM encryption key for RS256 signing key storage.
+    ///
+    /// Required for OIDC/standalone mode. When not set, all signing key
+    /// operations return `AuthError::SigningKeyNotConfigured`.
+    pub fn signing_key(mut self, key: [u8; 32]) -> Self {
+        self.signing_key = Some(key);
+        self
+    }
+
     /// Construct the [`AllowThem`] handle.
     ///
     /// Connects to (or wraps) the database, runs migrations, and assembles
@@ -128,6 +140,7 @@ impl AllowThemBuilder {
                 session_config,
                 cookie_domain: self.cookie_domain,
                 mfa_key: self.mfa_key,
+                signing_key: self.signing_key,
             }),
         })
     }
@@ -138,6 +151,7 @@ struct Inner {
     session_config: SessionConfig,
     cookie_domain: String,
     mfa_key: Option<[u8; 32]>,
+    signing_key: Option<[u8; 32]>,
 }
 
 /// Configured allowthem handle.
@@ -178,6 +192,14 @@ impl AllowThem {
             .mfa_key
             .as_ref()
             .ok_or(AuthError::MfaNotConfigured)
+    }
+
+    /// Returns the signing key encryption key, or `Err(SigningKeyNotConfigured)` if not set.
+    pub(crate) fn signing_key(&self) -> Result<&[u8; 32], AuthError> {
+        self.inner
+            .signing_key
+            .as_ref()
+            .ok_or(AuthError::SigningKeyNotConfigured)
     }
 
     /// Extract the session token from a `Cookie` header value.
@@ -304,5 +326,15 @@ mod tests {
         let found = ath2.db().get_user(user.id).await;
         assert!(found.is_ok());
         assert_eq!(found.unwrap().id, user.id);
+    }
+
+    #[tokio::test]
+    async fn signing_key_not_configured_returns_error() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+        let result = ath.signing_key();
+        assert!(matches!(result, Err(crate::error::AuthError::SigningKeyNotConfigured)));
     }
 }
