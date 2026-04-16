@@ -261,9 +261,7 @@ mod tests {
     #[test]
     fn base_html_renders_dev_mode() {
         let env = crate::templates::build_template_env().unwrap();
-        let result = crate::templates::render(
-            &env, "base.html", minijinja::context! {}, false,
-        );
+        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, false);
         let html = result.unwrap().0;
         assert!(
             html.contains("@tailwindcss/browser@4"),
@@ -278,9 +276,7 @@ mod tests {
     #[test]
     fn base_html_renders_production_mode() {
         let env = crate::templates::build_template_env().unwrap();
-        let result = crate::templates::render(
-            &env, "base.html", minijinja::context! {}, true,
-        );
+        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, true);
         let html = result.unwrap().0;
         assert!(
             html.contains("/static/css/style.css"),
@@ -297,9 +293,7 @@ mod tests {
         let mut env = minijinja::Environment::new();
         env.add_template("test.html", "production={{ is_production }}")
             .unwrap();
-        let result = crate::templates::render(
-            &env, "test.html", minijinja::context! {}, true,
-        );
+        let result = crate::templates::render(&env, "test.html", minijinja::context! {}, true);
         let html = result.unwrap().0;
         assert_eq!(html, "production=true");
     }
