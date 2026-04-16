@@ -35,6 +35,7 @@ pub struct AllowThemBuilder {
     cookie_domain: String,
     mfa_key: Option<[u8; 32]>,
     signing_key: Option<[u8; 32]>,
+    base_url: Option<String>,
 }
 
 impl AllowThemBuilder {
@@ -51,6 +52,7 @@ impl AllowThemBuilder {
             cookie_domain: String::new(),
             mfa_key: None,
             signing_key: None,
+            base_url: None,
         }
     }
 
@@ -67,6 +69,7 @@ impl AllowThemBuilder {
             cookie_domain: String::new(),
             mfa_key: None,
             signing_key: None,
+            base_url: None,
         }
     }
 
@@ -117,6 +120,16 @@ impl AllowThemBuilder {
         self
     }
 
+    /// Set the base URL (issuer) for the OIDC provider.
+    ///
+    /// Required for standalone mode. Used as the `iss` claim in tokens
+    /// and for issuer validation on incoming access tokens.
+    /// When not set, OIDC operations return `AuthError::BaseUrlNotConfigured`.
+    pub fn base_url(mut self, url: impl Into<String>) -> Self {
+        self.base_url = Some(url.into());
+        self
+    }
+
     /// Construct the [`AllowThem`] handle.
     ///
     /// Connects to (or wraps) the database, runs migrations, and assembles
@@ -141,6 +154,7 @@ impl AllowThemBuilder {
                 cookie_domain: self.cookie_domain,
                 mfa_key: self.mfa_key,
                 signing_key: self.signing_key,
+                base_url: self.base_url,
             }),
         })
     }
@@ -154,6 +168,7 @@ struct Inner {
     // Used by signing key operations (M39+). Suppressed until first use.
     #[allow(dead_code)]
     signing_key: Option<[u8; 32]>,
+    base_url: Option<String>,
 }
 
 /// Configured allowthem handle.
@@ -204,6 +219,14 @@ impl AllowThem {
             .signing_key
             .as_ref()
             .ok_or(AuthError::SigningKeyNotConfigured)
+    }
+
+    /// Returns the base URL (issuer), or `Err(BaseUrlNotConfigured)` if not set.
+    pub fn base_url(&self) -> Result<&str, AuthError> {
+        self.inner
+            .base_url
+            .as_deref()
+            .ok_or(AuthError::BaseUrlNotConfigured)
     }
 
     /// Extract the session token from a `Cookie` header value.
@@ -343,5 +366,29 @@ mod tests {
             result,
             Err(crate::error::AuthError::SigningKeyNotConfigured)
         ));
+    }
+
+    #[tokio::test]
+    async fn base_url_not_configured_returns_error() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+        let result = ath.base_url();
+        assert!(matches!(
+            result,
+            Err(crate::error::AuthError::BaseUrlNotConfigured)
+        ));
+    }
+
+    #[tokio::test]
+    async fn base_url_configured_returns_value() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://auth.example.com")
+            .build()
+            .await
+            .unwrap();
+        let result = ath.base_url();
+        assert!(matches!(result, Ok("https://auth.example.com")));
     }
 }

@@ -50,7 +50,8 @@ async fn main() -> Result<()> {
     let mut builder = AllowThemBuilder::new(&config.database_url)
         .session_ttl(Duration::hours(config.session_ttl_hours as i64))
         .cookie_secure(config.cookie_secure)
-        .cookie_domain(&config.cookie_domain);
+        .cookie_domain(&config.cookie_domain)
+        .base_url(&config.base_url);
     if let Some(key) = mfa_key {
         builder = builder.mfa_key(key);
     }
