@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use rand::TryRngCore;
 use rand::rngs::OsRng;
 use serde::Serialize;
+use url::Url;
 
 use crate::error::AuthError;
 use crate::types::{ApplicationId, ClientId, ClientSecret, PasswordHash, UserId};
@@ -55,6 +56,92 @@ pub fn generate_client_secret() -> Result<(ClientSecret, PasswordHash), AuthErro
     let raw = Base64UrlUnpadded::encode_string(&bytes);
     let hash = crate::password::hash_password(&raw)?;
     Ok((ClientSecret::new_unchecked(raw), hash))
+}
+
+impl Application {
+    /// Parse the stored JSON `redirect_uris` string into a `Vec<String>`.
+    ///
+    /// Returns `AuthError::Database` if the stored value is malformed JSON.
+    /// This indicates a data integrity error — the core layer always validates
+    /// and serializes URIs correctly on write.
+    pub fn redirect_uri_list(&self) -> Result<Vec<String>, AuthError> {
+        serde_json::from_str(&self.redirect_uris)
+            .map_err(|e| AuthError::Database(sqlx::Error::Decode(Box::new(e))))
+    }
+}
+
+fn map_unique_violation(err: sqlx::Error) -> AuthError {
+    if let sqlx::Error::Database(ref db_err) = err {
+        let msg = db_err.message();
+        if msg.contains("UNIQUE constraint failed") && msg.contains("client_id") {
+            return AuthError::Conflict("client_id already exists".into());
+        }
+    }
+    AuthError::Database(err)
+}
+
+/// Parameters for updating an application's mutable fields.
+///
+/// All fields are required. Fetch the current application first
+/// to populate fields that should remain unchanged.
+pub struct UpdateApplication {
+    pub name: String,
+    pub redirect_uris: Vec<String>,
+    pub is_trusted: bool,
+    pub is_active: bool,
+    pub logo_url: Option<String>,
+    pub primary_color: Option<String>,
+}
+
+/// Validate a list of redirect URIs for registration (create or update).
+///
+/// Rules (per RFC 6749 and RFC 8252):
+/// - List must not be empty.
+/// - Each URI must parse as an absolute URL (has a scheme).
+/// - No fragment component — prohibited by RFC 6749 Section 3.1.2.
+/// - HTTPS required, except `http://localhost` and `http://127.0.0.1`
+///   (loopback URIs permitted per RFC 8252 Section 8.3).
+///
+/// Returns `AuthError::InvalidRedirectUri` with the offending URI on first failure.
+pub fn validate_redirect_uris(uris: &[String]) -> Result<(), AuthError> {
+    if uris.is_empty() {
+        return Err(AuthError::InvalidRedirectUri(
+            "redirect_uris must not be empty".into(),
+        ));
+    }
+    for uri in uris {
+        let parsed = Url::parse(uri)
+            .map_err(|_| AuthError::InvalidRedirectUri(uri.clone()))?;
+        if parsed.fragment().is_some() {
+            return Err(AuthError::InvalidRedirectUri(uri.clone()));
+        }
+        let scheme = parsed.scheme();
+        if scheme == "https" {
+            continue;
+        }
+        if scheme == "http" {
+            let host = parsed.host_str().unwrap_or("");
+            if host == "localhost" || host == "127.0.0.1" {
+                continue;
+            }
+        }
+        return Err(AuthError::InvalidRedirectUri(uri.clone()));
+    }
+    Ok(())
+}
+
+/// Validate that `redirect_uri` exactly matches one of the registered URIs.
+///
+/// Used by the authorization endpoint (M39) to reject unregistered redirect targets.
+/// Exact string match — no normalization, no wildcard expansion.
+///
+/// Returns `AuthError::InvalidRedirectUri` if `redirect_uri` is not in `registered`.
+pub fn validate_redirect_uri(redirect_uri: &str, registered: &[String]) -> Result<(), AuthError> {
+    if registered.iter().any(|r| r == redirect_uri) {
+        Ok(())
+    } else {
+        Err(AuthError::InvalidRedirectUri(redirect_uri.to_owned()))
+    }
 }
 
 #[cfg(test)]
@@ -117,6 +204,124 @@ mod tests {
         let (_, hash) = generate_client_secret().expect("generate_client_secret");
         let valid = verify_password("wrong-secret", &hash).expect("verify_password");
         assert!(!valid, "wrong secret must not verify");
+    }
+
+    // validate_redirect_uris tests
+
+    #[test]
+    fn redirect_uri_empty_list_is_rejected() {
+        let err = validate_redirect_uris(&[]).unwrap_err();
+        assert!(matches!(err, AuthError::InvalidRedirectUri(_)));
+    }
+
+    #[test]
+    fn redirect_uri_https_is_valid() {
+        let uris = vec!["https://example.com/callback".to_string()];
+        assert!(validate_redirect_uris(&uris).is_ok());
+    }
+
+    #[test]
+    fn redirect_uri_http_localhost_is_valid() {
+        let uris = vec!["http://localhost/callback".to_string()];
+        assert!(validate_redirect_uris(&uris).is_ok());
+    }
+
+    #[test]
+    fn redirect_uri_http_localhost_with_port_is_valid() {
+        let uris = vec!["http://localhost:3000/callback".to_string()];
+        assert!(validate_redirect_uris(&uris).is_ok());
+    }
+
+    #[test]
+    fn redirect_uri_http_127_0_0_1_is_valid() {
+        let uris = vec!["http://127.0.0.1:8080/callback".to_string()];
+        assert!(validate_redirect_uris(&uris).is_ok());
+    }
+
+    #[test]
+    fn redirect_uri_http_non_localhost_is_rejected() {
+        let uris = vec!["http://example.com/callback".to_string()];
+        let err = validate_redirect_uris(&uris).unwrap_err();
+        assert!(matches!(err, AuthError::InvalidRedirectUri(_)));
+    }
+
+    #[test]
+    fn redirect_uri_with_fragment_is_rejected() {
+        let uris = vec!["https://example.com/callback#section".to_string()];
+        let err = validate_redirect_uris(&uris).unwrap_err();
+        assert!(matches!(err, AuthError::InvalidRedirectUri(_)));
+    }
+
+    #[test]
+    fn redirect_uri_relative_is_rejected() {
+        let uris = vec!["/callback".to_string()];
+        let err = validate_redirect_uris(&uris).unwrap_err();
+        assert!(matches!(err, AuthError::InvalidRedirectUri(_)));
+    }
+
+    // validate_redirect_uri tests
+
+    #[test]
+    fn redirect_uri_exact_match_passes() {
+        let registered = vec!["https://example.com/callback".to_string()];
+        assert!(validate_redirect_uri("https://example.com/callback", &registered).is_ok());
+    }
+
+    #[test]
+    fn redirect_uri_not_in_registered_is_rejected() {
+        let registered = vec!["https://example.com/callback".to_string()];
+        let err = validate_redirect_uri("https://example.com/other", &registered).unwrap_err();
+        assert!(matches!(err, AuthError::InvalidRedirectUri(_)));
+    }
+
+    // Application::redirect_uri_list tests
+
+    #[test]
+    fn redirect_uri_list_parses_valid_json() {
+        let (_, hash) = generate_client_secret().expect("generate_client_secret");
+        let app = Application {
+            id: ApplicationId::new(),
+            name: "Test".to_string(),
+            client_id: generate_client_id(),
+            client_secret_hash: hash,
+            redirect_uris: r#"["https://example.com/callback","https://example.com/other"]"#
+                .to_string(),
+            logo_url: None,
+            primary_color: None,
+            is_trusted: false,
+            created_by: None,
+            is_active: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let list = app.redirect_uri_list().expect("redirect_uri_list");
+        assert_eq!(
+            list,
+            vec![
+                "https://example.com/callback".to_string(),
+                "https://example.com/other".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn redirect_uri_list_returns_error_on_malformed_json() {
+        let (_, hash) = generate_client_secret().expect("generate_client_secret");
+        let app = Application {
+            id: ApplicationId::new(),
+            name: "Test".to_string(),
+            client_id: generate_client_id(),
+            client_secret_hash: hash,
+            redirect_uris: "not valid json".to_string(),
+            logo_url: None,
+            primary_color: None,
+            is_trusted: false,
+            created_by: None,
+            is_active: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        assert!(matches!(app.redirect_uri_list(), Err(AuthError::Database(_))));
     }
 
     #[test]
