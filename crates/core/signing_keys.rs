@@ -323,6 +323,7 @@ pub fn build_discovery(issuer: &str) -> OidcDiscovery {
 mod tests {
     use super::*;
     use crate::db::Db;
+    use rsa::pkcs8::DecodePrivateKey;
     use sqlx::SqlitePool;
     use sqlx::sqlite::SqliteConnectOptions;
     use std::str::FromStr;
@@ -497,6 +498,83 @@ mod tests {
     fn build_jwks_empty() {
         let jwks = build_jwks(&[]).unwrap();
         assert!(jwks.keys.is_empty(), "empty input yields empty JWKS");
+    }
+
+    #[test]
+    fn build_jwks_use_field_serializes_correctly() {
+        // The #[serde(rename = "use")] on JwkEntry is load-bearing for OIDC relying parties.
+        // Test that the JSON output contains "use":"sig", not "use_":"sig".
+        let private_key = RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
+        let public_key_pem = RsaPublicKey::from(&private_key)
+            .to_public_key_pem(rsa::pkcs8::LineEnding::LF)
+            .unwrap();
+
+        let key = SigningKey {
+            id: SigningKeyId::new(),
+            private_key_enc: vec![],
+            private_key_nonce: vec![],
+            public_key_pem,
+            algorithm: "RS256".to_string(),
+            is_active: true,
+            created_at: Utc::now(),
+        };
+
+        let jwks = build_jwks(&[key]).unwrap();
+        let json = serde_json::to_string(&jwks).unwrap();
+        assert!(
+            json.contains(r#""use":"sig"#),
+            "JWKS JSON must contain \"use\":\"sig\", got: {json}"
+        );
+        assert!(
+            !json.contains("use_"),
+            "JWKS JSON must not contain Rust field name 'use_', got: {json}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_active_signing_key_no_active_returns_not_found() {
+        let db = test_db().await;
+        // DB is empty — no active key.
+        let result = db.get_active_signing_key().await;
+        assert!(
+            matches!(result, Err(AuthError::NotFound)),
+            "expected NotFound, got: {result:?}"
+        );
+
+        // Also verify: key created but never activated.
+        db.create_signing_key(&ENC_KEY_A).await.unwrap();
+        let result = db.get_active_signing_key().await;
+        assert!(
+            matches!(result, Err(AuthError::NotFound)),
+            "inactive key must not be returned as active"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_and_decrypt_round_trip_through_db() {
+        // Exercise the full create→store→fetch→decrypt path including the BLOB round-trip
+        // through SQLite. The manual decrypt_round_trip test does not touch the DB.
+        let db = test_db().await;
+        let key = db.create_signing_key(&ENC_KEY_A).await.unwrap();
+
+        let fetched = db.get_signing_key(key.id).await.unwrap();
+        let decrypted_pem = decrypt_private_key(&fetched, &ENC_KEY_A).unwrap();
+
+        // Verify the decrypted bytes parse as a valid RSA private key PEM.
+        let reparsed = RsaPrivateKey::from_pkcs8_pem(&decrypted_pem);
+        assert!(
+            reparsed.is_ok(),
+            "decrypted PEM from DB must parse as RsaPrivateKey"
+        );
+
+        // Cross-check: public key derived from decrypted private key matches stored public key.
+        let derived_pub = RsaPublicKey::from(&reparsed.unwrap())
+            .to_public_key_pem(rsa::pkcs8::LineEnding::LF)
+            .unwrap();
+        assert_eq!(
+            derived_pub, fetched.public_key_pem,
+            "public key derived from decrypted private key must match stored public key"
+        );
     }
 
     #[test]
