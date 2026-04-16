@@ -21,6 +21,7 @@ pub mod roles;
 pub mod sessions;
 pub mod signing_keys;
 pub mod totp;
+pub mod token_issuance;
 pub mod types;
 pub mod users;
 
@@ -41,6 +42,11 @@ pub use sessions::{
 };
 pub use signing_keys::{
     JwkEntry, JwkSet, OidcDiscovery, SigningKey, build_discovery, build_jwks, decrypt_private_key,
+};
+pub use token_issuance::{
+    RefreshToken, TokenError, TokenResponse, compute_at_hash,
+    exchange_authorization_code, generate_refresh_token, hash_refresh_token,
+    mint_access_token, mint_id_token, verify_pkce_s256,
 };
 pub use types::*;
 
