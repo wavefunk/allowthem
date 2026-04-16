@@ -110,8 +110,7 @@ impl Username {
 pub struct PasswordHash(String);
 
 impl PasswordHash {
-    #[allow(dead_code)]
-    pub(crate) fn new_unchecked(s: String) -> Self {
+    pub fn new_unchecked(s: String) -> Self {
         Self(s)
     }
 

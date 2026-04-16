@@ -1,5 +1,6 @@
 mod config;
 mod error;
+mod login;
 mod logout;
 mod register;
 mod state;
@@ -65,7 +66,10 @@ async fn main() -> Result<()> {
     // 7. Router
     let app = Router::new()
         .route("/health", get(health))
-        .route("/register", get(register::get_register).post(register::post_register))
+        .route(
+            "/register",
+            get(register::get_register).post(register::post_register),
+        )
         .route("/logout", get(logout::handler).post(logout::handler))
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
@@ -310,8 +314,11 @@ mod tests {
     #[test]
     fn render_preserves_caller_context() {
         let mut env = minijinja::Environment::new();
-        env.add_template("test.html", "title={{ page_title }} prod={{ is_production }}")
-            .unwrap();
+        env.add_template(
+            "test.html",
+            "title={{ page_title }} prod={{ is_production }}",
+        )
+        .unwrap();
         let result = crate::templates::render(
             &env,
             "test.html",
@@ -325,10 +332,14 @@ mod tests {
     fn app_error_template_returns_500() {
         use axum::response::IntoResponse;
         let env = minijinja::Environment::new();
-        let result = crate::templates::render(&env, "nonexistent.html", minijinja::context! {}, false);
+        let result =
+            crate::templates::render(&env, "nonexistent.html", minijinja::context! {}, false);
         let err = result.unwrap_err();
         let response = err.into_response();
-        assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[tokio::test]
