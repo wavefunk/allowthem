@@ -419,3 +419,191 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
     }
 }
+
+#[cfg(test)]
+mod consent_tests {
+    use super::*;
+    use allowthem_server::authorize_post;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    async fn consent_test_state() -> (allowthem_core::AllowThem, AppState) {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+        let auth_client: Arc<dyn AuthClient> =
+            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let templates = crate::templates::build_template_env().unwrap();
+        let state = AppState {
+            ath: ath.clone(),
+            auth_client,
+            base_url: "http://localhost:3000".into(),
+            templates,
+            is_production: false,
+            login_attempts: Arc::new(dashmap::DashMap::new()),
+        };
+        (ath, state)
+    }
+
+    fn consent_router(state: AppState) -> Router {
+        use allowthem_server::csrf_middleware;
+        Router::new()
+            .route(
+                "/oauth/authorize",
+                axum::routing::get(consent::get_authorize)
+                    .post(authorize_post),
+            )
+            .layer(axum::middleware::from_fn(csrf_middleware))
+            .with_state(state)
+    }
+
+    async fn create_test_session(ath: &allowthem_core::AllowThem, email: &str) -> String {
+        let email = allowthem_core::types::Email::new(email.into()).unwrap();
+        let user = ath.db().create_user(email, "password123", None).await.unwrap();
+        let token = allowthem_core::generate_token();
+        let hash = allowthem_core::hash_token(&token);
+        let expires = chrono::Utc::now() + chrono::Duration::hours(24);
+        ath.db().create_session(user.id, hash, None, None, expires).await.unwrap();
+        format!("allowthem_session={}", token.as_str())
+    }
+
+    fn authorize_query(app: &allowthem_core::applications::Application) -> String {
+        format!(
+            "/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid+email&state=teststate&code_challenge=testchallenge&code_challenge_method=S256",
+            app.client_id.as_str(),
+            "https%3A%2F%2Fexample.com%2Fcallback"
+        )
+    }
+
+    async fn read_body(resp: axum::http::Response<Body>) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn consent_screen_renders_html_with_scope_descriptions() {
+        let (ath, state) = consent_test_state().await;
+        let cookie = create_test_session(&ath, "html@test.com").await;
+        let (app, _) = ath.db().create_application(
+            "MyTestApp".into(), vec!["https://example.com/callback".into()],
+            false, None, None, None,
+        ).await.unwrap();
+        let router = consent_router(state);
+        let req = Request::builder().method("GET").uri(&authorize_query(&app))
+            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert!(body.contains("MyTestApp"), "app name");
+        assert!(body.contains("wants access to your account"), "prompt");
+        assert!(body.contains("Verify your identity"), "openid scope");
+        assert!(body.contains("View your email address"), "email scope");
+        assert!(body.contains("Allow"), "allow button");
+        assert!(body.contains("Deny"), "deny button");
+        assert!(body.contains(r#"name="state" value="teststate""#), "state field");
+    }
+
+    #[tokio::test]
+    async fn consent_screen_redirects_for_trusted_app() {
+        let (ath, state) = consent_test_state().await;
+        let cookie = create_test_session(&ath, "trusted@test.com").await;
+        let (app, _) = ath.db().create_application(
+            "TrustedApp".into(), vec!["https://example.com/callback".into()],
+            true, None, None, None,
+        ).await.unwrap();
+        let router = consent_router(state);
+        let req = Request::builder().method("GET").uri(&authorize_query(&app))
+            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FOUND);
+        let loc = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(loc.contains("code="));
+        assert!(loc.contains("state=teststate"));
+    }
+
+    #[tokio::test]
+    async fn consent_screen_redirects_to_login_unauthenticated() {
+        let (ath, state) = consent_test_state().await;
+        let (app, _) = ath.db().create_application(
+            "NoAuth".into(), vec!["https://example.com/callback".into()],
+            false, None, None, None,
+        ).await.unwrap();
+        let router = consent_router(state);
+        let req = Request::builder().method("GET").uri(&authorize_query(&app))
+            .body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        let loc = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(loc.starts_with("/login?next="));
+    }
+
+    #[tokio::test]
+    async fn consent_screen_no_logo_for_http_url() {
+        let (ath, state) = consent_test_state().await;
+        let cookie = create_test_session(&ath, "httplogo@test.com").await;
+        let (app, _) = ath.db().create_application(
+            "HttpLogo".into(), vec!["https://example.com/callback".into()],
+            false, None, Some("http://example.com/logo.png".into()), None,
+        ).await.unwrap();
+        let router = consent_router(state);
+        let req = Request::builder().method("GET").uri(&authorize_query(&app))
+            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        let body = read_body(resp).await;
+        assert!(!body.contains("<img"), "no img for http logo");
+    }
+
+    #[tokio::test]
+    async fn consent_screen_renders_logo_for_https_url() {
+        let (ath, state) = consent_test_state().await;
+        let cookie = create_test_session(&ath, "httpslogo@test.com").await;
+        let (app, _) = ath.db().create_application(
+            "HttpsLogo".into(), vec!["https://example.com/callback".into()],
+            false, None, Some("https://cdn.example.com/logo.png".into()), None,
+        ).await.unwrap();
+        let router = consent_router(state);
+        let req = Request::builder().method("GET").uri(&authorize_query(&app))
+            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        let body = read_body(resp).await;
+        assert!(body.contains("<img"), "should render img");
+        // MiniJinja HTML-escapes attribute values; check that the img tag and a recognizable
+        // portion of the URL are present
+        assert!(body.contains("cdn.example.com"), "logo url should contain domain");
+    }
+
+    #[tokio::test]
+    async fn consent_screen_applies_primary_color() {
+        let (ath, state) = consent_test_state().await;
+        let cookie = create_test_session(&ath, "color@test.com").await;
+        let (app, _) = ath.db().create_application(
+            "ColorApp".into(), vec!["https://example.com/callback".into()],
+            false, None, None, Some("#ff6600".into()),
+        ).await.unwrap();
+        let router = consent_router(state);
+        let req = Request::builder().method("GET").uri(&authorize_query(&app))
+            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        let body = read_body(resp).await;
+        assert!(body.contains("background-color: #ff6600"), "custom color");
+    }
+
+    #[tokio::test]
+    async fn consent_screen_default_button_color() {
+        let (ath, state) = consent_test_state().await;
+        let cookie = create_test_session(&ath, "defcolor@test.com").await;
+        let (app, _) = ath.db().create_application(
+            "DefaultColor".into(), vec!["https://example.com/callback".into()],
+            false, None, None, None,
+        ).await.unwrap();
+        let router = consent_router(state);
+        let req = Request::builder().method("GET").uri(&authorize_query(&app))
+            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        let body = read_body(resp).await;
+        assert!(body.contains("background-color: #2563eb"), "default blue");
+    }
+}
