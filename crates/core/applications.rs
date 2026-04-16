@@ -61,6 +61,7 @@ pub fn generate_client_secret() -> Result<(ClientSecret, PasswordHash), AuthErro
 mod tests {
     use super::*;
     use crate::password::verify_password;
+    use crate::types::ApplicationId;
 
     #[test]
     fn client_id_has_ath_prefix() {
@@ -116,5 +117,33 @@ mod tests {
         let (_, hash) = generate_client_secret().expect("generate_client_secret");
         let valid = verify_password("wrong-secret", &hash).expect("verify_password");
         assert!(!valid, "wrong secret must not verify");
+    }
+
+    #[test]
+    fn application_serialization_omits_secret() {
+        let (_, hash) = generate_client_secret().expect("generate_client_secret");
+        let app = Application {
+            id: ApplicationId::new(),
+            name: "Test App".to_string(),
+            client_id: generate_client_id(),
+            client_secret_hash: hash,
+            redirect_uris: r#"["https://example.com/callback"]"#.to_string(),
+            logo_url: None,
+            primary_color: None,
+            is_trusted: false,
+            created_by: None,
+            is_active: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let value = serde_json::to_value(&app).expect("serialize Application");
+        assert!(
+            value.get("client_secret_hash").is_none(),
+            "client_secret_hash must not appear in serialized output"
+        );
+        assert!(
+            value.get("client_id").is_some(),
+            "client_id must appear in serialized output"
+        );
     }
 }

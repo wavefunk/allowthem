@@ -2,6 +2,7 @@ use sqlx::SqlitePool;
 use sqlx::sqlite::SqliteConnectOptions;
 use std::str::FromStr;
 
+use crate::applications::Application;
 use crate::audit::AuditEvent;
 use crate::db::Db;
 use crate::error::AuthError;
@@ -10,9 +11,9 @@ use crate::sessions::{
     SessionConfig, generate_token, hash_token, parse_session_cookie, session_cookie,
 };
 use crate::types::{
-    Email, PasswordHash, Permission, PermissionId, PermissionName, Role, RoleId, RoleName,
-    RolePermission, Session, SessionId, TokenHash, User, UserId, UserPermission, UserRole,
-    Username,
+    ApplicationId, ClientId, Email, PasswordHash, Permission, PermissionId, PermissionName, Role,
+    RoleId, RoleName, RolePermission, Session, SessionId, TokenHash, User, UserId, UserPermission,
+    UserRole, Username,
 };
 
 async fn test_db() -> Db {
@@ -2073,4 +2074,74 @@ async fn test_audit_log_null_user_id() {
     assert_eq!(entries[0].event_type, AuditEvent::LoginFailed);
     assert!(entries[0].user_id.is_none());
     assert_eq!(entries[0].ip_address.as_deref(), Some("10.0.0.1"));
+}
+
+#[tokio::test]
+async fn test_application_round_trip() {
+    let db = test_db().await;
+
+    // applications.created_by is a nullable FK to users
+    let user_id = UserId::new();
+    sqlx::query(
+        "INSERT INTO allowthem_users (id, email, username, password_hash, email_verified, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(Email::new_unchecked("app-owner@example.com".to_string()))
+    .bind(None::<Username>)
+    .bind(None::<PasswordHash>)
+    .bind(false)
+    .bind(true)
+    .bind(now_str())
+    .bind(now_str())
+    .execute(db.pool())
+    .await
+    .expect("insert user for application FK");
+
+    let app_id = ApplicationId::new();
+    let client_id = ClientId::new_unchecked("ath_testclientid0000000000000000000".to_string());
+    let secret_hash =
+        PasswordHash::new_unchecked("$argon2id$v=19$m=65536,t=2,p=1$fakesalt$fakehash".to_string());
+    let redirect_uris = r#"["https://example.com/callback"]"#;
+
+    sqlx::query(
+        "INSERT INTO allowthem_applications
+         (id, name, client_id, client_secret_hash, redirect_uris, logo_url, primary_color, is_trusted, created_by, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(app_id)
+    .bind("My App")
+    .bind(&client_id)
+    .bind(&secret_hash)
+    .bind(redirect_uris)
+    .bind(None::<String>)
+    .bind(None::<String>)
+    .bind(true)
+    .bind(Some(user_id))
+    .bind(true)
+    .bind(now_str())
+    .bind(now_str())
+    .execute(db.pool())
+    .await
+    .expect("insert application");
+
+    let app = sqlx::query_as::<_, Application>(
+        "SELECT id, name, client_id, client_secret_hash, redirect_uris, logo_url, primary_color,
+                is_trusted, created_by, is_active, created_at, updated_at
+         FROM allowthem_applications WHERE id = ?",
+    )
+    .bind(app_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("fetch application");
+
+    assert_eq!(app.id, app_id);
+    assert_eq!(app.name, "My App");
+    assert_eq!(app.client_id, client_id);
+    assert_eq!(app.redirect_uris, redirect_uris);
+    assert_eq!(app.created_by, Some(user_id));
+    assert!(app.is_trusted);
+    assert!(app.is_active);
+    assert!(app.logo_url.is_none());
+    assert!(app.primary_color.is_none());
 }
