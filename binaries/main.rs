@@ -1,4 +1,5 @@
 mod config;
+mod error;
 mod state;
 
 use std::sync::Arc;
