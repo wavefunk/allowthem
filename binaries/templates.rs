@@ -38,7 +38,6 @@ fn template_dir() -> std::path::PathBuf {
 ///
 /// Injects `is_production` into every render. Route handlers pass their
 /// page-specific context via `ctx`; the shared globals are merged in.
-#[cfg_attr(not(test), expect(dead_code, reason = "M31+ route handlers will call render()"))]
 pub fn render(
     env: &Environment<'_>,
     template_name: &str,
