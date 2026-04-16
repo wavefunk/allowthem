@@ -1,6 +1,7 @@
 mod config;
 mod error;
 mod state;
+mod templates;
 
 use std::sync::Arc;
 
