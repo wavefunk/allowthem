@@ -732,6 +732,7 @@ async fn test_migrations_create_all_tables() {
             "allowthem_role_permissions",
             "allowthem_roles",
             "allowthem_sessions",
+            "allowthem_signing_keys",
             "allowthem_user_permissions",
             "allowthem_user_roles",
             "allowthem_users",
