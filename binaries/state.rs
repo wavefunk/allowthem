@@ -1,6 +1,9 @@
+use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::extract::FromRef;
+use dashmap::DashMap;
 use minijinja::Environment;
 
 use allowthem_core::{AllowThem, AuthClient};
@@ -12,6 +15,7 @@ pub struct AppState {
     pub base_url: String,
     pub templates: Arc<Environment<'static>>,
     pub is_production: bool,
+    pub login_attempts: Arc<DashMap<IpAddr, (u32, Instant)>>,
 }
 
 impl FromRef<AppState> for Arc<dyn AuthClient> {

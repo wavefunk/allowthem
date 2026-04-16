@@ -1,6 +1,7 @@
 mod config;
 mod error;
 mod logout;
+mod register;
 mod state;
 mod templates;
 
@@ -58,11 +59,13 @@ async fn main() -> Result<()> {
         base_url: config.base_url.clone(),
         templates,
         is_production: config.is_production,
+        login_attempts: Arc::new(dashmap::DashMap::new()),
     };
 
     // 7. Router
     let app = Router::new()
         .route("/health", get(health))
+        .route("/register", get(register::get_register).post(register::post_register))
         .route("/logout", get(logout::handler).post(logout::handler))
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
@@ -171,6 +174,7 @@ mod tests {
             base_url: "http://localhost:3000".into(),
             templates,
             is_production: false,
+            login_attempts: Arc::new(dashmap::DashMap::new()),
         };
         let app = Router::new()
             .route("/health", get(health))
@@ -240,6 +244,7 @@ mod tests {
             base_url: "http://localhost:3000".into(),
             templates,
             is_production: false,
+            login_attempts: Arc::new(dashmap::DashMap::new()),
         };
 
         // Verify Arc<dyn AuthClient> FromRef — used by AuthUser, OptionalAuthUser, middleware
@@ -342,6 +347,7 @@ mod tests {
             base_url: "http://localhost:3000".into(),
             templates,
             is_production: false,
+            login_attempts: Arc::new(dashmap::DashMap::new()),
         };
         let static_dir = if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
             std::path::PathBuf::from(dir).join("static")
