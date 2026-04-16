@@ -88,6 +88,14 @@ impl Email {
 pub struct Username(String);
 
 impl Username {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
     #[allow(dead_code)]
     pub(crate) fn new_unchecked(s: String) -> Self {
         Self(s)
