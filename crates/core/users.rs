@@ -57,6 +57,33 @@ impl Db {
         self.get_user(id).await
     }
 
+    /// Import a user with a pre-existing password hash (for migration from external systems).
+    /// The hash must be a valid Argon2 PHC string. No validation is performed on it.
+    pub async fn create_user_with_hash(
+        &self,
+        email: Email,
+        password_hash: &str,
+        username: Option<Username>,
+    ) -> Result<User, AuthError> {
+        let id = UserId::new();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        sqlx::query(
+            "INSERT INTO allowthem_users (id, email, username, password_hash, email_verified, is_active, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?5)"
+        )
+        .bind(id)
+        .bind(&email)
+        .bind(&username)
+        .bind(password_hash)
+        .bind(&now)
+        .execute(self.pool())
+        .await
+        .map_err(map_unique_violation)?;
+
+        self.get_user(id).await
+    }
+
     /// Look up a user by ID. Returns User with password_hash = None.
     pub async fn get_user(&self, id: UserId) -> Result<User, AuthError> {
         sqlx::query_as::<_, User>(
