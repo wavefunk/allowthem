@@ -12,7 +12,7 @@ pub mod password_reset_routes;
 pub use bearer::BearerAuthUser;
 pub use csrf::{CsrfToken, csrf_middleware};
 pub use error::AuthExtractError;
-pub use extractors::{AuthUser, OptionalAuthUser};
+pub use extractors::{AuthUser, BrowserAuthUser, OptionalAuthUser};
 pub use mfa_routes::mfa_routes;
 pub use middleware::{require_auth, require_permission, require_role};
 pub use oauth_routes::oauth_routes;

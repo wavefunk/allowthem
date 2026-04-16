@@ -36,3 +36,26 @@ impl IntoResponse for AuthExtractError {
         }
     }
 }
+
+/// Rejection type for [`BrowserAuthUser`](crate::BrowserAuthUser).
+///
+/// Redirects unauthenticated browser requests to the login page with a
+/// `?next=` parameter preserving the originally requested path.
+#[derive(Debug)]
+pub struct BrowserAuthRedirect(pub(crate) String);
+
+impl BrowserAuthRedirect {
+    pub fn new(path: &str) -> Self {
+        Self(format!("/login?next={path}"))
+    }
+}
+
+impl IntoResponse for BrowserAuthRedirect {
+    fn into_response(self) -> Response {
+        (
+            StatusCode::SEE_OTHER,
+            [(axum::http::header::LOCATION, self.0)],
+        )
+            .into_response()
+    }
+}

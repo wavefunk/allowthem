@@ -6,7 +6,7 @@ use axum::http::request::Parts;
 
 use allowthem_core::{AuthClient, User, parse_session_cookie};
 
-use crate::error::AuthExtractError;
+use crate::error::{AuthExtractError, BrowserAuthRedirect};
 
 /// Axum extractor that provides the authenticated user.
 ///
@@ -70,6 +70,49 @@ where
             }
             Err(_) => Ok(OptionalAuthUser(None)),
         }
+    }
+}
+
+/// Axum extractor for browser-facing routes that require authentication.
+///
+/// Same session validation as [`AuthUser`], but rejects with a 303 redirect
+/// to `/login?next={path}` instead of a JSON 401. Use this for routes that
+/// render HTML — unauthenticated users are sent to the login page and
+/// returned to the original path after logging in.
+pub struct BrowserAuthUser(pub User);
+
+impl<S> FromRequestParts<S> for BrowserAuthUser
+where
+    Arc<dyn AuthClient>: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = BrowserAuthRedirect;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let redirect = BrowserAuthRedirect::new(parts.uri.path());
+        let client = <Arc<dyn AuthClient>>::from_ref(state);
+
+        let cookie_header = parts
+            .headers
+            .get(COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .ok_or(redirect)?;
+
+        let redirect = BrowserAuthRedirect::new(parts.uri.path());
+        let token = parse_session_cookie(cookie_header, client.session_cookie_name())
+            .ok_or(redirect)?;
+
+        let redirect = BrowserAuthRedirect::new(parts.uri.path());
+        let user = client
+            .validate_session(&token)
+            .await
+            .map_err(|err| {
+                tracing::error!("auth extraction error: {err}");
+                BrowserAuthRedirect::new(parts.uri.path())
+            })?
+            .ok_or(redirect)?;
+
+        Ok(BrowserAuthUser(user))
     }
 }
 
@@ -137,6 +180,7 @@ mod tests {
         Router::new()
             .route("/protected", get(protected_handler))
             .route("/optional", get(optional_handler))
+            .route("/browser", get(browser_handler))
             .with_state(state)
     }
 
@@ -146,6 +190,10 @@ mod tests {
 
     async fn optional_handler(OptionalAuthUser(user): OptionalAuthUser) -> Json<serde_json::Value> {
         Json(serde_json::json!({"user": user.map(|u| u.email)}))
+    }
+
+    async fn browser_handler(BrowserAuthUser(user): BrowserAuthUser) -> Json<serde_json::Value> {
+        Json(serde_json::json!({"email": user.email}))
     }
 
     async fn read_body(resp: axum::http::Response<axum::body::Body>) -> serde_json::Value {
@@ -295,5 +343,83 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body(resp).await;
         assert_eq!(body["user"], "test@example.com");
+    }
+
+    // --- BrowserAuthUser tests ---
+
+    #[tokio::test]
+    async fn browser_auth_no_cookie_redirects() {
+        let (ath, _) = test_setup().await;
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/browser")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            resp.headers().get("location").unwrap(),
+            "/login?next=/browser"
+        );
+    }
+
+    #[tokio::test]
+    async fn browser_auth_valid_session_returns_user() {
+        let (ath, cookie_value) = test_setup().await;
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/browser")
+            .header(COOKIE, &cookie_value)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert_eq!(body["email"], "test@example.com");
+    }
+
+    #[tokio::test]
+    async fn browser_auth_expired_session_redirects() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("expired@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
+
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        let expires = Utc::now() - Duration::hours(1);
+        ath.db()
+            .create_session(user.id, token_hash, None, None, expires)
+            .await
+            .unwrap();
+
+        let cookie = ath.session_cookie(&token);
+        let cookie_value = cookie.split(';').next().unwrap().to_string();
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/browser")
+            .header(COOKIE, &cookie_value)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            resp.headers().get("location").unwrap(),
+            "/login?next=/browser"
+        );
     }
 }
