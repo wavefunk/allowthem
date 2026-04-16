@@ -1,15 +1,13 @@
+use axum::Form;
 use axum::extract::State;
 use axum::http::header::USER_AGENT;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Form;
 use chrono::Utc;
 use minijinja::context;
 use serde::Deserialize;
 
-use allowthem_core::{
-    AuditEvent, AuthError, Email, Username, generate_token, hash_token,
-};
+use allowthem_core::{AuditEvent, AuthError, Email, Username, generate_token, hash_token};
 use allowthem_server::CsrfToken;
 
 use crate::error::AppError;
@@ -35,11 +33,7 @@ pub async fn get_register(
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
     if user.0.is_some() {
-        return Ok((
-            StatusCode::SEE_OTHER,
-            [(axum::http::header::LOCATION, "/")],
-        )
-            .into_response());
+        return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
     }
 
     let html = crate::templates::render(
@@ -94,7 +88,12 @@ pub async fn post_register(
     };
 
     // 5. Create user
-    let user = match state.ath.db().create_user(email, &form.password, username).await {
+    let user = match state
+        .ath
+        .db()
+        .create_user(email, &form.password, username)
+        .await
+    {
         Ok(u) => u,
         Err(AuthError::Conflict(ref msg)) if msg.contains("email") => {
             return render_form_error(
@@ -105,12 +104,7 @@ pub async fn post_register(
             );
         }
         Err(AuthError::Conflict(ref msg)) if msg.contains("username") => {
-            return render_form_error(
-                &state,
-                &csrf,
-                &form,
-                "This username is already taken",
-            );
+            return render_form_error(&state, &csrf, &form, "This username is already taken");
         }
         Err(e) => return Err(AppError::Auth(e)),
     };
@@ -184,4 +178,308 @@ fn client_ip(headers: &HeaderMap) -> Option<String> {
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
         .map(|s| s.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use axum::routing::get;
+    use tower::ServiceExt;
+
+    use allowthem_core::{
+        AllowThem, AllowThemBuilder, AuditEvent, AuthClient, Email, EmbeddedAuthClient, Username,
+        parse_session_cookie,
+    };
+    use allowthem_server::csrf_middleware;
+
+    use crate::state::AppState;
+
+    async fn setup() -> (AllowThem, AppState) {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+        let auth_client: Arc<dyn AuthClient> =
+            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let templates = crate::templates::build_template_env().unwrap();
+        let state = AppState {
+            ath: ath.clone(),
+            auth_client,
+            base_url: "http://localhost:3000".into(),
+            templates,
+            is_production: false,
+            login_attempts: Arc::new(dashmap::DashMap::new()),
+        };
+        (ath, state)
+    }
+
+    fn test_app(state: AppState) -> Router {
+        Router::new()
+            .route(
+                "/register",
+                get(super::get_register).post(super::post_register),
+            )
+            .layer(axum::middleware::from_fn(csrf_middleware))
+            .with_state(state)
+    }
+
+    /// Send GET /register, extract the csrf_token cookie value from Set-Cookie.
+    async fn get_csrf_token(app: &Router) -> String {
+        let req = Request::builder()
+            .uri("/register")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let set_cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        // Parse "csrf_token=<value>; ..." -> "<value>"
+        set_cookie
+            .split(';')
+            .next()
+            .unwrap()
+            .split('=')
+            .nth(1)
+            .unwrap()
+            .to_string()
+    }
+
+    fn register_request(
+        csrf: &str,
+        email: &str,
+        password: &str,
+        confirm: &str,
+        username: &str,
+    ) -> Request<Body> {
+        // Minimal URL-encoding: replace @ with %40 for email addresses.
+        // Test values use simple ASCII, so this is sufficient.
+        let enc = |s: &str| s.replace('@', "%40");
+        let body = format!(
+            "csrf_token={}&email={}&password={}&password_confirm={}&username={}",
+            csrf,
+            enc(email),
+            enc(password),
+            enc(confirm),
+            enc(username),
+        );
+        Request::builder()
+            .method("POST")
+            .uri("/register")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::COOKIE, format!("csrf_token={}", csrf))
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    async fn body_string(resp: axum::http::Response<Body>) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn get_register_renders_form() {
+        let (_, state) = setup().await;
+        let app = test_app(state);
+        let req = Request::builder()
+            .uri("/register")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("<form"));
+        assert!(html.contains("csrf_token"));
+        assert!(html.contains("name=\"email\""));
+        assert!(html.contains("name=\"password\""));
+        assert!(html.contains("name=\"password_confirm\""));
+    }
+
+    #[tokio::test]
+    async fn post_register_success_redirects() {
+        let (_, state) = setup().await;
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(&csrf, "test@example.com", "password123", "password123", "");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/");
+        let set_cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(set_cookie.contains("allowthem_session"));
+    }
+
+    #[tokio::test]
+    async fn post_register_creates_user() {
+        let (ath, state) = setup().await;
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(
+            &csrf,
+            "new@example.com",
+            "password123",
+            "password123",
+            "myuser",
+        );
+        app.oneshot(req).await.unwrap();
+
+        let email = Email::new("new@example.com".into()).unwrap();
+        let user = ath.db().get_user_by_email(&email).await.unwrap();
+        assert_eq!(user.email, email);
+        assert_eq!(user.username.as_ref().map(|u| u.as_str()), Some("myuser"));
+    }
+
+    #[tokio::test]
+    async fn post_register_creates_session() {
+        let (ath, state) = setup().await;
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(&csrf, "sess@example.com", "password123", "password123", "");
+        let resp = app.oneshot(req).await.unwrap();
+
+        // Extract session token from Set-Cookie header and verify in DB
+        let set_cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let token = parse_session_cookie(set_cookie, "allowthem_session")
+            .expect("session cookie should be present");
+        let session = ath.db().lookup_session(&token).await.unwrap();
+        assert!(session.is_some(), "session should exist in DB");
+    }
+
+    #[tokio::test]
+    async fn post_register_logs_audit() {
+        let (ath, state) = setup().await;
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(&csrf, "audit@example.com", "password123", "password123", "");
+        app.oneshot(req).await.unwrap();
+
+        let entries = ath.db().get_audit_log(None, 10, 0).await.unwrap();
+        let register_entry = entries
+            .iter()
+            .find(|e| e.event_type == AuditEvent::Register);
+        assert!(
+            register_entry.is_some(),
+            "register audit event should be recorded"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_register_password_mismatch() {
+        let (_, state) = setup().await;
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(
+            &csrf,
+            "mismatch@example.com",
+            "password123",
+            "different456",
+            "",
+        );
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("Passwords do not match"));
+        assert!(html.contains("mismatch@example.com"));
+    }
+
+    #[tokio::test]
+    async fn post_register_password_too_short() {
+        let (_, state) = setup().await;
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(&csrf, "short@example.com", "abc", "abc", "");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("Password must be at least 8 characters"));
+    }
+
+    #[tokio::test]
+    async fn post_register_invalid_email() {
+        let (_, state) = setup().await;
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(&csrf, "not-an-email", "password123", "password123", "");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("Invalid email address"));
+    }
+
+    #[tokio::test]
+    async fn post_register_duplicate_email() {
+        let (ath, state) = setup().await;
+        // Pre-create user with this email
+        let email = Email::new("dupe@example.com".into()).unwrap();
+        ath.db()
+            .create_user(email, "existing123", None)
+            .await
+            .unwrap();
+
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(&csrf, "dupe@example.com", "password123", "password123", "");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("An account with this email already exists"));
+    }
+
+    #[tokio::test]
+    async fn post_register_duplicate_username() {
+        let (ath, state) = setup().await;
+        let email = Email::new("first@example.com".into()).unwrap();
+        ath.db()
+            .create_user(email, "existing123", Some(Username::new("taken")))
+            .await
+            .unwrap();
+
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(
+            &csrf,
+            "second@example.com",
+            "password123",
+            "password123",
+            "taken",
+        );
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("This username is already taken"));
+    }
+
+    #[tokio::test]
+    async fn post_register_without_csrf_returns_403() {
+        let (_, state) = setup().await;
+        let app = test_app(state);
+        let body = "email=test%40example.com&password=password123&password_confirm=password123";
+        let req = Request::builder()
+            .method("POST")
+            .uri("/register")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
 }
