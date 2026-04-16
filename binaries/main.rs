@@ -298,6 +298,30 @@ mod tests {
         assert_eq!(html, "production=true");
     }
 
+    #[test]
+    fn render_preserves_caller_context() {
+        let mut env = minijinja::Environment::new();
+        env.add_template("test.html", "title={{ page_title }} prod={{ is_production }}")
+            .unwrap();
+        let result = crate::templates::render(
+            &env,
+            "test.html",
+            minijinja::context! { page_title => "Login" },
+            false,
+        );
+        assert_eq!(result.unwrap().0, "title=Login prod=false");
+    }
+
+    #[test]
+    fn app_error_template_returns_500() {
+        use axum::response::IntoResponse;
+        let env = minijinja::Environment::new();
+        let result = crate::templates::render(&env, "nonexistent.html", minijinja::context! {}, false);
+        let err = result.unwrap_err();
+        let response = err.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
     #[tokio::test]
     async fn static_file_serving() {
         let ath = AllowThemBuilder::new("sqlite::memory:")
