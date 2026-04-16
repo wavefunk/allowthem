@@ -1,5 +1,6 @@
 mod admin_applications;
 mod config;
+mod consent;
 mod error;
 mod login;
 mod logout;
@@ -17,7 +18,7 @@ use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
 use allowthem_core::{AllowThemBuilder, AuthClient, EmbeddedAuthClient};
-use allowthem_server::{csrf_middleware, userinfo_route, well_known_routes};
+use allowthem_server::{authorize_post, csrf_middleware, userinfo_route, well_known_routes};
 
 use crate::state::AppState;
 
@@ -95,6 +96,10 @@ async fn main() -> Result<()> {
         .route(
             "/settings/password",
             axum::routing::post(settings::post_change_password),
+        )
+        .route(
+            "/oauth/authorize",
+            get(consent::get_authorize).post(authorize_post),
         )
         .nest("/admin/applications", admin_applications::routes())
         .merge(wk_router)
