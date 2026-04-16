@@ -70,6 +70,10 @@ async fn main() -> Result<()> {
             "/register",
             get(register::get_register).post(register::post_register),
         )
+        .route(
+            "/login",
+            get(login::get_login).post(login::post_login),
+        )
         .route("/logout", get(logout::handler).post(logout::handler))
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
@@ -78,9 +82,12 @@ async fn main() -> Result<()> {
     // 8. Serve
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!("listening on {}", config.bind);
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     Ok(())
 }
