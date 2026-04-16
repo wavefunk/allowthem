@@ -59,4 +59,7 @@ pub enum AuthError {
 
     #[error("invalid redirect URI: {0}")]
     InvalidRedirectUri(String),
+
+    #[error("invalid authorization request: {0}")]
+    InvalidAuthorizationRequest(String),
 }
