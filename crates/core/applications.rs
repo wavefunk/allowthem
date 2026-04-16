@@ -186,7 +186,7 @@ impl Db {
         .bind(&logo_url)
         .bind(&primary_color)
         .bind(is_trusted)
-        .bind(&created_by)
+        .bind(created_by)
         .bind(&now)
         .execute(self.pool())
         .await
