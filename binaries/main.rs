@@ -197,4 +197,40 @@ mod tests {
         let hex = "0123456789abcdef0123456789abcdef"; // 32 chars = 16 bytes, not 32
         assert!(decode_mfa_key(hex).is_err());
     }
+
+    #[test]
+    fn decode_mfa_key_odd_length() {
+        // 63 chars — odd length would panic on &hex[62..64] without the length guard
+        let hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde";
+        assert!(decode_mfa_key(hex).is_err());
+    }
+
+    #[tokio::test]
+    async fn from_ref_impls() {
+        use allowthem_core::AllowThem;
+        use axum::extract::FromRef;
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+        let auth_client: Arc<dyn AuthClient> =
+            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let state = AppState {
+            ath,
+            auth_client,
+            base_url: "http://localhost:3000".into(),
+        };
+
+        // Verify Arc<dyn AuthClient> FromRef — used by AuthUser, OptionalAuthUser, middleware
+        let client = <Arc<dyn AuthClient>>::from_ref(&state);
+        assert_eq!(client.login_url(), "/login");
+
+        // Verify AllowThem FromRef — used by future standalone route handlers (M31-34)
+        let extracted_ath = AllowThem::from_ref(&state);
+        assert_eq!(
+            extracted_ath.session_config().cookie_name,
+            "allowthem_session"
+        );
+    }
 }
