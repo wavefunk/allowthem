@@ -6,6 +6,7 @@ pub mod error;
 pub mod extractors;
 pub mod mfa_routes;
 pub mod middleware;
+pub mod oauth_bearer;
 pub mod oauth_routes;
 pub mod password_reset_routes;
 pub mod well_known_routes;
