@@ -49,6 +49,10 @@ id_newtype!(MfaSecretId);
 id_newtype!(MfaRecoveryCodeId);
 id_newtype!(MfaChallengeId);
 id_newtype!(InvitationId);
+id_newtype!(ApplicationId);
+id_newtype!(AuthorizationCodeId);
+id_newtype!(RefreshTokenId);
+id_newtype!(ConsentId);
 
 /// Email address. Validated at construction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
@@ -146,6 +150,49 @@ impl SessionToken {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Public-facing OAuth client identifier.
+///
+/// Format: `ath_` prefix + 24 random bytes base64url-encoded (32 chars) = 36 chars total.
+/// The prefix makes client IDs recognizable in logs and configs. The 192 bits of
+/// entropy from the random portion ensures collision resistance without coordination.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(transparent)]
+pub struct ClientId(String);
+
+impl ClientId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub(crate) fn new_unchecked(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl std::fmt::Display for ClientId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A raw OAuth client secret — returned once on application creation.
+///
+/// 32 random bytes base64url-encoded (43 chars). Same entropy as session tokens.
+/// The Argon2 hash of this value is stored as `client_secret_hash` in the
+/// applications table. Never persisted.
+#[derive(Debug, Clone)]
+pub struct ClientSecret(String);
+
+impl ClientSecret {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub(crate) fn new_unchecked(s: String) -> Self {
+        Self(s)
     }
 }
 
