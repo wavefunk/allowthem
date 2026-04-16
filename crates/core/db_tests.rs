@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use sqlx::sqlite::SqliteConnectOptions;
 use std::str::FromStr;
 
-use crate::applications::Application;
+use crate::applications::{Application, UpdateApplication};
 use crate::audit::AuditEvent;
 use crate::db::Db;
 use crate::error::AuthError;
@@ -2144,4 +2144,224 @@ async fn test_application_round_trip() {
     assert!(app.is_active);
     assert!(app.logo_url.is_none());
     assert!(app.primary_color.is_none());
+}
+
+#[tokio::test]
+async fn create_application_returns_app_and_secret() {
+    let db = test_db().await;
+    let uris = vec!["https://example.com/callback".to_string()];
+    let (app, secret) = db
+        .create_application("My App".to_string(), uris.clone(), false, None, None, None)
+        .await
+        .expect("create_application");
+
+    assert_eq!(app.name, "My App");
+    assert!(app.client_id.as_str().starts_with("ath_"));
+    assert!(!app.is_trusted);
+    assert!(app.is_active);
+    assert!(app.logo_url.is_none());
+    assert!(app.primary_color.is_none());
+    assert!(!secret.as_str().is_empty());
+    let list = app.redirect_uri_list().expect("redirect_uri_list");
+    assert_eq!(list, uris);
+}
+
+#[tokio::test]
+async fn get_application_not_found() {
+    let db = test_db().await;
+    let err = db
+        .get_application(ApplicationId::new())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AuthError::NotFound));
+}
+
+#[tokio::test]
+async fn get_application_by_client_id_finds_app() {
+    let db = test_db().await;
+    let uris = vec!["https://example.com/callback".to_string()];
+    let (app, _) = db
+        .create_application("App".to_string(), uris, false, None, None, None)
+        .await
+        .expect("create_application");
+
+    let found = db
+        .get_application_by_client_id(&app.client_id)
+        .await
+        .expect("get_application_by_client_id");
+    assert_eq!(found.id, app.id);
+}
+
+#[tokio::test]
+async fn get_application_by_client_id_not_found() {
+    let db = test_db().await;
+    use crate::types::ClientId;
+    let fake = ClientId::new_unchecked("ath_doesnotexist0000000000000000000".to_string());
+    let err = db
+        .get_application_by_client_id(&fake)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AuthError::NotFound));
+}
+
+#[tokio::test]
+async fn list_applications_ordered_by_created_at() {
+    let db = test_db().await;
+    let uris = vec!["https://example.com/callback".to_string()];
+
+    let (a, _) = db
+        .create_application("First".to_string(), uris.clone(), false, None, None, None)
+        .await
+        .expect("create first");
+    let (b, _) = db
+        .create_application("Second".to_string(), uris, false, None, None, None)
+        .await
+        .expect("create second");
+
+    let list = db.list_applications().await.expect("list_applications");
+    assert!(list.len() >= 2);
+    let names: Vec<&str> = list.iter().map(|a| a.name.as_str()).collect();
+    let pos_a = names.iter().position(|&n| n == "First").unwrap();
+    let pos_b = names.iter().position(|&n| n == "Second").unwrap();
+    assert!(pos_a < pos_b);
+    let _ = (a, b);
+}
+
+#[tokio::test]
+async fn update_application_changes_fields() {
+    let db = test_db().await;
+    let uris = vec!["https://example.com/callback".to_string()];
+    let (app, _) = db
+        .create_application("Original".to_string(), uris, false, None, None, None)
+        .await
+        .expect("create_application");
+
+    let new_uris = vec!["https://updated.example.com/callback".to_string()];
+    db.update_application(
+        app.id,
+        UpdateApplication {
+            name: "Updated".to_string(),
+            redirect_uris: new_uris.clone(),
+            is_trusted: true,
+            is_active: true,
+            logo_url: None,
+            primary_color: None,
+        },
+    )
+    .await
+    .expect("update_application");
+
+    let updated = db.get_application(app.id).await.expect("get_application");
+    assert_eq!(updated.name, "Updated");
+    assert!(updated.is_trusted);
+    let list = updated.redirect_uri_list().expect("redirect_uri_list");
+    assert_eq!(list, new_uris);
+}
+
+#[tokio::test]
+async fn update_application_sets_logo_url_and_primary_color() {
+    let db = test_db().await;
+    let uris = vec!["https://example.com/callback".to_string()];
+    let (app, _) = db
+        .create_application("App".to_string(), uris.clone(), false, None, None, None)
+        .await
+        .expect("create_application");
+
+    db.update_application(
+        app.id,
+        UpdateApplication {
+            name: app.name.clone(),
+            redirect_uris: uris,
+            is_trusted: app.is_trusted,
+            is_active: app.is_active,
+            logo_url: Some("https://example.com/logo.png".to_string()),
+            primary_color: Some("#ff0000".to_string()),
+        },
+    )
+    .await
+    .expect("update_application");
+
+    let updated = db.get_application(app.id).await.expect("get_application");
+    assert_eq!(updated.logo_url.as_deref(), Some("https://example.com/logo.png"));
+    assert_eq!(updated.primary_color.as_deref(), Some("#ff0000"));
+}
+
+#[tokio::test]
+async fn update_application_not_found() {
+    let db = test_db().await;
+    let err = db
+        .update_application(
+            ApplicationId::new(),
+            UpdateApplication {
+                name: "Ghost".to_string(),
+                redirect_uris: vec!["https://example.com/callback".to_string()],
+                is_trusted: false,
+                is_active: true,
+                logo_url: None,
+                primary_color: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AuthError::NotFound));
+}
+
+#[tokio::test]
+async fn regenerate_client_secret_returns_new_secret() {
+    let db = test_db().await;
+    let uris = vec!["https://example.com/callback".to_string()];
+    let (app, original_secret) = db
+        .create_application("App".to_string(), uris, false, None, None, None)
+        .await
+        .expect("create_application");
+
+    let (updated_app, new_secret) = db
+        .regenerate_client_secret(app.id)
+        .await
+        .expect("regenerate_client_secret");
+
+    assert_eq!(updated_app.id, app.id);
+    assert_ne!(new_secret.as_str(), original_secret.as_str());
+
+    // New secret verifies against the stored hash; old one should not
+    use crate::password::verify_password;
+    assert!(verify_password(new_secret.as_str(), &updated_app.client_secret_hash)
+        .expect("verify new secret"));
+    assert!(!verify_password(original_secret.as_str(), &updated_app.client_secret_hash)
+        .expect("verify old secret against new hash"));
+}
+
+#[tokio::test]
+async fn regenerate_client_secret_not_found() {
+    let db = test_db().await;
+    let err = db
+        .regenerate_client_secret(ApplicationId::new())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AuthError::NotFound));
+}
+
+#[tokio::test]
+async fn delete_application_removes_row() {
+    let db = test_db().await;
+    let uris = vec!["https://example.com/callback".to_string()];
+    let (app, _) = db
+        .create_application("App".to_string(), uris, false, None, None, None)
+        .await
+        .expect("create_application");
+
+    db.delete_application(app.id).await.expect("delete_application");
+
+    let err = db.get_application(app.id).await.unwrap_err();
+    assert!(matches!(err, AuthError::NotFound));
+}
+
+#[tokio::test]
+async fn delete_application_not_found() {
+    let db = test_db().await;
+    let err = db
+        .delete_application(ApplicationId::new())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AuthError::NotFound));
 }
