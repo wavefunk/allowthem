@@ -106,6 +106,7 @@ dependencies = [
  "allowthem-core",
  "axum",
  "chrono",
+ "jsonwebtoken",
  "serde",
  "serde_json",
  "sqlx",

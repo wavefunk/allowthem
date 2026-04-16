@@ -1,5 +1,7 @@
+pub mod access_tokens;
 pub mod api_tokens;
 pub mod applications;
+pub mod authorization;
 pub mod audit;
 pub mod auth_client;
 pub mod db;
@@ -26,7 +28,8 @@ pub use audit::{AuditEntry, AuditEvent};
 pub use auth_client::{AuthClient, AuthFuture, EmbeddedAuthClient};
 pub use db::Db;
 pub use email::{EmailMessage, EmailSender, LogEmailSender};
-pub use error::AuthError;
+pub use access_tokens::{AccessTokenClaims, has_scope};
+pub use error::{AccessTokenError, AuthError};
 pub use handle::{AllowThem, AllowThemBuilder, BuildError};
 pub use invitations::Invitation;
 pub use jwt::{Claims, JwtConfig, generate_token as generate_jwt, validate_token};

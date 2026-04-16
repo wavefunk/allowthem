@@ -24,6 +24,7 @@ thiserror.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+jsonwebtoken.workspace = true
 sqlx.workspace = true
 tempfile = "3.8"
 totp-rs.workspace = true

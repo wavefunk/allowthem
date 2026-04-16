@@ -16,7 +16,7 @@ use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
 use allowthem_core::{AllowThemBuilder, AuthClient, EmbeddedAuthClient};
-use allowthem_server::{csrf_middleware, well_known_routes};
+use allowthem_server::{csrf_middleware, userinfo_route, well_known_routes};
 
 use crate::state::AppState;
 
@@ -50,7 +50,8 @@ async fn main() -> Result<()> {
     let mut builder = AllowThemBuilder::new(&config.database_url)
         .session_ttl(Duration::hours(config.session_ttl_hours as i64))
         .cookie_secure(config.cookie_secure)
-        .cookie_domain(&config.cookie_domain);
+        .cookie_domain(&config.cookie_domain)
+        .base_url(&config.base_url);
     if let Some(key) = mfa_key {
         builder = builder.mfa_key(key);
     }
@@ -59,8 +60,9 @@ async fn main() -> Result<()> {
     }
     let ath = builder.build().await?;
 
-    // 5. Well-known router (resolved before ath is moved into AppState)
+    // 5. Well-known router and UserInfo router (resolved before ath is moved into AppState)
     let wk_router = well_known_routes(config.base_url.clone()).with_state(ath.clone());
+    let ui_router = userinfo_route().with_state(ath.clone());
 
     // 6. Templates
     let templates = templates::build_template_env()?;
@@ -96,6 +98,7 @@ async fn main() -> Result<()> {
         .merge(wk_router)
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
+        .merge(ui_router)   // after CSRF layer — Bearer auth, not browser sessions
         .with_state(state);
 
     // 8. Serve

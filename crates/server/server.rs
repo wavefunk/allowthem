@@ -6,11 +6,15 @@ pub mod error;
 pub mod extractors;
 pub mod mfa_routes;
 pub mod middleware;
+pub mod oauth_bearer;
 pub mod oauth_routes;
+pub mod userinfo_route;
 pub mod password_reset_routes;
 pub mod well_known_routes;
 
 pub use bearer::BearerAuthUser;
+pub use oauth_bearer::{OAuthBearerError, OAuthBearerToken};
+pub use userinfo_route::userinfo_route;
 pub use csrf::{CsrfToken, csrf_middleware};
 pub use error::AuthExtractError;
 pub use extractors::{AuthUser, BrowserAuthUser, OptionalAuthUser};
