@@ -716,7 +716,10 @@ async fn test_migrations_create_all_tables() {
         tables,
         vec![
             "allowthem_api_tokens",
+            "allowthem_applications",
             "allowthem_audit_log",
+            "allowthem_authorization_codes",
+            "allowthem_consents",
             "allowthem_invitations",
             "allowthem_mfa_challenges",
             "allowthem_mfa_recovery_codes",
@@ -725,6 +728,7 @@ async fn test_migrations_create_all_tables() {
             "allowthem_oauth_states",
             "allowthem_password_reset_tokens",
             "allowthem_permissions",
+            "allowthem_refresh_tokens",
             "allowthem_role_permissions",
             "allowthem_roles",
             "allowthem_sessions",

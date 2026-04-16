@@ -18,7 +18,7 @@ pub struct Application {
     pub client_id: ClientId,
     #[serde(skip_serializing)]
     pub client_secret_hash: PasswordHash,
-    pub redirect_uris: String,        // JSON array, parsed at the call site
+    pub redirect_uris: String, // JSON array, parsed at the call site
     pub logo_url: Option<String>,
     pub primary_color: Option<String>,
     pub is_trusted: bool,
@@ -34,7 +34,9 @@ pub struct Application {
 /// entropy from `OsRng` makes collision effectively impossible.
 pub fn generate_client_id() -> ClientId {
     let mut bytes = [0u8; 24];
-    OsRng.try_fill_bytes(&mut bytes).expect("OS RNG unavailable");
+    OsRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS RNG unavailable");
     let encoded = Base64UrlUnpadded::encode_string(&bytes);
     ClientId::new_unchecked(format!("ath_{encoded}"))
 }
@@ -47,7 +49,9 @@ pub fn generate_client_id() -> ClientId {
 /// high-entropy password and the security requirements are identical.
 pub fn generate_client_secret() -> Result<(ClientSecret, PasswordHash), AuthError> {
     let mut bytes = [0u8; 32];
-    OsRng.try_fill_bytes(&mut bytes).expect("OS RNG unavailable");
+    OsRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS RNG unavailable");
     let raw = Base64UrlUnpadded::encode_string(&bytes);
     let hash = crate::password::hash_password(&raw)?;
     Ok((ClientSecret::new_unchecked(raw), hash))
@@ -61,7 +65,10 @@ mod tests {
     #[test]
     fn client_id_has_ath_prefix() {
         let id = generate_client_id();
-        assert!(id.as_str().starts_with("ath_"), "client_id must start with ath_");
+        assert!(
+            id.as_str().starts_with("ath_"),
+            "client_id must start with ath_"
+        );
     }
 
     #[test]
@@ -76,7 +83,9 @@ mod tests {
         // base64url uses A-Z, a-z, 0-9, -, _ only (no +, /, =)
         let suffix = &id.as_str()[4..];
         assert!(
-            suffix.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+            suffix
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
             "client_id suffix must be URL-safe base64url: got {suffix}"
         );
     }
