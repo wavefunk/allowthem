@@ -1,3 +1,4 @@
+pub mod access_tokens;
 pub mod api_tokens;
 pub mod applications;
 pub mod authorization;
