@@ -5,6 +5,7 @@ use rand::rngs::OsRng;
 use serde::Serialize;
 use url::Url;
 
+use crate::db::Db;
 use crate::error::AuthError;
 use crate::types::{ApplicationId, ClientId, ClientSecret, PasswordHash, UserId};
 
@@ -141,6 +142,194 @@ pub fn validate_redirect_uri(redirect_uri: &str, registered: &[String]) -> Resul
         Ok(())
     } else {
         Err(AuthError::InvalidRedirectUri(redirect_uri.to_owned()))
+    }
+}
+
+impl Db {
+    /// Register a new OIDC application.
+    ///
+    /// Generates a `client_id` and `client_secret`, hashes the secret, and inserts
+    /// the row. Returns the persisted `Application` and the raw `ClientSecret`.
+    /// The raw secret is shown once and is not recoverable — the caller must present
+    /// it to the admin immediately.
+    ///
+    /// Validates `redirect_uris` before inserting. Returns `AuthError::InvalidRedirectUri`
+    /// if any URI fails validation.
+    pub async fn create_application(
+        &self,
+        name: String,
+        redirect_uris: Vec<String>,
+        is_trusted: bool,
+        created_by: Option<UserId>,
+        logo_url: Option<String>,
+        primary_color: Option<String>,
+    ) -> Result<(Application, ClientSecret), AuthError> {
+        validate_redirect_uris(&redirect_uris)?;
+        let id = ApplicationId::new();
+        let client_id = generate_client_id();
+        let (raw_secret, hash) = generate_client_secret()?;
+        let redirect_uris_json =
+            serde_json::to_string(&redirect_uris).expect("Vec<String> serializes to JSON");
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        sqlx::query(
+            "INSERT INTO allowthem_applications \
+             (id, name, client_id, client_secret_hash, redirect_uris, logo_url, \
+              primary_color, is_trusted, created_by, is_active, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)",
+        )
+        .bind(id)
+        .bind(&name)
+        .bind(&client_id)
+        .bind(&hash)
+        .bind(&redirect_uris_json)
+        .bind(&logo_url)
+        .bind(&primary_color)
+        .bind(is_trusted)
+        .bind(&created_by)
+        .bind(&now)
+        .execute(self.pool())
+        .await
+        .map_err(map_unique_violation)?;
+
+        let app = self.get_application(id).await?;
+        Ok((app, raw_secret))
+    }
+
+    /// Get an application by internal ID.
+    pub async fn get_application(&self, id: ApplicationId) -> Result<Application, AuthError> {
+        sqlx::query_as::<_, Application>(
+            "SELECT id, name, client_id, client_secret_hash, redirect_uris, \
+             logo_url, primary_color, is_trusted, created_by, is_active, \
+             created_at, updated_at \
+             FROM allowthem_applications WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(self.pool())
+        .await?
+        .ok_or(AuthError::NotFound)
+    }
+
+    /// Get an application by its public client_id.
+    ///
+    /// Used by OAuth endpoints that receive client_id in request parameters.
+    pub async fn get_application_by_client_id(
+        &self,
+        client_id: &ClientId,
+    ) -> Result<Application, AuthError> {
+        sqlx::query_as::<_, Application>(
+            "SELECT id, name, client_id, client_secret_hash, redirect_uris, \
+             logo_url, primary_color, is_trusted, created_by, is_active, \
+             created_at, updated_at \
+             FROM allowthem_applications WHERE client_id = ?",
+        )
+        .bind(client_id)
+        .fetch_optional(self.pool())
+        .await?
+        .ok_or(AuthError::NotFound)
+    }
+
+    /// List all applications ordered by `created_at ASC`.
+    pub async fn list_applications(&self) -> Result<Vec<Application>, AuthError> {
+        sqlx::query_as::<_, Application>(
+            "SELECT id, name, client_id, client_secret_hash, redirect_uris, \
+             logo_url, primary_color, is_trusted, created_by, is_active, \
+             created_at, updated_at \
+             FROM allowthem_applications ORDER BY created_at ASC",
+        )
+        .fetch_all(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
+
+    /// Update an application's mutable fields.
+    ///
+    /// Validates `redirect_uris`, serializes them to JSON, and writes all six
+    /// mutable fields atomically. Caller is responsible for fetching the current
+    /// application and populating unchanged fields.
+    ///
+    /// Returns `AuthError::NotFound` if no application with `id` exists.
+    /// Returns `AuthError::InvalidRedirectUri` if any URI fails validation.
+    pub async fn update_application(
+        &self,
+        id: ApplicationId,
+        params: UpdateApplication,
+    ) -> Result<(), AuthError> {
+        validate_redirect_uris(&params.redirect_uris)?;
+        let redirect_uris_json =
+            serde_json::to_string(&params.redirect_uris).expect("Vec<String> serializes to JSON");
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        let result = sqlx::query(
+            "UPDATE allowthem_applications \
+             SET name = ?1, redirect_uris = ?2, is_trusted = ?3, is_active = ?4, \
+                 logo_url = ?5, primary_color = ?6, updated_at = ?7 \
+             WHERE id = ?8",
+        )
+        .bind(&params.name)
+        .bind(&redirect_uris_json)
+        .bind(params.is_trusted)
+        .bind(params.is_active)
+        .bind(&params.logo_url)
+        .bind(&params.primary_color)
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Generate a new client secret, invalidating the previous one.
+    ///
+    /// Returns the updated `Application` and the raw `ClientSecret`.
+    /// The new secret is the only opportunity to retrieve it — the old secret
+    /// is irrecoverably invalidated on success.
+    ///
+    /// Returns `AuthError::NotFound` if no application with `id` exists.
+    pub async fn regenerate_client_secret(
+        &self,
+        id: ApplicationId,
+    ) -> Result<(Application, ClientSecret), AuthError> {
+        let (raw_secret, hash) = generate_client_secret()?;
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        let result = sqlx::query(
+            "UPDATE allowthem_applications \
+             SET client_secret_hash = ?1, updated_at = ?2 \
+             WHERE id = ?3",
+        )
+        .bind(&hash)
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+
+        let app = self.get_application(id).await?;
+        Ok((app, raw_secret))
+    }
+
+    /// Permanently delete an application and all associated grants.
+    ///
+    /// Cascade deletes: authorization_codes, refresh_tokens, consents.
+    /// Returns `AuthError::NotFound` if no application with `id` exists.
+    pub async fn delete_application(&self, id: ApplicationId) -> Result<(), AuthError> {
+        let result = sqlx::query("DELETE FROM allowthem_applications WHERE id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+        Ok(())
     }
 }
 
