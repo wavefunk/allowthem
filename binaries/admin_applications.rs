@@ -839,4 +839,92 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
+
+    #[tokio::test]
+    async fn create_filters_empty_redirect_uris() {
+        let (_ath, state, cookie) = setup().await;
+        let app = test_app(state);
+
+        // GET first to get CSRF token
+        let req = Request::builder()
+            .uri("/admin/applications/new")
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let body = read_body_string(resp).await;
+        let csrf = get_csrf_token(&body);
+
+        // Submit with one valid URI and one empty (simulates blank input field)
+        let form_body = format!(
+            "name=Filter+App&redirect_uris=https%3A%2F%2Fexample.com%2Fcb&redirect_uris=&csrf_token={}",
+            csrf
+        );
+        let req = Request::builder()
+            .method("POST")
+            .uri("/admin/applications")
+            .header(COOKIE, &format!("{cookie}; csrf_token={csrf}"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(form_body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        // Should succeed (empty URI filtered out), not fail with validation error
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(body.contains("will not be shown again"));
+        assert!(body.contains("Filter App"));
+    }
+
+    #[tokio::test]
+    async fn update_unchecked_checkbox_sets_false() {
+        let (ath, state, cookie) = setup().await;
+        // Create a trusted application
+        let (created_app, _secret) = ath
+            .db()
+            .create_application(
+                "Trusted App".to_string(),
+                vec!["https://example.com/cb".to_string()],
+                true,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(created_app.is_trusted);
+
+        let app = test_app(state);
+
+        // GET edit form for CSRF
+        let req = Request::builder()
+            .uri(&format!("/admin/applications/{}/edit", created_app.id))
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let body = read_body_string(resp).await;
+        let csrf = get_csrf_token(&body);
+
+        // Submit without is_trusted (checkbox absent = unchecked = false)
+        let form_body = format!(
+            "name=Trusted+App&redirect_uris=https%3A%2F%2Fexample.com%2Fcb&is_active=on&csrf_token={}",
+            csrf
+        );
+        let req = Request::builder()
+            .method("POST")
+            .uri(&format!("/admin/applications/{}", created_app.id))
+            .header(COOKIE, &format!("{cookie}; csrf_token={csrf}"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(form_body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+        // Verify the application is no longer trusted
+        let updated = ath.db().get_application(created_app.id).await.unwrap();
+        assert!(!updated.is_trusted, "absent checkbox must set is_trusted to false");
+        assert!(updated.is_active, "is_active=on must set is_active to true");
+    }
 }
