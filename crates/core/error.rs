@@ -50,4 +50,10 @@ pub enum AuthError {
 
     #[error("resource already consumed")]
     Gone,
+
+    #[error("signing key error: {0}")]
+    SigningKey(String),
+
+    #[error("signing key not configured -- provide signing_key to AllowThemBuilder")]
+    SigningKeyNotConfigured,
 }

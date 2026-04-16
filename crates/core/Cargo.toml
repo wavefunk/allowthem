@@ -27,6 +27,7 @@ jsonwebtoken.workspace = true
 totp-rs.workspace = true
 aes-gcm.workspace = true
 reqwest.workspace = true
+rsa = { version = "0.9", features = ["pem"] }
 url.workspace = true
 
 [dev-dependencies]

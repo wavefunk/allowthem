@@ -53,6 +53,7 @@ id_newtype!(ApplicationId);
 id_newtype!(AuthorizationCodeId);
 id_newtype!(RefreshTokenId);
 id_newtype!(ConsentId);
+id_newtype!(SigningKeyId);
 
 /// Email address. Validated at construction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
