@@ -2365,3 +2365,237 @@ async fn delete_application_not_found() {
         .unwrap_err();
     assert!(matches!(err, AuthError::NotFound));
 }
+
+// ---------------------------------------------------------------------------
+// Authorization code and consent tests (M39)
+// ---------------------------------------------------------------------------
+
+use crate::authorization::{generate_authorization_code, hash_authorization_code};
+use crate::types::AuthorizationCodeId;
+
+/// Create a test user and application for authorization tests.
+async fn authz_fixtures(db: &Db) -> (UserId, Application) {
+    let user_id = UserId::new();
+    let email = Email::new_unchecked("authz@example.com".to_string());
+    let pw_hash =
+        PasswordHash::new_unchecked("$argon2id$v=19$m=65536,t=2,p=1$fakesalt$fakehash".to_string());
+    sqlx::query(
+        "INSERT INTO allowthem_users \
+         (id, email, username, password_hash, email_verified, is_active, created_at, updated_at) \
+         VALUES (?, ?, NULL, ?, 1, 1, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(&email)
+    .bind(&pw_hash)
+    .bind(now_str())
+    .bind(now_str())
+    .execute(db.pool())
+    .await
+    .expect("insert test user");
+
+    let uris = vec!["https://example.com/callback".to_string()];
+    let (app, _) = db
+        .create_application("AuthzApp".to_string(), uris, false, Some(user_id), None, None)
+        .await
+        .expect("create test application");
+    (user_id, app)
+}
+
+#[tokio::test]
+async fn get_consent_returns_none_when_absent() {
+    let db = test_db().await;
+    let (user_id, app) = authz_fixtures(&db).await;
+    let consent = db.get_consent(user_id, app.id).await.unwrap();
+    assert!(consent.is_none());
+}
+
+#[tokio::test]
+async fn upsert_consent_creates_and_retrieves() {
+    let db = test_db().await;
+    let (user_id, app) = authz_fixtures(&db).await;
+    let scopes = vec!["openid".to_string(), "profile".to_string()];
+    db.upsert_consent(user_id, app.id, &scopes).await.unwrap();
+
+    let consent = db.get_consent(user_id, app.id).await.unwrap().unwrap();
+    let stored: Vec<String> = serde_json::from_str(&consent.scopes).unwrap();
+    assert_eq!(stored, scopes);
+}
+
+#[tokio::test]
+async fn upsert_consent_merges_scopes() {
+    let db = test_db().await;
+    let (user_id, app) = authz_fixtures(&db).await;
+
+    db.upsert_consent(user_id, app.id, &["openid".into(), "profile".into()])
+        .await
+        .unwrap();
+    db.upsert_consent(user_id, app.id, &["openid".into(), "email".into()])
+        .await
+        .unwrap();
+
+    let consent = db.get_consent(user_id, app.id).await.unwrap().unwrap();
+    let stored: Vec<String> = serde_json::from_str(&consent.scopes).unwrap();
+    assert!(stored.contains(&"openid".to_string()));
+    assert!(stored.contains(&"profile".to_string()));
+    assert!(stored.contains(&"email".to_string()));
+}
+
+#[tokio::test]
+async fn has_sufficient_consent_true_when_superset() {
+    let db = test_db().await;
+    let (user_id, app) = authz_fixtures(&db).await;
+    db.upsert_consent(
+        user_id,
+        app.id,
+        &["openid".into(), "profile".into(), "email".into()],
+    )
+    .await
+    .unwrap();
+
+    let ok = db
+        .has_sufficient_consent(user_id, app.id, &["openid".into(), "profile".into()])
+        .await
+        .unwrap();
+    assert!(ok);
+}
+
+#[tokio::test]
+async fn has_sufficient_consent_false_when_missing_scope() {
+    let db = test_db().await;
+    let (user_id, app) = authz_fixtures(&db).await;
+    db.upsert_consent(user_id, app.id, &["openid".into()])
+        .await
+        .unwrap();
+
+    let ok = db
+        .has_sufficient_consent(user_id, app.id, &["openid".into(), "email".into()])
+        .await
+        .unwrap();
+    assert!(!ok);
+}
+
+#[tokio::test]
+async fn has_sufficient_consent_false_when_no_consent() {
+    let db = test_db().await;
+    let (user_id, app) = authz_fixtures(&db).await;
+
+    let ok = db
+        .has_sufficient_consent(user_id, app.id, &["openid".into()])
+        .await
+        .unwrap();
+    assert!(!ok);
+}
+
+#[tokio::test]
+async fn create_authorization_code_and_lookup_by_hash() {
+    let db = test_db().await;
+    let (user_id, app) = authz_fixtures(&db).await;
+
+    let raw = generate_authorization_code();
+    let code_hash = hash_authorization_code(&raw);
+    let scopes = vec!["openid".to_string(), "profile".to_string()];
+
+    let code = db
+        .create_authorization_code(
+            app.id,
+            user_id,
+            &code_hash,
+            "https://example.com/callback",
+            &scopes,
+            "test_challenge",
+            "S256",
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(code.application_id, app.id);
+    assert_eq!(code.user_id, user_id);
+    assert_eq!(code.redirect_uri, "https://example.com/callback");
+    assert_eq!(code.code_challenge, "test_challenge");
+    assert_eq!(code.code_challenge_method, "S256");
+    assert!(code.nonce.is_none());
+    assert!(code.used_at.is_none());
+
+    let found = db
+        .get_authorization_code_by_hash(&code_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(found.id, code.id);
+}
+
+#[tokio::test]
+async fn get_authorization_code_by_hash_returns_none() {
+    let db = test_db().await;
+    let fake_hash = TokenHash::new_unchecked("0".repeat(64));
+    let result = db.get_authorization_code_by_hash(&fake_hash).await.unwrap();
+    assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn mark_authorization_code_used_sets_used_at() {
+    let db = test_db().await;
+    let (user_id, app) = authz_fixtures(&db).await;
+
+    let raw = generate_authorization_code();
+    let code_hash = hash_authorization_code(&raw);
+    let code = db
+        .create_authorization_code(
+            app.id,
+            user_id,
+            &code_hash,
+            "https://example.com/callback",
+            &["openid".into()],
+            "challenge",
+            "S256",
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert!(code.used_at.is_none());
+
+    db.mark_authorization_code_used(code.id).await.unwrap();
+
+    let updated = db
+        .get_authorization_code_by_hash(&code_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(updated.used_at.is_some());
+}
+
+#[tokio::test]
+async fn mark_authorization_code_used_not_found() {
+    let db = test_db().await;
+    let err = db
+        .mark_authorization_code_used(AuthorizationCodeId::new())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AuthError::NotFound));
+}
+
+#[tokio::test]
+async fn create_authorization_code_with_nonce() {
+    let db = test_db().await;
+    let (user_id, app) = authz_fixtures(&db).await;
+
+    let raw = generate_authorization_code();
+    let code_hash = hash_authorization_code(&raw);
+    let code = db
+        .create_authorization_code(
+            app.id,
+            user_id,
+            &code_hash,
+            "https://example.com/callback",
+            &["openid".into()],
+            "challenge",
+            "S256",
+            Some("test-nonce-value"),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(code.nonce.as_deref(), Some("test-nonce-value"));
+}
