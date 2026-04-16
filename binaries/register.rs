@@ -507,11 +507,21 @@ mod tests {
 
         // Create a user and an active session.
         let email = Email::new("loggedin@example.com".into()).unwrap();
-        let user = ath.db().create_user(email, "password123", None).await.unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
         let token = generate_token();
         let token_hash = hash_token(&token);
         ath.db()
-            .create_session(user.id, token_hash, None, None, Utc::now() + Duration::hours(24))
+            .create_session(
+                user.id,
+                token_hash,
+                None,
+                None,
+                Utc::now() + Duration::hours(24),
+            )
             .await
             .unwrap();
         let set_cookie = ath.session_cookie(&token);

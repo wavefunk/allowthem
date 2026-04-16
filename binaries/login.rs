@@ -23,13 +23,12 @@ const MAX_LOGIN_ATTEMPTS: u32 = 10;
 const RATE_LIMIT_WINDOW_SECS: u64 = 900; // 15 minutes
 
 /// Generic error shown for all credential failures.
-const LOGIN_ERROR: &str = "Invalid email/username or password.";
+const LOGIN_ERROR: &str = "Invalid email or password.";
 
 /// Pre-computed Argon2id hash for timing equalization when a user is not found.
 /// The actual value doesn't matter — we just need `verify_password()` to run its
 /// full Argon2id computation so the response time is consistent.
-const DUMMY_HASH: &str =
-    "$argon2id$v=19$m=19456,t=2,p=1$ldQz3PJVzDn06G+Bzin5Ew$IaOeOaTQjgM1uJpHDULCxq8r6pj2OqvY/lcKo6Fv3IM";
+const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$ldQz3PJVzDn06G+Bzin5Ew$IaOeOaTQjgM1uJpHDULCxq8r6pj2OqvY/lcKo6Fv3IM";
 
 #[derive(Deserialize)]
 pub struct LoginQuery {
@@ -279,7 +278,104 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use allowthem_core::{AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient};
+    use axum::Router;
+    use axum::body::Body;
+    use axum::extract::connect_info::MockConnectInfo;
+    use axum::http::{Request, StatusCode, header};
+    use axum::routing::get;
+    use chrono::Duration;
+    use tower::ServiceExt;
+
+    use allowthem_core::{
+        AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, generate_token, hash_token,
+    };
+    use allowthem_server::csrf_middleware;
+
+    use crate::state::AppState;
+
+    async fn setup() -> AppState {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+        let auth_client: Arc<dyn AuthClient> =
+            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let templates = crate::templates::build_template_env().unwrap();
+        AppState {
+            ath,
+            auth_client,
+            base_url: "http://localhost:3000".into(),
+            templates,
+            is_production: false,
+            login_attempts: Arc::new(dashmap::DashMap::new()),
+        }
+    }
+
+    fn test_app(state: AppState) -> Router {
+        Router::new()
+            .route("/login", get(super::get_login).post(super::post_login))
+            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))))
+            .with_state(state)
+    }
+
+    async fn get_csrf_token(app: &Router) -> String {
+        let req = Request::builder()
+            .uri("/login")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let set_cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        set_cookie
+            .split(';')
+            .next()
+            .unwrap()
+            .split('=')
+            .nth(1)
+            .unwrap()
+            .to_string()
+    }
+
+    fn login_request(
+        csrf: &str,
+        identifier: &str,
+        password: &str,
+        next: Option<&str>,
+    ) -> Request<Body> {
+        let mut body = format!(
+            "identifier={}&password={}&csrf_token={}",
+            identifier, password, csrf
+        );
+        if let Some(n) = next {
+            body.push_str(&format!("&next={}", n));
+        }
+        Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::COOKIE, format!("csrf_token={}", csrf))
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    async fn create_user(state: &AppState, email: &str, password: &str) {
+        let email = Email::new(email.into()).unwrap();
+        state
+            .ath
+            .db()
+            .create_user(email, password, None)
+            .await
+            .unwrap();
+    }
+
+    // --- Unit tests ---
 
     #[test]
     fn validate_next_allows_simple_paths() {
@@ -298,4 +394,252 @@ mod tests {
         assert_eq!(validate_next("http://evil.com/foo"), "/");
     }
 
+    // --- Integration tests ---
+
+    #[tokio::test]
+    async fn get_login_renders_form() {
+        let state = setup().await;
+        let app = test_app(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/login")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("<form"), "should contain a form");
+        assert!(html.contains("csrf_token"), "should contain csrf_token");
+        assert!(
+            html.contains("identifier"),
+            "should contain identifier input"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_login_redirects_when_authenticated() {
+        let state = setup().await;
+
+        let email = Email::new("auth@example.com".into()).unwrap();
+        let user = state
+            .ath
+            .db()
+            .create_user(email, "pass123", None)
+            .await
+            .unwrap();
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        let expires = Utc::now() + Duration::hours(24);
+        state
+            .ath
+            .db()
+            .create_session(user.id, token_hash, None, None, expires)
+            .await
+            .unwrap();
+        let cookie = state.ath.session_cookie(&token);
+        let cookie_val = cookie.split(';').next().unwrap();
+
+        let app = test_app(state);
+        let req = Request::builder()
+            .uri("/login")
+            .header(header::COOKIE, cookie_val)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/");
+    }
+
+    #[tokio::test]
+    async fn get_login_preserves_next_param() {
+        let state = setup().await;
+        let app = test_app(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/login?next=/dashboard")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        // MiniJinja auto-escapes / as &#x2f; in attribute values
+        assert!(
+            html.contains("name=\"next\""),
+            "should contain next hidden field"
+        );
+        assert!(
+            html.contains("dashboard"),
+            "next field should contain dashboard"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_login_success_redirects() {
+        let state = setup().await;
+        create_user(&state, "login@example.com", "correcthorse").await;
+        let app = test_app(state);
+
+        let csrf = get_csrf_token(&app).await;
+        let req = login_request(&csrf, "login@example.com", "correcthorse", None);
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/");
+        assert!(
+            resp.headers().get(SET_COOKIE).is_some(),
+            "should set session cookie"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_login_success_redirects_to_next() {
+        let state = setup().await;
+        create_user(&state, "next@example.com", "correcthorse").await;
+        let app = test_app(state);
+
+        let csrf = get_csrf_token(&app).await;
+        let req = login_request(
+            &csrf,
+            "next@example.com",
+            "correcthorse",
+            Some("/dashboard"),
+        );
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/dashboard");
+    }
+
+    #[tokio::test]
+    async fn post_login_wrong_password_shows_error() {
+        let state = setup().await;
+        create_user(&state, "wrong@example.com", "correcthorse").await;
+        let app = test_app(state);
+
+        let csrf = get_csrf_token(&app).await;
+        let req = login_request(&csrf, "wrong@example.com", "wrongpassword", None);
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains(LOGIN_ERROR), "should show generic error");
+        assert!(
+            html.contains("wrong@example.com"),
+            "should pre-fill identifier"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_login_nonexistent_user_shows_error() {
+        let state = setup().await;
+        let app = test_app(state);
+
+        let csrf = get_csrf_token(&app).await;
+        let req = login_request(&csrf, "nobody@example.com", "anypassword", None);
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            html.contains(LOGIN_ERROR),
+            "should show same generic error as wrong password"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_login_inactive_user_shows_error() {
+        let state = setup().await;
+        let email = Email::new("inactive@example.com".into()).unwrap();
+        let user = state
+            .ath
+            .db()
+            .create_user(email, "correcthorse", None)
+            .await
+            .unwrap();
+        state
+            .ath
+            .db()
+            .update_user_active(user.id, false)
+            .await
+            .unwrap();
+
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = login_request(&csrf, "inactive@example.com", "correcthorse", None);
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            html.contains(LOGIN_ERROR),
+            "inactive user should get generic error"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_login_rate_limit() {
+        let state = setup().await;
+        let app = test_app(state);
+
+        let csrf = get_csrf_token(&app).await;
+
+        // Exhaust rate limit
+        for _ in 0..MAX_LOGIN_ATTEMPTS {
+            let req = login_request(&csrf, "nobody@example.com", "wrong", None);
+            let _ = app.clone().oneshot(req).await.unwrap();
+        }
+
+        // Next attempt should be rate limited
+        let req = login_request(&csrf, "nobody@example.com", "wrong", None);
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("Too many login attempts"));
+    }
+
+    #[tokio::test]
+    async fn post_login_csrf_required() {
+        let state = setup().await;
+        let app = test_app(state);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("identifier=test&password=test"))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
 }
