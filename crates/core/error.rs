@@ -1,3 +1,21 @@
+/// Structured errors for RS256 access token validation.
+///
+/// Allows the server layer to map to specific OAuth2 error responses
+/// without inspecting error message strings.
+#[derive(Debug, thiserror::Error)]
+pub enum AccessTokenError {
+    #[error("token expired")]
+    Expired,
+    #[error("invalid signature")]
+    InvalidSignature,
+    #[error("unknown signing key: {0}")]
+    UnknownKid(String),
+    #[error("invalid claims: {0}")]
+    InvalidClaims(String),
+    #[error("malformed token: {0}")]
+    MalformedToken(String),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
     #[error("database error: {0}")]
@@ -59,4 +77,13 @@ pub enum AuthError {
 
     #[error("invalid redirect URI: {0}")]
     InvalidRedirectUri(String),
+
+    #[error("invalid authorization request: {0}")]
+    InvalidAuthorizationRequest(String),
+
+    #[error("base URL not configured -- provide base_url to AllowThemBuilder")]
+    BaseUrlNotConfigured,
+
+    #[error("access token error: {0}")]
+    AccessToken(#[from] AccessTokenError),
 }
