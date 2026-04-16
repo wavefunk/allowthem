@@ -59,3 +59,19 @@ impl IntoResponse for BrowserAuthRedirect {
             .into_response()
     }
 }
+
+/// 403 Forbidden response for authenticated non-admin users.
+///
+/// Returns a minimal HTML body. No template needed — this is a guard page,
+/// not a user-facing feature.
+pub struct BrowserAdminForbidden;
+
+impl IntoResponse for BrowserAdminForbidden {
+    fn into_response(self) -> Response {
+        (
+            StatusCode::FORBIDDEN,
+            axum::response::Html("<h1>403 Forbidden</h1><p>Admin access required.</p>"),
+        )
+            .into_response()
+    }
+}

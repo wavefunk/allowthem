@@ -3,10 +3,11 @@ use std::sync::Arc;
 use axum::extract::{FromRef, FromRequestParts};
 use axum::http::header::COOKIE;
 use axum::http::request::Parts;
+use axum::response::{IntoResponse, Response};
 
-use allowthem_core::{AuthClient, User, parse_session_cookie};
+use allowthem_core::{AuthClient, RoleName, User, parse_session_cookie};
 
-use crate::error::{AuthExtractError, BrowserAuthRedirect};
+use crate::error::{AuthExtractError, BrowserAdminForbidden, BrowserAuthRedirect};
 
 /// Axum extractor that provides the authenticated user.
 ///
@@ -116,14 +117,68 @@ where
     }
 }
 
+/// Axum extractor for admin browser routes.
+///
+/// Validates the session cookie and checks the `admin` role. Rejects with
+/// a redirect to `/login` if unauthenticated, or a 403 HTML response if
+/// authenticated but not an admin.
+pub struct BrowserAdminUser(pub User);
+
+impl<S> FromRequestParts<S> for BrowserAdminUser
+where
+    Arc<dyn AuthClient>: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let client = <Arc<dyn AuthClient>>::from_ref(state);
+
+        // 1. Session validation — same flow as BrowserAuthUser
+        let cookie_header = parts
+            .headers
+            .get(COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| BrowserAuthRedirect::new(parts.uri.path()).into_response())?;
+
+        let token = parse_session_cookie(cookie_header, client.session_cookie_name())
+            .ok_or_else(|| BrowserAuthRedirect::new(parts.uri.path()).into_response())?;
+
+        let user = client
+            .validate_session(&token)
+            .await
+            .map_err(|err| {
+                tracing::error!("auth extraction error: {err}");
+                BrowserAuthRedirect::new(parts.uri.path()).into_response()
+            })?
+            .ok_or_else(|| BrowserAuthRedirect::new(parts.uri.path()).into_response())?;
+
+        // 2. Admin role check
+        let admin_role = RoleName::new("admin");
+        let is_admin = client
+            .check_role(&user.id, &admin_role)
+            .await
+            .map_err(|err| {
+                tracing::error!("role check error: {err}");
+                BrowserAdminForbidden.into_response()
+            })?;
+
+        if !is_admin {
+            return Err(BrowserAdminForbidden.into_response());
+        }
+
+        Ok(BrowserAdminUser(user))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use super::*;
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, generate_token,
-        hash_token,
+        AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, RoleName,
+        generate_token, hash_token,
     };
     use axum::extract::FromRef;
     use axum::http::{Request, StatusCode};
@@ -181,6 +236,7 @@ mod tests {
             .route("/protected", get(protected_handler))
             .route("/optional", get(optional_handler))
             .route("/browser", get(browser_handler))
+            .route("/admin", get(admin_handler))
             .with_state(state)
     }
 
@@ -193,6 +249,10 @@ mod tests {
     }
 
     async fn browser_handler(BrowserAuthUser(user): BrowserAuthUser) -> Json<serde_json::Value> {
+        Json(serde_json::json!({"email": user.email}))
+    }
+
+    async fn admin_handler(BrowserAdminUser(user): BrowserAdminUser) -> Json<serde_json::Value> {
         Json(serde_json::json!({"email": user.email}))
     }
 
@@ -421,5 +481,65 @@ mod tests {
             resp.headers().get("location").unwrap(),
             "/login?next=/browser"
         );
+    }
+
+    // --- BrowserAdminUser tests ---
+
+    #[tokio::test]
+    async fn browser_admin_user_unauthenticated_redirects() {
+        let (ath, _) = test_setup().await;
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/admin")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            resp.headers().get("location").unwrap(),
+            "/login?next=/admin"
+        );
+    }
+
+    #[tokio::test]
+    async fn browser_admin_user_non_admin_gets_403() {
+        let (ath, cookie_value) = test_setup().await;
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/admin")
+            .header(COOKIE, &cookie_value)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn browser_admin_user_admin_succeeds() {
+        let (ath, cookie_value) = test_setup().await;
+
+        // Create admin role and assign to the test user
+        let role_name = RoleName::new("admin");
+        let role = ath.db().create_role(&role_name, None).await.unwrap();
+        let email = Email::new("test@example.com".into()).unwrap();
+        let user = ath.db().get_user_by_email(&email).await.unwrap();
+        ath.db().assign_role(&user.id, &role.id).await.unwrap();
+
+        let app = test_app(ath);
+
+        let req = Request::builder()
+            .uri("/admin")
+            .header(COOKIE, &cookie_value)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert_eq!(body["email"], "test@example.com");
     }
 }

@@ -18,7 +18,7 @@ pub use oauth_bearer::{OAuthBearerError, OAuthBearerToken};
 pub use userinfo_route::userinfo_route;
 pub use csrf::{CsrfToken, csrf_middleware};
 pub use error::AuthExtractError;
-pub use extractors::{AuthUser, BrowserAuthUser, OptionalAuthUser};
+pub use extractors::{AuthUser, BrowserAdminUser, BrowserAuthUser, OptionalAuthUser};
 pub use mfa_routes::mfa_routes;
 pub use middleware::{require_auth, require_permission, require_role};
 pub use oauth_routes::oauth_routes;

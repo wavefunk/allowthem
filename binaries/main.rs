@@ -1,3 +1,4 @@
+mod admin_applications;
 mod config;
 mod error;
 mod login;
@@ -95,6 +96,7 @@ async fn main() -> Result<()> {
             "/settings/password",
             axum::routing::post(settings::post_change_password),
         )
+        .nest("/admin/applications", admin_applications::routes())
         .merge(wk_router)
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
