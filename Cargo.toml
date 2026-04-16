@@ -41,6 +41,7 @@ aes-gcm = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 url = "2"
 minijinja = { version = "2", features = ["loader"] }
+dashmap = "6"
 
 [profile.dev.package.sqlx-macros]
 opt-level = 3
