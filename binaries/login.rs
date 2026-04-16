@@ -126,15 +126,15 @@ pub async fn get_login(
     headers: axum::http::HeaderMap,
 ) -> Result<Response, AppError> {
     // If already authenticated, redirect
-    if let Some(token) = extract_session_token(&state.ath, &headers) {
-        if state.ath.db().lookup_session(&token).await?.is_some() {
-            let dest = query.next.as_deref().map(validate_next).unwrap_or("/");
-            return Ok((
-                StatusCode::SEE_OTHER,
-                [(axum::http::header::LOCATION, dest.to_string())],
-            )
-                .into_response());
-        }
+    if let Some(token) = extract_session_token(&state.ath, &headers)
+        && state.ath.db().lookup_session(&token).await?.is_some()
+    {
+        let dest = query.next.as_deref().map(validate_next).unwrap_or("/");
+        return Ok((
+            StatusCode::SEE_OTHER,
+            [(axum::http::header::LOCATION, dest.to_string())],
+        )
+            .into_response());
     }
 
     let html = render_login_form(&state, csrf.as_str(), "", query.next.as_deref(), "")?;

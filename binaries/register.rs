@@ -469,6 +469,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn post_register_session_cookie_authenticates() {
+        // Verify the session cookie issued on registration is usable for auth —
+        // not just that a session row exists in the DB.
+        let (ath, state) = setup().await;
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(&csrf, "auth@example.com", "password123", "password123", "");
+        let resp = app.oneshot(req).await.unwrap();
+
+        let set_cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let token = parse_session_cookie(set_cookie, "allowthem_session")
+            .expect("session cookie should be present");
+
+        // validate_session should return Some(user) — cookie is live
+        let ttl = ath.session_config().ttl;
+        let session_result = ath.db().validate_session(&token, ttl).await.unwrap();
+        assert!(
+            session_result.is_some(),
+            "session cookie issued at registration should be valid"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_register_logged_in_redirects_to_root() {
+        // Authenticated users hitting GET /register are sent to / instead of
+        // seeing the form.
+        use allowthem_core::{generate_token, hash_token};
+        use chrono::{Duration, Utc};
+
+        let (ath, state) = setup().await;
+
+        // Create a user and an active session.
+        let email = Email::new("loggedin@example.com".into()).unwrap();
+        let user = ath.db().create_user(email, "password123", None).await.unwrap();
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        ath.db()
+            .create_session(user.id, token_hash, None, None, Utc::now() + Duration::hours(24))
+            .await
+            .unwrap();
+        let set_cookie = ath.session_cookie(&token);
+        let cookie_value = set_cookie.split(';').next().unwrap().to_string();
+
+        let app = test_app(state);
+        let req = Request::builder()
+            .uri("/register")
+            .header(header::COOKIE, cookie_value)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/");
+    }
+
+    #[tokio::test]
     async fn post_register_without_csrf_returns_403() {
         let (_, state) = setup().await;
         let app = test_app(state);
