@@ -8,6 +8,7 @@ pub mod mfa_routes;
 pub mod middleware;
 pub mod oauth_bearer;
 pub mod oauth_routes;
+pub mod userinfo_route;
 pub mod password_reset_routes;
 pub mod well_known_routes;
 
