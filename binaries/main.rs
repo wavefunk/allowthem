@@ -1,5 +1,6 @@
 mod config;
 mod error;
+mod logout;
 mod state;
 mod templates;
 
@@ -61,6 +62,7 @@ async fn main() -> Result<()> {
     // 7. Router
     let app = Router::new()
         .route("/health", get(health))
+        .route("/logout", get(logout::handler).post(logout::handler))
         .nest_service("/static", ServeDir::new("binaries/static"))
         .with_state(state);
 
