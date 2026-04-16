@@ -1,4 +1,5 @@
 pub mod api_tokens;
+pub mod applications;
 pub mod audit;
 pub mod auth_client;
 pub mod db;
