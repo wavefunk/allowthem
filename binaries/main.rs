@@ -8,6 +8,7 @@ use std::sync::Arc;
 use axum::{Router, response::IntoResponse, routing::get};
 use chrono::Duration;
 use eyre::Result;
+use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
 use allowthem_core::{AllowThemBuilder, AuthClient, EmbeddedAuthClient};
@@ -44,20 +45,26 @@ async fn main() -> Result<()> {
     }
     let ath = builder.build().await?;
 
-    // 5. App state
+    // 5. Templates
+    let templates = templates::build_template_env()?;
+
+    // 6. App state
     let auth_client: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
     let state = AppState {
         ath,
         auth_client,
         base_url: config.base_url.clone(),
+        templates,
+        is_production: config.is_production,
     };
 
-    // 6. Router
+    // 7. Router
     let app = Router::new()
         .route("/health", get(health))
+        .nest_service("/static", ServeDir::new("binaries/static"))
         .with_state(state);
 
-    // 7. Serve
+    // 8. Serve
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!("listening on {}", config.bind);
     axum::serve(listener, app)
@@ -111,6 +118,7 @@ mod tests {
         assert_eq!(c.cookie_domain, "");
         assert_eq!(c.session_ttl_hours, 24);
         assert!(c.mfa_key_hex.is_none());
+        assert!(!c.is_production);
     }
 
     #[test]
@@ -152,10 +160,13 @@ mod tests {
             .unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let templates = Arc::new(minijinja::Environment::new());
         let state = AppState {
             ath,
             auth_client,
             base_url: "http://localhost:3000".into(),
+            templates,
+            is_production: false,
         };
         let app = Router::new()
             .route("/health", get(health))
@@ -218,10 +229,13 @@ mod tests {
             .unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let templates = Arc::new(minijinja::Environment::new());
         let state = AppState {
             ath,
             auth_client,
             base_url: "http://localhost:3000".into(),
+            templates,
+            is_production: false,
         };
 
         // Verify Arc<dyn AuthClient> FromRef — used by AuthUser, OptionalAuthUser, middleware
