@@ -120,7 +120,7 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64ct::{Base64UrlUnpadded, Encoding};
+    use base64ct::{Base64UrlUnpadded as _, Encoding as _};
     use crate::signing_keys::decrypt_private_key;
     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde::Serialize;
