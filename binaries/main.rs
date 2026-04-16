@@ -249,4 +249,97 @@ mod tests {
             "allowthem_session"
         );
     }
+
+    // --- M30: Template engine and CSS switching tests ---
+
+    #[test]
+    fn template_env_loads() {
+        let env = crate::templates::build_template_env();
+        assert!(env.is_ok(), "template env should build: {:?}", env.err());
+    }
+
+    #[test]
+    fn base_html_renders_dev_mode() {
+        let env = crate::templates::build_template_env().unwrap();
+        let result = crate::templates::render(
+            &env, "base.html", minijinja::context! {}, false,
+        );
+        let html = result.unwrap().0;
+        assert!(
+            html.contains("@tailwindcss/browser@4"),
+            "dev mode should include Tailwind CDN"
+        );
+        assert!(
+            !html.contains("/static/css/style.css"),
+            "dev mode should not link compiled CSS"
+        );
+    }
+
+    #[test]
+    fn base_html_renders_production_mode() {
+        let env = crate::templates::build_template_env().unwrap();
+        let result = crate::templates::render(
+            &env, "base.html", minijinja::context! {}, true,
+        );
+        let html = result.unwrap().0;
+        assert!(
+            html.contains("/static/css/style.css"),
+            "prod mode should link compiled CSS"
+        );
+        assert!(
+            !html.contains("@tailwindcss/browser@4"),
+            "prod mode should not include CDN"
+        );
+    }
+
+    #[test]
+    fn render_helper_injects_shared_context() {
+        let mut env = minijinja::Environment::new();
+        env.add_template("test.html", "production={{ is_production }}")
+            .unwrap();
+        let result = crate::templates::render(
+            &env, "test.html", minijinja::context! {}, true,
+        );
+        let html = result.unwrap().0;
+        assert_eq!(html, "production=true");
+    }
+
+    #[tokio::test]
+    async fn static_file_serving() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+        let auth_client: Arc<dyn AuthClient> =
+            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let templates = Arc::new(minijinja::Environment::new());
+        let state = AppState {
+            ath,
+            auth_client,
+            base_url: "http://localhost:3000".into(),
+            templates,
+            is_production: false,
+        };
+        let static_dir = if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
+            std::path::PathBuf::from(dir).join("static")
+        } else {
+            std::path::PathBuf::from("binaries/static")
+        };
+        let app = Router::new()
+            .nest_service("/static", ServeDir::new(&static_dir))
+            .with_state(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/static/.gitkeep")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }
