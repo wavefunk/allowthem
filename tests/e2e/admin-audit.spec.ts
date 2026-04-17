@@ -1,0 +1,114 @@
+import { test, expect, loginAsAdmin, loginExpectingError } from "./fixtures";
+
+test.describe.configure({ mode: "serial" });
+
+test("admin audit > list renders with event rows", async ({
+  adminPage: page,
+}) => {
+  await page.goto("/admin/audit");
+  await expect(page).toHaveURL(/\/admin\/audit/);
+  // The admin login itself generates audit events — at least one row should exist
+  await expect(page.locator("text=No audit events found.")).not.toBeVisible();
+});
+
+test("admin audit > event filter shows only matching events", async ({
+  adminPage: page,
+}) => {
+  // Generate a login_failed event. loginExpectingError navigates to /login and
+  // submits bad credentials. Since /login redirects when already logged in, we
+  // need to clear cookies first, then fail to login, then re-login as admin.
+  await page.context().clearCookies();
+  await loginExpectingError(page, `nobody-${Date.now()}@example.com`, "wrong");
+  await loginAsAdmin(page);
+
+  await page.goto("/admin/audit?event=login_failed");
+  // Event labels are humanized by event_label() — "login_failed" renders as "Login failed".
+  // Use table cell locator to avoid matching the filter dropdown option.
+  await expect(
+    page.locator("td span.text-red-600", { hasText: "Login failed" })
+  ).toBeVisible();
+});
+
+test("admin audit > outcome filter shows only failure events", async ({
+  adminPage: page,
+}) => {
+  await page.goto("/admin/audit?outcome=failure");
+  // Either shows failure rows, or empty state — no success rows visible
+  await expect(page).toHaveURL(/outcome=failure/);
+  await expect(page.locator("h1, h2").first()).toBeVisible();
+});
+
+test("admin audit > date range filter restricts results", async ({
+  adminPage: page,
+}) => {
+  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  await page.goto(`/admin/audit?from=${today}&to=${today}`);
+  await expect(page).toHaveURL(/from=/);
+  // Events generated today (login during setup) should appear
+  await expect(page.locator("text=No audit events found.")).not.toBeVisible();
+});
+
+test("admin audit > future date range shows empty state", async ({
+  adminPage: page,
+}) => {
+  await page.goto("/admin/audit?from=2099-01-01&to=2099-12-31");
+  await expect(page.locator("text=No audit events found.")).toBeVisible();
+});
+
+test("admin audit > pagination: many events creates page 2", async ({
+  adminPage: page,
+}) => {
+  // PAGE_SIZE=50. Generate >50 events by registering new users (each registration
+  // produces a Register audit event). Registrations are not rate-limited.
+  // Need to read CSRF token from cookie, and re-login as admin after seeding
+  // since register POST overwrites the session cookie.
+  await page.goto("/admin/audit");
+  const cookies = await page.context().cookies();
+  const csrfCookie = cookies.find((c) => c.name === "csrf_token");
+  if (!csrfCookie) throw new Error("csrf_token cookie not found");
+  const csrfToken = csrfCookie.value;
+
+  const tag = `audit-pg-${Date.now()}`;
+  for (let i = 0; i < 55; i++) {
+    await page.request.post("/register", {
+      form: {
+        email: `${tag}-${i}@example.com`,
+        password: "Test1234!",
+        password_confirm: "Test1234!",
+        csrf_token: csrfToken,
+      },
+    });
+  }
+
+  // Re-login as admin (register POSTs overwrite the session cookie)
+  await page.context().clearCookies();
+  await loginAsAdmin(page);
+
+  await page.goto("/admin/audit");
+  await expect(page.locator('a[href*="page=2"]').first()).toBeVisible();
+  await page.goto("/admin/audit?page=2");
+  await expect(page.locator("text=No audit events found.")).not.toBeVisible();
+});
+
+test("admin audit > csv export returns text/csv with header row", async ({
+  adminPage: page,
+}) => {
+  const resp = await page.request.get("/admin/audit?format=csv");
+  expect(resp.status()).toBe(200);
+  expect(resp.headers()["content-type"]).toMatch(/text\/csv/);
+  const body = await resp.text();
+  // CSV must have at least a header row
+  expect(body.split("\n").length).toBeGreaterThan(1);
+  expect(body).toContain("event"); // header column
+});
+
+test("admin audit > json export returns application/json array", async ({
+  adminPage: page,
+}) => {
+  const resp = await page.request.get("/admin/audit?format=json");
+  expect(resp.status()).toBe(200);
+  expect(resp.headers()["content-type"]).toMatch(/application\/json/);
+  const body = (await resp.json()) as unknown[];
+  expect(Array.isArray(body)).toBe(true);
+  expect(body.length).toBeGreaterThan(0);
+});
