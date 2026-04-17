@@ -5,6 +5,9 @@ export default defineConfig({
   testMatch: "**/*.spec.ts",
   timeout: 30_000,
   retries: 0,
+  // Single worker: all specs share one SQLite file and one server instance.
+  // Parallel workers cause SQLITE_LOCKED contention under concurrent writes.
+  workers: 1,
   use: {
     baseURL: "http://127.0.0.1:3100",
   },
