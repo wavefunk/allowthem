@@ -3,7 +3,7 @@ use sqlx::sqlite::SqliteConnectOptions;
 use std::str::FromStr;
 
 use crate::applications::{Application, UpdateApplication};
-use crate::audit::AuditEvent;
+use crate::audit::{AuditEvent, SearchAuditParams};
 use crate::db::Db;
 use crate::error::AuthError;
 use crate::password::verify_password;
@@ -2074,6 +2074,243 @@ async fn test_audit_log_null_user_id() {
     assert_eq!(entries[0].event_type, AuditEvent::LoginFailed);
     assert!(entries[0].user_id.is_none());
     assert_eq!(entries[0].ip_address.as_deref(), Some("10.0.0.1"));
+}
+
+// ---------------------------------------------------------------------------
+// search_audit_log tests (M47)
+// ---------------------------------------------------------------------------
+
+/// Create a test user and return their UserId for audit log tests.
+async fn audit_test_user(db: &Db, email: &str) -> UserId {
+    let uid = UserId::new();
+    let e = Email::new_unchecked(email.to_string());
+    let pw = PasswordHash::new_unchecked(
+        "$argon2id$v=19$m=65536,t=2,p=1$fakesalt$fakehash".to_string(),
+    );
+    sqlx::query(
+        "INSERT INTO allowthem_users \
+         (id, email, username, password_hash, email_verified, is_active, created_at, updated_at) \
+         VALUES (?, ?, NULL, ?, 1, 1, ?, ?)",
+    )
+    .bind(uid)
+    .bind(&e)
+    .bind(&pw)
+    .bind(now_str())
+    .bind(now_str())
+    .execute(db.pool())
+    .await
+    .expect("insert audit test user");
+    uid
+}
+
+#[tokio::test]
+async fn search_audit_log_returns_all_when_no_filters() {
+    let db = test_db().await;
+    let uid = audit_test_user(&db, "audit-all@test.com").await;
+
+    db.log_audit(AuditEvent::Login, Some(&uid), None, None, None, None)
+        .await
+        .unwrap();
+    db.log_audit(AuditEvent::Logout, Some(&uid), None, None, None, None)
+        .await
+        .unwrap();
+
+    let result = db
+        .search_audit_log(SearchAuditParams {
+            user_id: None,
+            event_type: None,
+            is_success: None,
+            from: None,
+            to: None,
+            limit: 50,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.total, 2);
+    assert_eq!(result.entries.len(), 2);
+}
+
+#[tokio::test]
+async fn search_audit_log_filters_by_user_id() {
+    let db = test_db().await;
+    let uid1 = audit_test_user(&db, "audit-u1@test.com").await;
+    let uid2 = audit_test_user(&db, "audit-u2@test.com").await;
+
+    db.log_audit(AuditEvent::Login, Some(&uid1), None, None, None, None)
+        .await
+        .unwrap();
+    db.log_audit(AuditEvent::Login, Some(&uid2), None, None, None, None)
+        .await
+        .unwrap();
+
+    let result = db
+        .search_audit_log(SearchAuditParams {
+            user_id: Some(uid1),
+            event_type: None,
+            is_success: None,
+            from: None,
+            to: None,
+            limit: 50,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.total, 1);
+    assert_eq!(result.entries[0].user_id, Some(uid1));
+}
+
+#[tokio::test]
+async fn search_audit_log_filters_by_event_type() {
+    let db = test_db().await;
+    let uid = audit_test_user(&db, "audit-event@test.com").await;
+
+    db.log_audit(AuditEvent::Login, Some(&uid), None, None, None, None)
+        .await
+        .unwrap();
+    db.log_audit(AuditEvent::LoginFailed, None, None, None, None, None)
+        .await
+        .unwrap();
+
+    let result = db
+        .search_audit_log(SearchAuditParams {
+            user_id: None,
+            event_type: Some(&AuditEvent::Login),
+            is_success: None,
+            from: None,
+            to: None,
+            limit: 50,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.total, 1);
+    assert_eq!(result.entries[0].event_type, AuditEvent::Login);
+}
+
+#[tokio::test]
+async fn search_audit_log_filters_by_success() {
+    let db = test_db().await;
+    let uid = audit_test_user(&db, "audit-success@test.com").await;
+
+    db.log_audit(AuditEvent::Login, Some(&uid), None, None, None, None)
+        .await
+        .unwrap();
+    db.log_audit(AuditEvent::LoginFailed, None, None, None, None, None)
+        .await
+        .unwrap();
+
+    // is_success=true excludes LoginFailed
+    let result = db
+        .search_audit_log(SearchAuditParams {
+            user_id: None,
+            event_type: None,
+            is_success: Some(true),
+            from: None,
+            to: None,
+            limit: 50,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.total, 1);
+    assert_eq!(result.entries[0].event_type, AuditEvent::Login);
+
+    // is_success=false returns only LoginFailed
+    let result = db
+        .search_audit_log(SearchAuditParams {
+            user_id: None,
+            event_type: None,
+            is_success: Some(false),
+            from: None,
+            to: None,
+            limit: 50,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.total, 1);
+    assert_eq!(result.entries[0].event_type, AuditEvent::LoginFailed);
+}
+
+#[tokio::test]
+async fn search_audit_log_paginates() {
+    let db = test_db().await;
+    let uid = audit_test_user(&db, "audit-page@test.com").await;
+
+    for _ in 0..5 {
+        db.log_audit(AuditEvent::Login, Some(&uid), None, None, None, None)
+            .await
+            .unwrap();
+    }
+
+    let result = db
+        .search_audit_log(SearchAuditParams {
+            user_id: None,
+            event_type: None,
+            is_success: None,
+            from: None,
+            to: None,
+            limit: 2,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.total, 5);
+    assert_eq!(result.entries.len(), 2);
+}
+
+#[tokio::test]
+async fn search_audit_log_resolves_email() {
+    let db = test_db().await;
+    let uid = audit_test_user(&db, "audit-email@test.com").await;
+
+    db.log_audit(AuditEvent::Login, Some(&uid), None, None, None, None)
+        .await
+        .unwrap();
+
+    let result = db
+        .search_audit_log(SearchAuditParams {
+            user_id: None,
+            event_type: None,
+            is_success: None,
+            from: None,
+            to: None,
+            limit: 50,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.entries[0].user_email.as_deref(), Some("audit-email@test.com"));
+}
+
+#[tokio::test]
+async fn search_audit_log_null_user_email() {
+    let db = test_db().await;
+
+    db.log_audit(AuditEvent::LoginFailed, None, None, None, None, None)
+        .await
+        .unwrap();
+
+    let result = db
+        .search_audit_log(SearchAuditParams {
+            user_id: None,
+            event_type: None,
+            is_success: None,
+            from: None,
+            to: None,
+            limit: 50,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+
+    assert!(result.entries[0].user_email.is_none());
 }
 
 #[tokio::test]
