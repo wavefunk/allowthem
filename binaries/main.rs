@@ -1,4 +1,5 @@
 mod admin_applications;
+mod admin_sessions;
 mod config;
 mod consent;
 mod error;
@@ -105,6 +106,7 @@ async fn main() -> Result<()> {
             get(consent::get_authorize).post(authorize_post),
         )
         .nest("/admin/applications", admin_applications::routes())
+        .nest("/admin/sessions", admin_sessions::routes())
         .merge(wk_router)
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
