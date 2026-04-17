@@ -387,6 +387,27 @@ impl AuthClient for ExternalAuthClient {
         })
     }
 
+    fn resolve_highest_role<'a>(
+        &'a self,
+        user_id: &'a UserId,
+        hierarchy: &'a [&str],
+    ) -> AuthFuture<'a, Option<String>> {
+        Box::pin(async move {
+            let now = Utc::now().timestamp();
+            match self.inner.claims_cache.get(user_id) {
+                Some(cached) if cached.expires_at > now => {
+                    for &name in hierarchy {
+                        if cached.roles.iter().any(|r| r == name) {
+                            return Ok(Some(name.to_owned()));
+                        }
+                    }
+                    Ok(None)
+                }
+                _ => Ok(None),
+            }
+        })
+    }
+
     fn logout<'a>(&'a self, token: &'a SessionToken) -> AuthFuture<'a, ()> {
         Box::pin(async move {
             let jwt = token.as_str();

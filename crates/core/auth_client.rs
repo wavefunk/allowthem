@@ -34,6 +34,15 @@ pub trait AuthClient: Send + Sync {
         permission: &'a PermissionName,
     ) -> AuthFuture<'a, bool>;
 
+    /// Return the name of the first role in `hierarchy` that the user holds.
+    ///
+    /// `hierarchy[0]` is the highest role. Returns `None` if the user holds none.
+    fn resolve_highest_role<'a>(
+        &'a self,
+        user_id: &'a UserId,
+        hierarchy: &'a [&str],
+    ) -> AuthFuture<'a, Option<String>>;
+
     /// Invalidate a session. Fire-and-forget — non-existent sessions are not errors.
     fn logout<'a>(&'a self, token: &'a SessionToken) -> AuthFuture<'a, ()>;
 
@@ -94,6 +103,16 @@ impl AuthClient for EmbeddedAuthClient {
         permission: &'a PermissionName,
     ) -> AuthFuture<'a, bool> {
         Box::pin(async move { self.ath.db().has_permission(user_id, permission).await })
+    }
+
+    fn resolve_highest_role<'a>(
+        &'a self,
+        user_id: &'a UserId,
+        hierarchy: &'a [&str],
+    ) -> AuthFuture<'a, Option<String>> {
+        Box::pin(async move {
+            self.ath.db().resolve_highest_role(user_id, hierarchy).await
+        })
     }
 
     fn logout<'a>(&'a self, token: &'a SessionToken) -> AuthFuture<'a, ()> {
@@ -435,5 +454,81 @@ mod tests {
             .await
             .unwrap();
         let _client: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath, "/login"));
+    }
+
+    #[tokio::test]
+    async fn resolve_highest_role_returns_correct_role_via_trait() {
+        let client = setup().await;
+        let email = Email::new("roletest@example.com".into()).unwrap();
+        let user = client
+            .ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
+        let roles = client
+            .ath
+            .db()
+            .bootstrap_roles(&["admin", "editor"])
+            .await
+            .unwrap();
+        client
+            .ath
+            .db()
+            .assign_role(&user.id, &roles[1].id) // editor
+            .await
+            .unwrap();
+        let result = client
+            .resolve_highest_role(&user.id, &["admin", "editor"])
+            .await
+            .unwrap();
+        assert_eq!(result, Some("editor".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn resolve_highest_role_returns_none_via_trait() {
+        let client = setup().await;
+        let email = Email::new("noroletest@example.com".into()).unwrap();
+        let user = client
+            .ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
+        let result = client
+            .resolve_highest_role(&user.id, &["admin", "editor"])
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_highest_role_works_as_arc_dyn() {
+        let client = setup().await;
+        let email = Email::new("arcdyn@example.com".into()).unwrap();
+        let user = client
+            .ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
+        let roles = client
+            .ath
+            .db()
+            .bootstrap_roles(&["admin", "editor"])
+            .await
+            .unwrap();
+        client
+            .ath
+            .db()
+            .assign_role(&user.id, &roles[0].id) // admin
+            .await
+            .unwrap();
+        let arc_client: Arc<dyn AuthClient> = Arc::new(client);
+        let result = arc_client
+            .resolve_highest_role(&user.id, &["admin", "editor"])
+            .await
+            .unwrap();
+        assert_eq!(result, Some("admin".to_owned()));
     }
 }
