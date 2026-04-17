@@ -304,6 +304,21 @@ pub async fn post_mfa_challenge(
         )
         .await;
 
+    // Emit Login to maintain the invariant that every session creation
+    // produces a Login audit event, consistent with the non-MFA login path.
+    let _ = state
+        .ath
+        .db()
+        .log_audit(
+            AuditEvent::Login,
+            Some(&user_id),
+            None,
+            ip.as_deref(),
+            ua,
+            None,
+        )
+        .await;
+
     let token = sessions::generate_token();
     let token_hash = sessions::hash_token(&token);
     let ttl = state.ath.session_config().ttl;
