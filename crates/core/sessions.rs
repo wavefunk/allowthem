@@ -4,9 +4,11 @@ use rand::TryRngCore;
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
+use serde::Serialize;
+
 use crate::db::Db;
 use crate::error::AuthError;
-use crate::types::{Session, SessionId, SessionToken, TokenHash, UserId};
+use crate::types::{Email, Session, SessionId, SessionToken, TokenHash, UserId};
 
 /// Configuration for session lifecycle and cookie generation.
 pub struct SessionConfig {
@@ -27,6 +29,32 @@ impl Default for SessionConfig {
             secure: true,
         }
     }
+}
+
+/// A session with joined user email, for admin list display.
+/// Omits `token_hash` — the admin UI must never expose session tokens.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct SessionListEntry {
+    pub id: SessionId,
+    pub user_id: UserId,
+    pub user_email: Email,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Parameters for listing sessions in the admin session viewer.
+pub struct ListSessionsParams {
+    pub user_id: Option<UserId>,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+/// Result of a paginated session list.
+pub struct ListSessionsResult {
+    pub sessions: Vec<SessionListEntry>,
+    pub total: u32,
 }
 
 /// Generate a cryptographically random session token.
@@ -182,6 +210,90 @@ impl Db {
         .fetch_all(self.pool())
         .await
         .map_err(AuthError::Database)
+    }
+
+    /// List all active sessions with user email, for admin session viewer.
+    ///
+    /// Joins sessions with users. Filters to non-expired sessions only.
+    /// Optional user_id filter. Two static query variants (no dynamic SQL).
+    pub async fn list_all_sessions(
+        &self,
+        params: ListSessionsParams,
+    ) -> Result<ListSessionsResult, AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        if let Some(user_id) = params.user_id {
+            let total = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM allowthem_sessions s \
+                 JOIN allowthem_users u ON s.user_id = u.id \
+                 WHERE s.expires_at > ? AND s.user_id = ?",
+            )
+            .bind(&now)
+            .bind(user_id)
+            .fetch_one(self.pool())
+            .await
+            .map_err(AuthError::Database)? as u32;
+
+            let sessions = sqlx::query_as::<_, SessionListEntry>(
+                "SELECT s.id, s.user_id, u.email AS user_email, \
+                 s.ip_address, s.user_agent, s.expires_at, s.created_at \
+                 FROM allowthem_sessions s \
+                 JOIN allowthem_users u ON s.user_id = u.id \
+                 WHERE s.expires_at > ? AND s.user_id = ? \
+                 ORDER BY s.created_at DESC \
+                 LIMIT ? OFFSET ?",
+            )
+            .bind(&now)
+            .bind(user_id)
+            .bind(params.limit)
+            .bind(params.offset)
+            .fetch_all(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+
+            Ok(ListSessionsResult { sessions, total })
+        } else {
+            let total = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM allowthem_sessions s \
+                 JOIN allowthem_users u ON s.user_id = u.id \
+                 WHERE s.expires_at > ?",
+            )
+            .bind(&now)
+            .fetch_one(self.pool())
+            .await
+            .map_err(AuthError::Database)? as u32;
+
+            let sessions = sqlx::query_as::<_, SessionListEntry>(
+                "SELECT s.id, s.user_id, u.email AS user_email, \
+                 s.ip_address, s.user_agent, s.expires_at, s.created_at \
+                 FROM allowthem_sessions s \
+                 JOIN allowthem_users u ON s.user_id = u.id \
+                 WHERE s.expires_at > ? \
+                 ORDER BY s.created_at DESC \
+                 LIMIT ? OFFSET ?",
+            )
+            .bind(&now)
+            .bind(params.limit)
+            .bind(params.offset)
+            .fetch_all(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+
+            Ok(ListSessionsResult { sessions, total })
+        }
+    }
+
+    /// Delete a single session by primary key.
+    ///
+    /// Used by the admin session viewer to revoke individual sessions.
+    /// Returns `true` if a session was found and deleted, `false` if not.
+    pub async fn delete_session_by_id(&self, id: SessionId) -> Result<bool, AuthError> {
+        let result = sqlx::query("DELETE FROM allowthem_sessions WHERE id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+        Ok(result.rows_affected() > 0)
     }
 }
 
