@@ -1,4 +1,3 @@
-// Run `npx playwright install chromium` once after `npm install` to download browser binaries.
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
@@ -13,8 +12,15 @@ export default defineConfig({
   globalTeardown: "./global-teardown.ts",
   projects: [
     {
-      name: "chromium",
+      name: "main",
       use: { browserName: "chromium" },
+      testIgnore: "**/auth-rate-limit.spec.ts",
+    },
+    {
+      name: "rate-limit",
+      use: { browserName: "chromium" },
+      testMatch: "**/auth-rate-limit.spec.ts",
+      dependencies: ["main"],
     },
   ],
 });

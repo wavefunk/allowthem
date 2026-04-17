@@ -1,9 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { registerUser, loginUser, loginExpectingError } from "./fixtures";
 
-// Serial mode: rate-limit test must run last (it exhausts the IP counter).
-test.describe.configure({ mode: "serial" });
-
 test("login > happy path: valid credentials redirect to / and set session cookie", async ({
   page,
   context,
@@ -63,36 +60,3 @@ test("login > already authenticated: redirect to /", async ({ page }) => {
   await expect(page).toHaveURL("/");
 });
 
-// Rate-limit test MUST be last in this file (serial mode ensures ordering).
-// It exhausts the IP counter for 127.0.0.1 for the remainder of the server's life.
-test("login > rate limit: after exceeding limit shows rate-limit message", async ({
-  page,
-}) => {
-  test.setTimeout(30_000);
-  const email = `test-rl-${Date.now()}@example.com`;
-  await registerUser(page, email, "Test1234!");
-  await page.context().clearCookies();
-
-  // Get a CSRF token by loading the login page
-  await page.goto("/login");
-  const csrfToken = await page
-    .locator('input[name="csrf_token"]')
-    .inputValue();
-
-  // Exhaust the rate limit (ALLOWTHEM_MAX_LOGIN_ATTEMPTS=50 in global-setup.ts)
-  for (let i = 0; i < 51; i++) {
-    await page.request.post("/login", {
-      form: {
-        identifier: email,
-        password: "wrong",
-        csrf_token: csrfToken,
-      },
-    });
-  }
-
-  // Now attempt via browser — should see rate-limit error
-  await loginExpectingError(page, email, "wrong");
-  await expect(
-    page.locator("text=Too many login attempts. Please try again later.")
-  ).toBeVisible();
-});
