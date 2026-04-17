@@ -1,5 +1,5 @@
 use axum::Form;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::header::USER_AGENT;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -7,13 +7,22 @@ use chrono::Utc;
 use minijinja::context;
 use serde::Deserialize;
 
+use allowthem_core::applications::BrandingConfig;
+use allowthem_core::types::ClientId;
 use allowthem_core::{AuditEvent, AuthError, Email, Username, generate_token, hash_token};
 use allowthem_server::CsrfToken;
 
+use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
 use crate::error::AppError;
 use crate::state::AppState;
 
 const MIN_PASSWORD_LEN: usize = 8;
+
+#[derive(Deserialize)]
+pub struct RegisterQuery {
+    #[serde(default)]
+    client_id: Option<ClientId>,
+}
 
 #[derive(Deserialize)]
 pub struct RegisterForm {
@@ -31,21 +40,14 @@ pub async fn get_register(
     State(state): State<AppState>,
     user: allowthem_server::OptionalAuthUser,
     csrf: CsrfToken,
+    Query(query): Query<RegisterQuery>,
 ) -> Result<Response, AppError> {
     if user.0.is_some() {
         return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
     }
 
-    let html = crate::templates::render(
-        &state.templates,
-        "register.html",
-        context! {
-            csrf_token => csrf.as_str(),
-            email => "",
-            username => "",
-        },
-        state.is_production,
-    )?;
+    let branding = lookup_branding(&state, query.client_id.as_ref()).await;
+    let html = render_register_form(&state, csrf.as_str(), "", "", "", query.client_id.as_ref(), branding.as_ref())?;
     Ok(html.into_response())
 }
 
@@ -53,21 +55,23 @@ pub async fn get_register(
 pub async fn post_register(
     State(state): State<AppState>,
     csrf: CsrfToken,
+    Query(query): Query<RegisterQuery>,
     headers: HeaderMap,
     Form(form): Form<RegisterForm>,
 ) -> Result<Response, AppError> {
+    let branding = lookup_branding(&state, query.client_id.as_ref()).await;
+    let cid = query.client_id.as_ref();
+    let br = branding.as_ref();
+
     // 1. Validate passwords match
     if form.password != form.password_confirm {
-        return render_form_error(&state, &csrf, &form, "Passwords do not match");
+        return render_form_error(&state, &csrf, &form, "Passwords do not match", cid, br);
     }
 
     // 2. Validate password length
     if form.password.len() < MIN_PASSWORD_LEN {
         return render_form_error(
-            &state,
-            &csrf,
-            &form,
-            "Password must be at least 8 characters",
+            &state, &csrf, &form, "Password must be at least 8 characters", cid, br,
         );
     }
 
@@ -75,7 +79,7 @@ pub async fn post_register(
     let email = match Email::new(form.email.clone()) {
         Ok(e) => e,
         Err(_) => {
-            return render_form_error(&state, &csrf, &form, "Invalid email address");
+            return render_form_error(&state, &csrf, &form, "Invalid email address", cid, br);
         }
     };
 
@@ -97,14 +101,13 @@ pub async fn post_register(
         Ok(u) => u,
         Err(AuthError::Conflict(ref msg)) if msg.contains("email") => {
             return render_form_error(
-                &state,
-                &csrf,
-                &form,
-                "An account with this email already exists",
+                &state, &csrf, &form, "An account with this email already exists", cid, br,
             );
         }
         Err(AuthError::Conflict(ref msg)) if msg.contains("username") => {
-            return render_form_error(&state, &csrf, &form, "This username is already taken");
+            return render_form_error(
+                &state, &csrf, &form, "This username is already taken", cid, br,
+            );
         }
         Err(e) => return Err(AppError::Auth(e)),
     };
@@ -151,23 +154,50 @@ pub async fn post_register(
         .into_response())
 }
 
+fn render_register_form(
+    state: &AppState,
+    csrf_token: &str,
+    email: &str,
+    username: &str,
+    error: &str,
+    client_id: Option<&ClientId>,
+    branding: Option<&BrandingConfig>,
+) -> Result<axum::response::Html<String>, AppError> {
+    let (accent, accent_hover, accent_ring) = branding
+        .and_then(|b| b.primary_color.as_deref())
+        .map(compute_accent_variants)
+        .unwrap_or_else(default_accents);
+
+    crate::templates::render(
+        &state.templates,
+        "register.html",
+        context! {
+            csrf_token,
+            error,
+            email,
+            username,
+            client_id => client_id.map(|c| c.as_str()),
+            app_name => branding.map(|b| b.application_name.as_str()),
+            logo_url => branding.and_then(|b| b.logo_url.as_deref()),
+            accent,
+            accent_hover,
+            accent_ring,
+        },
+        state.is_production,
+    )
+}
+
 /// Re-render the registration form with an error message and preserved input.
 fn render_form_error(
     state: &AppState,
     csrf: &CsrfToken,
     form: &RegisterForm,
     error: &str,
+    client_id: Option<&ClientId>,
+    branding: Option<&BrandingConfig>,
 ) -> Result<Response, AppError> {
-    let html = crate::templates::render(
-        &state.templates,
-        "register.html",
-        context! {
-            csrf_token => csrf.as_str(),
-            error => error,
-            email => &form.email,
-            username => &form.username,
-        },
-        state.is_production,
+    let html = render_register_form(
+        state, csrf.as_str(), &form.email, &form.username, error, client_id, branding,
     )?;
     Ok(html.into_response())
 }

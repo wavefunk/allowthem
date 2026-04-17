@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use allowthem_server::{AuthorizeOutcome, AuthorizeParams, CsrfToken, check_authorization};
 
+use crate::branding::{compute_accent_variants, default_accents};
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::templates::render;
@@ -45,6 +46,11 @@ pub async fn get_authorize(
             let scope_items = build_scope_items(&data.context.scopes);
 
             let branding = &data.context.branding;
+            let (accent, accent_hover, accent_ring) = branding
+                .primary_color
+                .as_deref()
+                .map(compute_accent_variants)
+                .unwrap_or_else(default_accents);
 
             let html = render(
                 &state.templates,
@@ -52,7 +58,9 @@ pub async fn get_authorize(
                 context! {
                     application_name => branding.application_name.clone(),
                     logo_url => branding.logo_url.clone(),
-                    primary_color => branding.primary_color.clone(),
+                    accent,
+                    accent_hover,
+                    accent_ring,
                     scope_items => scope_items,
                     client_id => data.params.application.client_id.as_str(),
                     redirect_uri => data.params.redirect_uri,

@@ -10,11 +10,14 @@ use chrono::Utc;
 use minijinja::context;
 use serde::Deserialize;
 
+use allowthem_core::applications::BrandingConfig;
 use allowthem_core::password::verify_password;
 use allowthem_core::sessions;
+use allowthem_core::types::ClientId;
 use allowthem_core::{AuditEvent, PasswordHash, SessionToken};
 use allowthem_server::CsrfToken;
 
+use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::templates::render;
@@ -33,6 +36,7 @@ const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$ldQz3PJVzDn06G+Bzin5Ew$
 #[derive(Deserialize)]
 pub struct LoginQuery {
     next: Option<String>,
+    client_id: Option<ClientId>,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +44,7 @@ pub struct LoginForm {
     identifier: String,
     password: String,
     next: Option<String>,
+    client_id: Option<ClientId>,
     #[allow(dead_code)]
     csrf_token: String,
 }
@@ -70,8 +75,15 @@ fn render_login_form(
     identifier: &str,
     next: Option<&str>,
     error: &str,
+    client_id: Option<&ClientId>,
+    branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, AppError> {
     let next_val = next.map(validate_next).unwrap_or("");
+    let (accent, accent_hover, accent_ring) = branding
+        .and_then(|b| b.primary_color.as_deref())
+        .map(compute_accent_variants)
+        .unwrap_or_else(default_accents);
+
     render(
         &state.templates,
         "login.html",
@@ -80,6 +92,12 @@ fn render_login_form(
             next => next_val,
             error,
             identifier,
+            client_id => client_id.map(|c| c.as_str()),
+            app_name => branding.map(|b| b.application_name.as_str()),
+            logo_url => branding.and_then(|b| b.logo_url.as_deref()),
+            accent,
+            accent_hover,
+            accent_ring,
         },
         state.is_production,
     )
@@ -136,7 +154,11 @@ pub async fn get_login(
             .into_response());
     }
 
-    let html = render_login_form(&state, csrf.as_str(), "", query.next.as_deref(), "")?;
+    let branding = lookup_branding(&state, query.client_id.as_ref()).await;
+    let html = render_login_form(
+        &state, csrf.as_str(), "", query.next.as_deref(), "",
+        query.client_id.as_ref(), branding.as_ref(),
+    )?;
     Ok(html.into_response())
 }
 
@@ -151,6 +173,7 @@ pub async fn post_login(
     let ip = addr.ip();
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
     let ip_str = ip.to_string();
+    let branding = lookup_branding(&state, form.client_id.as_ref()).await;
 
     // 1. Rate limit check
     if is_rate_limited(&state, ip) {
@@ -160,13 +183,17 @@ pub async fn post_login(
             &form.identifier,
             form.next.as_deref(),
             "Too many login attempts. Please try again later.",
+            form.client_id.as_ref(), branding.as_ref(),
         )?;
         return Ok((StatusCode::TOO_MANY_REQUESTS, html).into_response());
     }
 
     let identifier = form.identifier.trim();
     if identifier.is_empty() {
-        let html = render_login_form(&state, csrf.as_str(), "", form.next.as_deref(), LOGIN_ERROR)?;
+        let html = render_login_form(
+            &state, csrf.as_str(), "", form.next.as_deref(), LOGIN_ERROR,
+            form.client_id.as_ref(), branding.as_ref(),
+        )?;
         return Ok(html.into_response());
     }
 
@@ -238,6 +265,7 @@ pub async fn post_login(
                     identifier,
                     form.next.as_deref(),
                     LOGIN_ERROR,
+                    form.client_id.as_ref(), branding.as_ref(),
                 )?;
                 Ok(html.into_response())
             }
@@ -266,6 +294,7 @@ pub async fn post_login(
                 identifier,
                 form.next.as_deref(),
                 LOGIN_ERROR,
+                form.client_id.as_ref(), branding.as_ref(),
             )?;
             Ok(html.into_response())
         }
