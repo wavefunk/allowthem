@@ -345,6 +345,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn clear_session_cookie_name_matches_session_cookie() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_name("app_session")
+            .build()
+            .await
+            .unwrap();
+
+        let token = generate_token();
+        let set = ath.session_cookie(&token);
+        let clear = ath.clear_session_cookie();
+
+        // Both must share the same cookie name prefix so the browser matches them.
+        assert!(set.starts_with("app_session="));
+        assert!(clear.starts_with("app_session=;"));
+        assert!(clear.contains("; Path=/"));
+        assert!(clear.contains("; Max-Age=0"));
+    }
+
+    #[tokio::test]
     async fn clear_session_cookie_with_domain_and_no_secure() {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_name("my_session")
