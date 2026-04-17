@@ -682,4 +682,189 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
+
+    #[tokio::test]
+    async fn list_page_filters_by_user() {
+        let (ath, state, cookie) = setup().await;
+
+        let user1 = ath
+            .db()
+            .create_user(
+                Email::new("user1-filter@example.com".into()).unwrap(),
+                "password123",
+                None,
+            )
+            .await
+            .unwrap();
+        let user2 = ath
+            .db()
+            .create_user(
+                Email::new("user2-filter@example.com".into()).unwrap(),
+                "password123",
+                None,
+            )
+            .await
+            .unwrap();
+        let _ = ath
+            .db()
+            .log_audit(AuditEvent::Login, Some(&user1.id), None, None, None, None)
+            .await;
+        let _ = ath
+            .db()
+            .log_audit(AuditEvent::Login, Some(&user2.id), None, None, None, None)
+            .await;
+
+        let app = test_app(state);
+        let req = Request::builder()
+            .uri(&format!("/admin/audit?user={}", user1.id))
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(body.contains("user1-filter@example.com"));
+        assert!(!body.contains("user2-filter@example.com"));
+        assert!(body.contains("1 event"));
+    }
+
+    #[tokio::test]
+    async fn list_page_combined_filters() {
+        let (ath, state, cookie) = setup().await;
+
+        let user = ath
+            .db()
+            .create_user(
+                Email::new("combined-filter@example.com".into()).unwrap(),
+                "password123",
+                None,
+            )
+            .await
+            .unwrap();
+        let _ = ath
+            .db()
+            .log_audit(AuditEvent::Login, Some(&user.id), None, None, None, None)
+            .await;
+        let _ = ath
+            .db()
+            .log_audit(AuditEvent::Logout, Some(&user.id), None, None, None, None)
+            .await;
+        let _ = ath
+            .db()
+            .log_audit(AuditEvent::LoginFailed, None, None, None, None, None)
+            .await;
+
+        let app = test_app(state);
+        // Combine user filter + event type filter
+        let req = Request::builder()
+            .uri(&format!("/admin/audit?user={}&event=login", user.id))
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(body.contains("1 event"));
+        assert!(body.contains("combined-filter@example.com"));
+    }
+
+    #[tokio::test]
+    async fn export_respects_filters() {
+        let (ath, state, cookie) = setup().await;
+
+        let user = ath
+            .db()
+            .create_user(
+                Email::new("export-filter@example.com".into()).unwrap(),
+                "password123",
+                None,
+            )
+            .await
+            .unwrap();
+        let _ = ath
+            .db()
+            .log_audit(AuditEvent::Login, Some(&user.id), None, None, None, None)
+            .await;
+        let _ = ath
+            .db()
+            .log_audit(AuditEvent::LoginFailed, None, None, None, None, None)
+            .await;
+
+        let app = test_app(state);
+        // Export only Login events
+        let req = Request::builder()
+            .uri("/admin/audit?event=login&format=csv")
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        // Header row + 1 data row
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 2, "expected header + 1 data row");
+        assert!(lines[1].contains("Login"));
+        assert!(!lines[1].contains("failed"));
+    }
+
+    // Unit tests for helper functions
+
+    #[test]
+    fn page_numbers_few_pages() {
+        assert_eq!(super::page_numbers(1, 5), vec![1, 2, 3, 4, 5]);
+        assert_eq!(super::page_numbers(3, 7), vec![1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn page_numbers_windowed_first_page() {
+        let pn = super::page_numbers(1, 20);
+        assert_eq!(pn[0], 1);
+        assert_eq!(*pn.last().unwrap(), 20);
+        // Page 10 should not appear
+        assert!(!pn.contains(&10));
+    }
+
+    #[test]
+    fn page_numbers_windowed_last_page() {
+        let pn = super::page_numbers(20, 20);
+        assert_eq!(pn[0], 1);
+        assert_eq!(*pn.last().unwrap(), 20);
+        assert!(!pn.contains(&5));
+    }
+
+    #[test]
+    fn page_numbers_windowed_middle() {
+        let pn = super::page_numbers(10, 20);
+        assert!(pn.contains(&1));
+        assert!(pn.contains(&20));
+        assert!(pn.contains(&10));
+        assert!(pn.contains(&8));
+        assert!(pn.contains(&12));
+        assert!(!pn.contains(&5));
+        // Ellipsis markers (0) should be present
+        assert!(pn.contains(&0));
+    }
+
+    #[test]
+    fn page_numbers_zero_total() {
+        assert_eq!(super::page_numbers(1, 0), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn csv_field_no_quoting_needed() {
+        assert_eq!(super::csv_field("hello"), "hello");
+    }
+
+    #[test]
+    fn csv_field_quotes_on_comma() {
+        assert_eq!(super::csv_field("a,b"), "\"a,b\"");
+    }
+
+    #[test]
+    fn csv_field_escapes_inner_quotes() {
+        assert_eq!(super::csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+    }
 }
