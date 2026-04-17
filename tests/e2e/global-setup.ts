@@ -70,6 +70,11 @@ export default async function globalSetup(): Promise<void> {
         "4242424242424242424242424242424242424242424242424242424242424242",
       ALLOWTHEM_BOOTSTRAP_ADMIN_EMAIL: "admin@e2e.test",
       ALLOWTHEM_BOOTSTRAP_ADMIN_PASSWORD: "AdminE2E1234!",
+      ALLOWTHEM_BOOTSTRAP_OIDC_APP_NAME: "E2E Test App",
+      ALLOWTHEM_BOOTSTRAP_OIDC_REDIRECT_URI:
+        "http://127.0.0.1:3100/test-callback",
+      ALLOWTHEM_BOOTSTRAP_OIDC_CLIENT_ID: "e2e-test-client",
+      ALLOWTHEM_BOOTSTRAP_OIDC_CLIENT_SECRET: "e2e-test-secret-1234",
     },
     stdio: "pipe",
     detached: false,

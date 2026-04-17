@@ -26,6 +26,10 @@ pub struct ServerConfig {
     pub github_client_secret: Option<String>,
     pub bootstrap_admin_email: Option<String>,
     pub bootstrap_admin_password: Option<String>,
+    pub bootstrap_oidc_app_name: Option<String>,
+    pub bootstrap_oidc_redirect_uri: Option<String>,
+    pub bootstrap_oidc_client_id: Option<String>,
+    pub bootstrap_oidc_client_secret: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -49,6 +53,10 @@ impl Default for ServerConfig {
             github_client_secret: None,
             bootstrap_admin_email: None,
             bootstrap_admin_password: None,
+            bootstrap_oidc_app_name: None,
+            bootstrap_oidc_redirect_uri: None,
+            bootstrap_oidc_client_id: None,
+            bootstrap_oidc_client_secret: None,
         }
     }
 }

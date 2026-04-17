@@ -82,6 +82,14 @@ async fn main() -> Result<()> {
         seed_admin_user(&ath, email_str, password).await?;
     }
 
+    // 4c. Bootstrap signing key (required for OIDC token issuance)
+    if let Some(ref key) = signing_key {
+        seed_signing_key(&ath, key).await?;
+    }
+
+    // 4d. Bootstrap OIDC application (dev/test only — no-op when env vars are unset)
+    seed_oidc_app(&ath, &config).await?;
+
     // 5. Well-known router and UserInfo router (resolved before ath is moved into AppState)
     let wk_router = well_known_routes(config.base_url.clone()).with_state(ath.clone());
     let ui_router = userinfo_route().with_state(ath.clone());
@@ -275,6 +283,86 @@ async fn seed_admin_user(
     let _ = ath.db().assign_role(&user.id, &role.id).await;
 
     tracing::info!(email = email_str, "bootstrap admin user ready");
+    Ok(())
+}
+
+async fn seed_signing_key(
+    ath: &allowthem_core::AllowThem,
+    encryption_key: &[u8; 32],
+) -> eyre::Result<()> {
+    // Idempotency: if an active key already exists, nothing to do.
+    match ath.db().get_active_signing_key().await {
+        Ok(_) => return Ok(()),
+        Err(allowthem_core::AuthError::NotFound) => {} // proceed
+        Err(e) => return Err(eyre::eyre!("seed_signing_key: lookup failed: {e}")),
+    }
+
+    let key = ath
+        .db()
+        .create_signing_key(encryption_key)
+        .await
+        .map_err(|e| eyre::eyre!("seed_signing_key: create failed: {e}"))?;
+    ath.db()
+        .activate_signing_key(key.id)
+        .await
+        .map_err(|e| eyre::eyre!("seed_signing_key: activate failed: {e}"))?;
+    tracing::info!("Seeded and activated RS256 signing key");
+    Ok(())
+}
+
+async fn seed_oidc_app(
+    ath: &allowthem_core::AllowThem,
+    config: &config::ServerConfig,
+) -> eyre::Result<()> {
+    let (Some(name), Some(redirect_uri), Some(client_id), Some(client_secret)) = (
+        config.bootstrap_oidc_app_name.as_deref(),
+        config.bootstrap_oidc_redirect_uri.as_deref(),
+        config.bootstrap_oidc_client_id.as_deref(),
+        config.bootstrap_oidc_client_secret.as_deref(),
+    ) else {
+        return Ok(());
+    };
+
+    use allowthem_core::ApplicationId;
+
+    // Idempotency: check if an application with this client_id already exists.
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT client_id FROM allowthem_applications WHERE client_id = ?1 LIMIT 1",
+    )
+    .bind(client_id)
+    .fetch_optional(ath.db().pool())
+    .await
+    .map_err(|e| eyre::eyre!("seed_oidc_app: lookup failed: {e}"))?;
+    if existing.is_some() {
+        return Ok(());
+    }
+
+    let id = ApplicationId::new();
+    let secret_hash = allowthem_core::password::hash_password(client_secret)
+        .map_err(|e| eyre::eyre!("seed_oidc_app: hash failed: {e}"))?;
+    let redirect_uris_json =
+        serde_json::to_string(&[redirect_uri]).expect("Vec<&str> serializes to JSON");
+    let now = chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string();
+
+    sqlx::query(
+        "INSERT INTO allowthem_applications \
+         (id, name, client_id, client_secret_hash, redirect_uris, logo_url, \
+          primary_color, is_trusted, created_by, is_active, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, NULL, NULL, 0, NULL, 1, ?6, ?6)",
+    )
+    .bind(id)
+    .bind(name)
+    .bind(client_id)
+    .bind(&secret_hash)
+    .bind(&redirect_uris_json)
+    .bind(&now)
+    .execute(ath.db().pool())
+    .await
+    .map_err(|e| eyre::eyre!("seed_oidc_app: insert failed: {e}"))?;
+
+    tracing::info!("Seeded OIDC application: {}", client_id);
     Ok(())
 }
 
