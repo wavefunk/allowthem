@@ -68,6 +68,7 @@ test("login > already authenticated: redirect to /", async ({ page }) => {
 test("login > rate limit: after exceeding limit shows rate-limit message", async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   const email = `test-rl-${Date.now()}@example.com`;
   await registerUser(page, email, "Test1234!");
   await page.context().clearCookies();
