@@ -40,7 +40,7 @@ where
             .strip_prefix("Bearer ")
             .ok_or(AuthExtractError::Unauthenticated)?;
 
-        let user_id = ath
+        let (user_id, _token_info) = ath
             .db()
             .validate_api_token(raw_token)
             .await
@@ -103,7 +103,7 @@ mod tests {
 
         let (raw, _) = ath
             .db()
-            .create_api_token(user.id, "test-token", None)
+            .create_api_token(user.id, "test-token", None, None)
             .await
             .unwrap();
 
@@ -207,7 +207,7 @@ mod tests {
         let past = Utc::now() - Duration::hours(1);
         let (raw, _) = ath
             .db()
-            .create_api_token(user.id, "expired", Some(past))
+            .create_api_token(user.id, "expired", Some(past), None)
             .await
             .unwrap();
 
