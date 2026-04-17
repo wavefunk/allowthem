@@ -320,6 +320,25 @@ pub fn session_cookie(token: &SessionToken, config: &SessionConfig, domain: &str
     cookie
 }
 
+/// Build a `Set-Cookie` header value that expires the session cookie.
+///
+/// Returns `Max-Age=0` with the same cookie name, path, domain, and flags
+/// as `session_cookie()` so the browser matches and removes the stored cookie.
+pub fn clear_session_cookie(config: &SessionConfig, domain: &str) -> String {
+    let mut cookie = format!(
+        "{}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0",
+        config.cookie_name,
+    );
+    if !domain.is_empty() {
+        cookie.push_str("; Domain=");
+        cookie.push_str(domain);
+    }
+    if config.secure {
+        cookie.push_str("; Secure");
+    }
+    cookie
+}
+
 /// Extract the session token from a `Cookie` header value.
 ///
 /// Searches the semicolon-separated list of `name=value` pairs for

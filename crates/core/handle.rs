@@ -238,6 +238,15 @@ impl AllowThem {
         Ok((key, pem))
     }
 
+    /// Build a `Set-Cookie` header value that expires the session cookie.
+    ///
+    /// Returns `Max-Age=0` with the same cookie name, path, domain, and flags
+    /// used by `session_cookie()`. Pass this as the `Set-Cookie` header on a
+    /// logout response to clear the browser's stored session cookie.
+    pub fn clear_session_cookie(&self) -> String {
+        sessions::clear_session_cookie(&self.inner.session_config, &self.inner.cookie_domain)
+    }
+
     /// Extract the session token from a `Cookie` header value.
     ///
     /// Uses the stored cookie name. Delegates to `sessions::parse_session_cookie()`.
@@ -317,6 +326,37 @@ mod tests {
         let cookie = ath.session_cookie(&token);
 
         assert!(cookie.contains("custom="));
+        assert!(cookie.contains("; Domain=example.com"));
+        assert!(!cookie.contains("; Secure"));
+    }
+
+    #[tokio::test]
+    async fn clear_session_cookie_defaults() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+
+        let cookie = ath.clear_session_cookie();
+        assert!(cookie.starts_with("allowthem_session=;"));
+        assert!(cookie.contains("; Max-Age=0"));
+        assert!(!cookie.contains("; Domain="));
+        assert!(cookie.contains("; Secure"));
+    }
+
+    #[tokio::test]
+    async fn clear_session_cookie_with_domain_and_no_secure() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_name("my_session")
+            .cookie_secure(false)
+            .cookie_domain("example.com")
+            .build()
+            .await
+            .unwrap();
+
+        let cookie = ath.clear_session_cookie();
+        assert!(cookie.starts_with("my_session=;"));
+        assert!(cookie.contains("; Max-Age=0"));
         assert!(cookie.contains("; Domain=example.com"));
         assert!(!cookie.contains("; Secure"));
     }
