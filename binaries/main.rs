@@ -1,4 +1,5 @@
 mod admin_applications;
+mod branding;
 mod config;
 mod consent;
 mod error;
