@@ -38,6 +38,62 @@ pub struct AuditEntry {
     pub created_at: DateTime<Utc>,
 }
 
+/// Map an `AuditEvent` variant to its snake_case database value.
+///
+/// `AuditEvent` has `#[sqlx(rename_all = "snake_case")]` but no matching
+/// serde attribute. This function provides the canonical snake_case string
+/// for use in dynamic SQL bind values.
+fn event_to_slug(event: &AuditEvent) -> &'static str {
+    match event {
+        AuditEvent::Login => "login",
+        AuditEvent::LoginFailed => "login_failed",
+        AuditEvent::Logout => "logout",
+        AuditEvent::Register => "register",
+        AuditEvent::PasswordChange => "password_change",
+        AuditEvent::PasswordReset => "password_reset",
+        AuditEvent::RoleAssigned => "role_assigned",
+        AuditEvent::RoleUnassigned => "role_unassigned",
+        AuditEvent::PermissionAssigned => "permission_assigned",
+        AuditEvent::PermissionUnassigned => "permission_unassigned",
+        AuditEvent::SessionCreated => "session_created",
+        AuditEvent::SessionExpired => "session_expired",
+        AuditEvent::UserUpdated => "user_updated",
+        AuditEvent::UserDeleted => "user_deleted",
+    }
+}
+
+/// Parameters for searching/filtering audit log entries.
+pub struct SearchAuditParams<'a> {
+    pub user_id: Option<UserId>,
+    pub event_type: Option<&'a AuditEvent>,
+    pub is_success: Option<bool>,
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+/// An audit log entry with the user's email resolved via LEFT JOIN.
+/// Used for admin list display — avoids showing raw UUIDs.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct AuditListEntry {
+    pub id: AuditEntryId,
+    pub event_type: AuditEvent,
+    pub user_id: Option<UserId>,
+    pub user_email: Option<String>,
+    pub target_id: Option<String>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Result of a paginated audit log search.
+pub struct SearchAuditResult {
+    pub entries: Vec<AuditListEntry>,
+    pub total: u32,
+}
+
 impl Db {
     /// Record an audit event.
     ///
@@ -149,5 +205,103 @@ impl Db {
         .fetch_one(self.pool())
         .await
         .map_err(AuthError::Database)
+    }
+
+    /// Search and filter audit log entries with pagination.
+    ///
+    /// Builds a dynamic query with optional filters for user, event type,
+    /// outcome, and date range. LEFT JOINs `allowthem_users` for email
+    /// resolution. Follows the same dynamic-SQL pattern as `search_users`.
+    pub async fn search_audit_log(
+        &self,
+        params: SearchAuditParams<'_>,
+    ) -> Result<SearchAuditResult, AuthError> {
+        // Build WHERE clauses and bind values. user_id is bound separately
+        // because it is a UUID (not a String), and sqlx needs the correct
+        // type for TEXT column comparison in SQLite.
+        let mut where_clauses: Vec<String> = Vec::new();
+        let mut string_binds: Vec<String> = Vec::new();
+
+        if params.user_id.is_some() {
+            where_clauses.push("a.user_id = ?".into());
+            // Bound separately below — position tracked by clause order
+        }
+
+        if let Some(event) = params.event_type {
+            where_clauses.push("a.event_type = ?".into());
+            string_binds.push(event_to_slug(event).to_string());
+        }
+
+        match params.is_success {
+            Some(true) => {
+                where_clauses.push("a.event_type != 'login_failed'".into());
+            }
+            Some(false) => {
+                where_clauses.push("a.event_type = 'login_failed'".into());
+            }
+            None => {}
+        }
+
+        if let Some(from) = params.from {
+            where_clauses.push("a.created_at >= ?".into());
+            string_binds.push(from.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+        }
+
+        if let Some(to) = params.to {
+            where_clauses.push("a.created_at < ?".into());
+            string_binds.push(to.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+        }
+
+        let where_sql = if where_clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", where_clauses.join(" AND "))
+        };
+
+        // Count query
+        let count_sql: &'static str = Box::leak(
+            format!("SELECT COUNT(*) FROM allowthem_audit_log a {where_sql}").into_boxed_str(),
+        );
+        let mut count_query = sqlx::query_scalar::<_, i64>(count_sql);
+        // Bind user_id first (it's the first WHERE clause if present)
+        if let Some(uid) = params.user_id {
+            count_query = count_query.bind(uid);
+        }
+        for val in &string_binds {
+            count_query = count_query.bind(val);
+        }
+        let total = count_query
+            .fetch_one(self.pool())
+            .await
+            .map_err(AuthError::Database)? as u32;
+
+        // Data query with LEFT JOIN for user email
+        let data_sql: &'static str = Box::leak(
+            format!(
+                "SELECT a.id, a.event_type, a.user_id, u.email AS user_email, \
+                 a.target_id, a.ip_address, a.user_agent, a.detail, a.created_at \
+                 FROM allowthem_audit_log a \
+                 LEFT JOIN allowthem_users u ON a.user_id = u.id \
+                 {where_sql} \
+                 ORDER BY a.created_at DESC \
+                 LIMIT ? OFFSET ?"
+            )
+            .into_boxed_str(),
+        );
+        let mut data_query = sqlx::query_as::<_, AuditListEntry>(data_sql);
+        if let Some(uid) = params.user_id {
+            data_query = data_query.bind(uid);
+        }
+        for val in &string_binds {
+            data_query = data_query.bind(val);
+        }
+        data_query = data_query.bind(params.limit).bind(params.offset);
+
+        let entries = data_query
+            .fetch_all(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+
+        Ok(SearchAuditResult { entries, total })
     }
 }
