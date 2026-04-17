@@ -61,10 +61,7 @@ pub async fn list(
 
     let (filter_user_email, filter_user_id) = if let Some(uid) = params.user_id {
         match state.ath.db().get_user(uid).await {
-            Ok(user) => (
-                Some(user.email.as_str().to_string()),
-                Some(uid.to_string()),
-            ),
+            Ok(user) => (Some(user.email.as_str().to_string()), Some(uid.to_string())),
             Err(_) => (None, None),
         }
     } else {
@@ -74,7 +71,7 @@ pub async fn list(
     let total_pages = if result.total == 0 {
         0
     } else {
-        (result.total + PAGE_SIZE - 1) / PAGE_SIZE
+        result.total.div_ceil(PAGE_SIZE)
     };
 
     let html = crate::templates::render(
@@ -146,11 +143,11 @@ mod tests {
     use chrono::{Duration, Utc};
     use tower::ServiceExt;
 
+    use allowthem_core::types::{SessionId, UserId};
     use allowthem_core::{
         AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, RoleName,
         generate_token, hash_token,
     };
-    use allowthem_core::types::{SessionId, UserId};
     use allowthem_server::csrf_middleware;
 
     use crate::state::AppState;
