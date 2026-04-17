@@ -26,6 +26,32 @@ export async function loginUser(
   await page.waitForURL((url) => !url.pathname.startsWith("/login"));
 }
 
+export async function registerExpectingError(
+  page: Page,
+  email: string,
+  password: string,
+  passwordConfirm: string = password
+): Promise<void> {
+  await page.goto("/register");
+  await page.locator('input[name="email"]').fill(email);
+  await page.locator('input[name="password"]').fill(password);
+  await page.locator('input[name="password_confirm"]').fill(passwordConfirm);
+  await page.locator('button[type="submit"]').click();
+  // No waitForURL — error case stays on /register
+}
+
+export async function loginExpectingError(
+  page: Page,
+  identifier: string,
+  password: string
+): Promise<void> {
+  await page.goto("/login");
+  await page.locator('input[name="identifier"]').fill(identifier);
+  await page.locator('input[name="password"]').fill(password);
+  await page.locator('button[type="submit"]').click();
+  // No waitForURL — error case stays on /login
+}
+
 export const test = base.extend<{ authenticatedPage: Page }>({
   authenticatedPage: async ({ page }, use) => {
     const email = `test-${Date.now()}@example.com`;
