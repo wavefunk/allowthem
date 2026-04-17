@@ -118,24 +118,6 @@ export async function oauthLogin(
   await page.unroute("**/test-oauth/simulate**");
 }
 
-export async function oauthLoginExpectingError(
-  page: Page,
-  provider: "google" | "github",
-  identity: MockOAuthIdentity
-): Promise<void> {
-  await page.route("**/test-oauth/simulate**", async (route) => {
-    const url = new URL(route.request().url());
-    url.searchParams.set("email", identity.email);
-    url.searchParams.set("verified", String(identity.verified ?? true));
-    url.searchParams.set("uid", identity.uid ?? identity.email);
-    if (identity.name) url.searchParams.set("name", identity.name);
-    await route.continue({ url: url.toString() });
-  });
-
-  await page.goto(`/oauth/${provider}/authorize`);
-  // On error the flow does not complete to a non-oauth URL.
-  await page.unroute("**/test-oauth/simulate**");
-}
 
 export const test = base.extend<{ authenticatedPage: Page }>({
   authenticatedPage: async ({ page }, use) => {
