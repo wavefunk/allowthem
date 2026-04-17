@@ -1,0 +1,32 @@
+[package]
+name = "allowthem-client"
+version.workspace = true
+authors.workspace = true
+description = "External-mode AuthClient for allowthem — JWT validation via JWKS"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+path = "./client.rs"
+
+[dependencies]
+allowthem-core = { path = "../core", version = "0.0.1" }
+jsonwebtoken.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dashmap.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+sha2.workspace = true
+base64ct.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+tower.workspace = true
+wiremock = "0.6"
+rsa = { version = "0.9", features = ["pem"] }
