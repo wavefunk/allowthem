@@ -6,7 +6,15 @@ use sqlx::SqlitePool;
 use crate::db::Db;
 use crate::error::AuthError;
 use crate::sessions::{self, SessionConfig};
-use crate::types::SessionToken;
+use crate::types::{SessionToken, User};
+
+/// Outcome of a successful login or session creation.
+pub struct LoginOutcome {
+    pub user: User,
+    pub token: SessionToken,
+    /// Value for the `Set-Cookie` response header.
+    pub set_cookie: String,
+}
 
 /// Error type for builder construction and validation failures.
 #[derive(Debug, thiserror::Error)]

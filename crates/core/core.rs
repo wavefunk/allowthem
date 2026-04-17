@@ -31,7 +31,7 @@ pub use auth_client::{AuthClient, AuthFuture, EmbeddedAuthClient};
 pub use db::Db;
 pub use email::{EmailMessage, EmailSender, LogEmailSender};
 pub use error::{AccessTokenError, AuthError};
-pub use handle::{AllowThem, AllowThemBuilder, BuildError};
+pub use handle::{AllowThem, AllowThemBuilder, BuildError, LoginOutcome};
 pub use invitations::Invitation;
 pub use jwt::{Claims, JwtConfig, generate_token as generate_jwt, validate_token};
 pub use oauth::{OAuthAccountInfo, OAuthProvider, OAuthStateInfo, OAuthUserInfo};
