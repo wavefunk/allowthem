@@ -212,14 +212,13 @@ pub fn hash_refresh_token(raw: &str) -> TokenHash {
 
 impl Db {
     /// Create a refresh token record. Expires after 30 days.
-    #[allow(clippy::too_many_arguments)]
     pub async fn create_refresh_token(
         &self,
         application_id: ApplicationId,
         user_id: UserId,
         token_hash: &TokenHash,
         scopes: &[String],
-        authorization_code_id: AuthorizationCodeId,
+        authorization_code_id: Option<AuthorizationCodeId>,
     ) -> Result<RefreshToken, AuthError> {
         let id = RefreshTokenId::new();
         let scopes_json =
@@ -276,6 +275,41 @@ impl Db {
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Look up a refresh token by its SHA-256 hash.
+    ///
+    /// Returns `Ok(None)` if no token matches. The caller must hash
+    /// the raw token before calling this method.
+    pub async fn get_refresh_token_by_hash(
+        &self,
+        token_hash: &TokenHash,
+    ) -> Result<Option<RefreshToken>, AuthError> {
+        sqlx::query_as::<_, RefreshToken>(
+            "SELECT id, application_id, user_id, token_hash, scopes, \
+             authorization_code_id, expires_at, revoked_at, created_at \
+             FROM allowthem_refresh_tokens WHERE token_hash = ?",
+        )
+        .bind(token_hash)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
+
+    /// Revoke a single refresh token by setting revoked_at to now.
+    ///
+    /// Used during token rotation: the old refresh token is revoked
+    /// before the new one is issued.
+    pub async fn revoke_refresh_token(&self, id: RefreshTokenId) -> Result<(), AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        sqlx::query(
+            "UPDATE allowthem_refresh_tokens SET revoked_at = ? WHERE id = ?",
+        )
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+        Ok(())
     }
 }
 
@@ -397,7 +431,7 @@ pub async fn exchange_authorization_code(
         auth_code.user_id,
         &refresh_hash,
         &scopes,
-        auth_code.id,
+        Some(auth_code.id),
     )
     .await
     .map_err(|e| TokenError::ServerError(e.to_string()))?;
@@ -904,5 +938,71 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(count.0, 1, "refresh token should be stored in DB");
+    }
+
+    // Db method tests for refresh token lookup and revocation (M42)
+
+    #[tokio::test]
+    async fn get_refresh_token_by_hash_returns_token() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let resp = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let hash = hash_refresh_token(&resp.refresh_token);
+        let stored = db.get_refresh_token_by_hash(&hash).await.unwrap().unwrap();
+        assert_eq!(stored.application_id, app.id);
+        assert_eq!(stored.revoked_at, None);
+    }
+
+    #[tokio::test]
+    async fn get_refresh_token_by_hash_returns_none_for_unknown() {
+        let db = test_db().await;
+        let unknown = hash_refresh_token("nonexistent_raw_token");
+        let result = db.get_refresh_token_by_hash(&unknown).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn revoke_refresh_token_sets_revoked_at() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let resp = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let hash = hash_refresh_token(&resp.refresh_token);
+        let stored = db.get_refresh_token_by_hash(&hash).await.unwrap().unwrap();
+        assert!(stored.revoked_at.is_none());
+
+        db.revoke_refresh_token(stored.id).await.unwrap();
+
+        let after = db.get_refresh_token_by_hash(&hash).await.unwrap().unwrap();
+        assert!(after.revoked_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn revoke_refresh_token_idempotent() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let resp = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let hash = hash_refresh_token(&resp.refresh_token);
+        let stored = db.get_refresh_token_by_hash(&hash).await.unwrap().unwrap();
+
+        db.revoke_refresh_token(stored.id).await.unwrap();
+        db.revoke_refresh_token(stored.id).await.unwrap();
     }
 }
