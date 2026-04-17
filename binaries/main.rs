@@ -74,6 +74,14 @@ async fn main() -> Result<()> {
     }
     let ath = builder.build().await?;
 
+    // 4b. Bootstrap admin user (dev/test only — no-op when env vars are unset)
+    if let (Some(email_str), Some(password)) = (
+        &config.bootstrap_admin_email,
+        &config.bootstrap_admin_password,
+    ) {
+        seed_admin_user(&ath, email_str, password).await?;
+    }
+
     // 5. Well-known router and UserInfo router (resolved before ath is moved into AppState)
     let wk_router = well_known_routes(config.base_url.clone()).with_state(ath.clone());
     let ui_router = userinfo_route().with_state(ath.clone());
@@ -224,6 +232,50 @@ async fn shutdown_signal() {
         .await
         .expect("failed to install ctrl-c handler");
     tracing::info!("shutdown signal received");
+}
+
+async fn seed_admin_user(
+    ath: &allowthem_core::AllowThem,
+    email_str: &str,
+    password: &str,
+) -> eyre::Result<()> {
+    use allowthem_core::{Email, RoleName};
+
+    let email = Email::new(email_str.to_string())
+        .map_err(|e| eyre::eyre!("bootstrap admin email invalid: {e}"))?;
+
+    let user = match ath.db().get_user_by_email(&email).await {
+        Ok(u) => u,
+        Err(allowthem_core::AuthError::NotFound) => {
+            tracing::info!(email = email_str, "seeding bootstrap admin user");
+            ath.db()
+                .create_user(email, password, None)
+                .await
+                .map_err(|e| eyre::eyre!("bootstrap admin create failed: {e}"))?
+        }
+        Err(e) => return Err(eyre::eyre!("bootstrap admin user lookup failed: {e}")),
+    };
+
+    let role_name = RoleName::new("admin");
+    // create_role returns AuthError::Conflict on duplicate — always look up first.
+    // assign_role uses INSERT OR IGNORE and is safe to repeat.
+    let role = match ath
+        .db()
+        .get_role_by_name(&role_name)
+        .await
+        .map_err(|e| eyre::eyre!("bootstrap admin role lookup failed: {e}"))?
+    {
+        Some(r) => r,
+        None => ath
+            .db()
+            .create_role(&role_name, None)
+            .await
+            .map_err(|e| eyre::eyre!("bootstrap admin role create failed: {e}"))?,
+    };
+    let _ = ath.db().assign_role(&user.id, &role.id).await;
+
+    tracing::info!(email = email_str, "bootstrap admin user ready");
+    Ok(())
 }
 
 fn decode_hex_key(hex: &str) -> Result<[u8; 32]> {

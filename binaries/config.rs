@@ -24,6 +24,8 @@ pub struct ServerConfig {
     pub google_client_secret: Option<String>,
     pub github_client_id: Option<String>,
     pub github_client_secret: Option<String>,
+    pub bootstrap_admin_email: Option<String>,
+    pub bootstrap_admin_password: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -45,6 +47,8 @@ impl Default for ServerConfig {
             google_client_secret: None,
             github_client_id: None,
             github_client_secret: None,
+            bootstrap_admin_email: None,
+            bootstrap_admin_password: None,
         }
     }
 }

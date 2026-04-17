@@ -43,6 +43,10 @@ export async function registerExpectingError(
   // No waitForURL — error case stays on /register
 }
 
+export async function loginAsAdmin(page: Page): Promise<void> {
+  await loginUser(page, "admin@e2e.test", "AdminE2E1234!");
+}
+
 export async function loginExpectingError(
   page: Page,
   identifier: string,
@@ -183,12 +187,19 @@ export async function loginWithMfaChallenge(
   await page.waitForURL((url) => !url.pathname.startsWith("/mfa/challenge"));
 }
 
-export const test = base.extend<{ authenticatedPage: Page }>({
+export const test = base.extend<{
+  authenticatedPage: Page;
+  adminPage: Page;
+}>({
   authenticatedPage: async ({ page }, use) => {
     const email = `test-${Date.now()}@example.com`;
     const password = "Test1234!";
     // registerUser creates the user and sets an active session cookie
     await registerUser(page, email, password);
+    await use(page);
+  },
+  adminPage: async ({ page }, use) => {
+    await loginUser(page, "admin@e2e.test", "AdminE2E1234!");
     await use(page);
   },
 });

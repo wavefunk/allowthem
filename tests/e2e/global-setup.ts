@@ -68,6 +68,8 @@ export default async function globalSetup(): Promise<void> {
       ALLOWTHEM_OAUTH_MOCK: "true",
       ALLOWTHEM_MFA_KEY_HEX:
         "4242424242424242424242424242424242424242424242424242424242424242",
+      ALLOWTHEM_BOOTSTRAP_ADMIN_EMAIL: "admin@e2e.test",
+      ALLOWTHEM_BOOTSTRAP_ADMIN_PASSWORD: "AdminE2E1234!",
     },
     stdio: "pipe",
     detached: false,
