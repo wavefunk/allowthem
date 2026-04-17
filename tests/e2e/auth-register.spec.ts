@@ -54,6 +54,41 @@ test("register > error: passwords do not match shows inline message", async ({
   await expect(page.locator("text=Passwords do not match")).toBeVisible();
 });
 
+test("register > error: duplicate username shows inline message", async ({
+  page,
+  context,
+}) => {
+  // Register a first account with a unique username.
+  const suffix = Date.now();
+  const firstEmail = `test-reg-user1-${suffix}@example.com`;
+  const secondEmail = `test-reg-user2-${suffix}@example.com`;
+  const username = `taken-${suffix}`;
+
+  await page.goto("/register");
+  await page.locator('input[name="email"]').fill(firstEmail);
+  await page.locator('input[name="username"]').fill(username);
+  await page.locator('input[name="password"]').fill("Test1234!");
+  await page.locator('input[name="password_confirm"]').fill("Test1234!");
+  await page.locator('button[type="submit"]').click();
+  await page.waitForURL((url) => !url.pathname.startsWith("/register"));
+
+  // Clear the session cookie so GET /register renders the form instead of redirecting.
+  await context.clearCookies();
+
+  // Second registration: distinct email, same username — should fail with inline error.
+  await page.goto("/register");
+  await page.locator('input[name="email"]').fill(secondEmail);
+  await page.locator('input[name="username"]').fill(username);
+  await page.locator('input[name="password"]').fill("Test1234!");
+  await page.locator('input[name="password_confirm"]').fill("Test1234!");
+  await page.locator('button[type="submit"]').click();
+
+  await expect(page).toHaveURL(/\/register/);
+  await expect(
+    page.locator("text=This username is already taken")
+  ).toBeVisible();
+});
+
 test("register > error: invalid email format — browser type=email blocks submission", async ({
   page,
 }) => {
