@@ -259,6 +259,7 @@ mod tests {
     async fn setup() -> AppState {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
@@ -289,7 +290,7 @@ mod tests {
                 "/auth/reset-password",
                 get(super::get_reset_password).post(super::post_reset_password),
             )
-            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
             .with_state(state)
     }
 
@@ -373,7 +374,7 @@ mod tests {
             .method("POST")
             .uri("/forgot-password")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={csrf}"))
+            .header(header::COOKIE, format!("csrf_pre={csrf}"))
             .body(Body::from(format!(
                 "email=reset%40example.com&csrf_token={csrf}"
             )))
@@ -394,7 +395,7 @@ mod tests {
             .method("POST")
             .uri("/forgot-password")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={csrf}"))
+            .header(header::COOKIE, format!("csrf_pre={csrf}"))
             .body(Body::from(format!(
                 "email=nobody%40example.com&csrf_token={csrf}"
             )))
@@ -415,7 +416,7 @@ mod tests {
             .method("POST")
             .uri("/forgot-password")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={csrf}"))
+            .header(header::COOKIE, format!("csrf_pre={csrf}"))
             .body(Body::from(format!("email=notanemail&csrf_token={csrf}")))
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
@@ -476,7 +477,7 @@ mod tests {
             .method("POST")
             .uri("/auth/reset-password")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={csrf}"))
+            .header(header::COOKIE, format!("csrf_pre={csrf}"))
             .body(Body::from(format!(
                 "token={token}&new_password=NewPass999!&confirm_password=Different1!&csrf_token={csrf}"
             )))
@@ -498,7 +499,7 @@ mod tests {
             .method("POST")
             .uri("/auth/reset-password")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={csrf}"))
+            .header(header::COOKIE, format!("csrf_pre={csrf}"))
             .body(Body::from(format!(
                 "token={token}&new_password=short&confirm_password=short&csrf_token={csrf}"
             )))
@@ -520,7 +521,7 @@ mod tests {
             .method("POST")
             .uri("/auth/reset-password")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={csrf}"))
+            .header(header::COOKIE, format!("csrf_pre={csrf}"))
             .body(Body::from(format!(
                 "token={token}&new_password=NewPass999!&confirm_password=NewPass999!&csrf_token={csrf}"
             )))
@@ -550,7 +551,7 @@ mod tests {
             .method("POST")
             .uri("/auth/reset-password")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={csrf}"))
+            .header(header::COOKIE, format!("csrf_pre={csrf}"))
             .body(Body::from(format!(
                 "token={token}&new_password=NewPass999!&confirm_password=NewPass999!&csrf_token={csrf}"
             )))

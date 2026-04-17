@@ -155,6 +155,7 @@ mod tests {
     async fn setup() -> (AllowThem, AppState, String) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
@@ -203,7 +204,7 @@ mod tests {
     fn test_app(state: AppState) -> Router {
         Router::new()
             .nest("/admin/sessions", super::routes())
-            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
             .with_state(state)
     }
 
@@ -506,6 +507,7 @@ mod tests {
     async fn non_admin_gets_403() {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();

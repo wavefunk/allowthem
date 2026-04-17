@@ -260,6 +260,7 @@ mod tests {
     async fn setup() -> (AllowThem, AppState) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
@@ -287,7 +288,7 @@ mod tests {
                 "/register",
                 get(super::get_register).post(super::post_register),
             )
-            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
             .with_state(state)
     }
 
@@ -338,7 +339,7 @@ mod tests {
             .method("POST")
             .uri("/register")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={}", csrf))
+            .header(header::COOKIE, format!("csrf_pre={}", csrf))
             .body(Body::from(body))
             .unwrap()
     }

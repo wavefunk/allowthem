@@ -201,7 +201,7 @@ async fn main() -> Result<()> {
         .nest("/admin/sessions", admin_sessions::routes())
         .merge(wk_router)
         .nest_service("/static", ServeDir::new("binaries/static"))
-        .layer(axum::middleware::from_fn(csrf_middleware))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
         .route(
             "/mfa/challenge",
             get(mfa::get_mfa_challenge).post(mfa::post_mfa_challenge),
@@ -437,6 +437,7 @@ mod tests {
     async fn health_endpoint() {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
@@ -625,6 +626,7 @@ mod tests {
     async fn static_file_serving() {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
@@ -677,6 +679,7 @@ mod consent_tests {
     async fn consent_test_state() -> (allowthem_core::AllowThem, AppState) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
@@ -705,7 +708,7 @@ mod consent_tests {
                 "/oauth/authorize",
                 axum::routing::get(consent::get_authorize).post(authorize_post),
             )
-            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
             .with_state(state)
     }
 
