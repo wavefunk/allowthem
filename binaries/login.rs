@@ -784,4 +784,37 @@ mod tests {
         assert!(html.contains("BrandedPost"), "app name preserved after error");
         assert!(html.contains("#ff6600"), "accent color preserved after error");
     }
+
+    #[tokio::test]
+    async fn login_register_link_carries_client_id() {
+        let state = setup().await;
+        let (app, _) = state
+            .ath
+            .db()
+            .create_application(
+                "LinkApp".into(),
+                vec!["https://example.com/cb".into()],
+                false,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri(&format!("/login?client_id={}", app.client_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            html.contains(&format!("/register?client_id={}", app.client_id)),
+            "register link should carry client_id"
+        );
+    }
 }

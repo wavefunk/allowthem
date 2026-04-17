@@ -583,4 +583,87 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
+
+    #[tokio::test]
+    async fn register_with_client_id_shows_branding() {
+        let (ath, state) = setup().await;
+        let (app, _) = ath
+            .db()
+            .create_application(
+                "BrandedRegApp".into(),
+                vec!["https://example.com/cb".into()],
+                false,
+                None,
+                Some("https://cdn.example.com/logo.png".into()),
+                Some("#ff6600".into()),
+            )
+            .await
+            .unwrap();
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri(&format!("/register?client_id={}", app.client_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("BrandedRegApp"), "should show app name");
+        assert!(html.contains("<img"), "should show logo");
+        assert!(html.contains("#ff6600"), "should have accent color");
+    }
+
+    #[tokio::test]
+    async fn register_without_client_id_shows_default() {
+        let (_, state) = setup().await;
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri("/register")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(!html.contains("<img"), "no logo without client_id");
+        assert!(html.contains("#2563eb"), "should have default blue");
+    }
+
+    #[tokio::test]
+    async fn register_sign_in_link_carries_client_id() {
+        let (ath, state) = setup().await;
+        let (app, _) = ath
+            .db()
+            .create_application(
+                "LinkApp".into(),
+                vec!["https://example.com/cb".into()],
+                false,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri(&format!("/register?client_id={}", app.client_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            html.contains(&format!("/login?client_id={}", app.client_id)),
+            "sign-in link should carry client_id"
+        );
+    }
 }

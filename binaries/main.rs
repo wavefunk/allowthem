@@ -588,7 +588,11 @@ mod consent_tests {
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
         let loc = resp.headers().get("location").unwrap().to_str().unwrap();
-        assert!(loc.starts_with("/login?next="));
+        assert!(loc.starts_with("/login?next="), "should redirect to login");
+        assert!(
+            loc.contains(&format!("client_id={}", app.client_id)),
+            "redirect should include client_id for branding"
+        );
     }
 
     #[tokio::test]
