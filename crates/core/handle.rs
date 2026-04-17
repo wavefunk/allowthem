@@ -261,6 +261,87 @@ impl AllowThem {
     pub fn parse_session_cookie(&self, cookie_header: &str) -> Option<SessionToken> {
         sessions::parse_session_cookie(cookie_header, self.inner.session_config.cookie_name)
     }
+
+    /// Authenticate with credentials and create a session.
+    ///
+    /// Returns `Err(AuthError::InvalidCredentials)` for any credential failure —
+    /// unknown identifier, wrong password, no local password hash (SSO-only
+    /// account), or inactive user — to prevent account enumeration.
+    ///
+    /// Records an `AuditEvent::Login` on success. IP and user-agent are not
+    /// available at this layer; callers who need them in the audit log should
+    /// use the low-level `Db` methods directly.
+    pub async fn login(&self, identifier: &str, password: &str) -> Result<LoginOutcome, AuthError> {
+        use chrono::Utc;
+
+        use crate::audit::AuditEvent;
+        use crate::password::verify_password;
+
+        let user = self
+            .db()
+            .find_for_login(identifier)
+            .await
+            .map_err(|e| match e {
+                AuthError::NotFound => AuthError::InvalidCredentials,
+                other => other,
+            })?;
+
+        if !user.is_active {
+            return Err(AuthError::InvalidCredentials);
+        }
+
+        let hash = user
+            .password_hash
+            .as_ref()
+            .ok_or(AuthError::InvalidCredentials)?;
+
+        if !verify_password(password, hash)? {
+            return Err(AuthError::InvalidCredentials);
+        }
+
+        let token = sessions::generate_token();
+        let token_hash = sessions::hash_token(&token);
+        let expires_at = Utc::now() + self.inner.session_config.ttl;
+        self.db()
+            .create_session(user.id, token_hash, None, None, expires_at)
+            .await?;
+
+        let _ = self
+            .db()
+            .log_audit(AuditEvent::Login, Some(&user.id), None, None, None, None)
+            .await;
+
+        let set_cookie = self.session_cookie(&token);
+        Ok(LoginOutcome {
+            user,
+            token,
+            set_cookie,
+        })
+    }
+
+    /// Create a session for an already-authenticated user.
+    ///
+    /// Does not verify credentials. Intended for use after OAuth, TOTP, or
+    /// other non-password authentication flows. The calling flow is responsible
+    /// for audit logging.
+    pub async fn create_session_cookie(&self, user_id: crate::types::UserId) -> Result<LoginOutcome, AuthError> {
+        use chrono::Utc;
+
+        let user = self.db().get_user(user_id).await?;
+        let token = sessions::generate_token();
+        let token_hash = sessions::hash_token(&token);
+        let expires_at = Utc::now() + self.inner.session_config.ttl;
+        self.db()
+            .create_session(user_id, token_hash, None, None, expires_at)
+            .await?;
+
+        let set_cookie = self.session_cookie(&token);
+        Ok(LoginOutcome {
+            user,
+            token,
+            set_cookie,
+        })
+    }
 }
 
 #[cfg(test)]
