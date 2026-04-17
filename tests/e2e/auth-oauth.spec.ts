@@ -33,6 +33,18 @@ test("oauth > Google authorize redirects through mock simulate", async ({
   expect(location).not.toContain("accounts.google.com");
 });
 
+test("oauth > GitHub authorize redirects through mock simulate", async ({
+  page,
+}) => {
+  const resp = await page.request.get("/oauth/github/authorize", {
+    maxRedirects: 0,
+  });
+  expect(resp.status()).toBe(307);
+  const location = resp.headers()["location"] ?? "";
+  expect(location).toContain("/test-oauth/simulate");
+  expect(location).not.toContain("github.com");
+});
+
 // -------------------------------------------------------------------------
 // Happy path: auto-register new user
 // -------------------------------------------------------------------------
@@ -207,4 +219,55 @@ test("oauth > error: missing code returns 400", async ({ page }) => {
 test("oauth > error: unknown provider returns 404", async ({ page }) => {
   const resp = await page.request.get("/oauth/unknown/authorize");
   expect(resp.status()).toBe(404);
+});
+
+test("oauth > error: provider conflict returns 409 when uid already linked to another user", async ({
+  page,
+  context,
+}) => {
+  const uid = `conflict-uid-${Date.now()}`;
+
+  // User A: register and link Google with uid=X
+  const emailA = `test-oauth-conflict-a-${Date.now()}@example.com`;
+  await registerUser(page, emailA, "Test1234!");
+  const linkRespA = await page.request.get("/oauth/google/link", {
+    maxRedirects: 0,
+  });
+  expect(linkRespA.status()).toBe(307);
+  const simulateA = new URL(
+    linkRespA.headers()["location"]!,
+    "http://127.0.0.1:3100"
+  );
+  simulateA.searchParams.set("email", emailA);
+  simulateA.searchParams.set("verified", "true");
+  simulateA.searchParams.set("uid", uid);
+  await page.goto(simulateA.pathname + simulateA.search);
+  await context.clearCookies();
+
+  // User B: register and attempt to link the same uid=X
+  const emailB = `test-oauth-conflict-b-${Date.now()}@example.com`;
+  await registerUser(page, emailB, "Test1234!");
+  const linkRespB = await page.request.get("/oauth/google/link", {
+    maxRedirects: 0,
+  });
+  expect(linkRespB.status()).toBe(307);
+  const simulateB = new URL(
+    linkRespB.headers()["location"]!,
+    "http://127.0.0.1:3100"
+  );
+  simulateB.searchParams.set("email", emailB);
+  simulateB.searchParams.set("verified", "true");
+  simulateB.searchParams.set("uid", uid);
+
+  // Follow simulate → callback manually; the callback returns 409 JSON (no redirect)
+  const simulateResp = await page.request.get(
+    simulateB.pathname + simulateB.search,
+    { maxRedirects: 0 }
+  );
+  expect(simulateResp.status()).toBe(307);
+  const callbackUrl = simulateResp.headers()["location"]!;
+  const conflictResp = await page.request.get(callbackUrl, {
+    maxRedirects: 0,
+  });
+  expect(conflictResp.status()).toBe(409);
 });
