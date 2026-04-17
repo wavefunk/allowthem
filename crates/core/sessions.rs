@@ -165,6 +165,24 @@ impl Db {
             .map_err(AuthError::Database)?;
         Ok(result.rows_affected())
     }
+
+    /// List all active (non-expired) sessions for a user.
+    ///
+    /// Returns sessions ordered by `created_at` descending (newest first).
+    pub async fn list_user_sessions(&self, user_id: UserId) -> Result<Vec<Session>, AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        sqlx::query_as::<_, Session>(
+            "SELECT id, token_hash, user_id, ip_address, user_agent, expires_at, created_at \
+             FROM allowthem_sessions \
+             WHERE user_id = ? AND expires_at > ? \
+             ORDER BY created_at DESC",
+        )
+        .bind(user_id)
+        .bind(now)
+        .fetch_all(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
 }
 
 /// Build a `Set-Cookie` header value for the given session token.

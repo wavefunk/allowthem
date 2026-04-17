@@ -135,4 +135,22 @@ impl Db {
         .await
         .map_err(AuthError::Database)
     }
+
+    /// Get the most recent login timestamp for a user, if any.
+    ///
+    /// Returns `None` if the user has never logged in (no audit entry
+    /// with event_type = 'login' for this user_id).
+    pub async fn last_login_at(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<DateTime<Utc>>, AuthError> {
+        sqlx::query_scalar(
+            "SELECT MAX(created_at) FROM allowthem_audit_log \
+             WHERE user_id = ? AND event_type = 'login'",
+        )
+        .bind(user_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
 }

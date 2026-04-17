@@ -1,4 +1,5 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use serde::Serialize;
 
 use crate::db::Db;
 use crate::error::AuthError;
@@ -23,6 +24,32 @@ pub(crate) fn map_unique_violation(err: sqlx::Error) -> AuthError {
         }
     }
     AuthError::Database(err)
+}
+
+/// Parameters for searching/filtering users in the admin directory.
+pub struct SearchUsersParams<'a> {
+    pub query: Option<&'a str>,
+    pub is_active: Option<bool>,
+    pub has_mfa: Option<bool>,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+/// User with MFA enrollment status, for list display.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct UserListEntry {
+    pub id: UserId,
+    pub email: Email,
+    pub username: Option<Username>,
+    pub is_active: bool,
+    pub has_mfa: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Result of a paginated user search.
+pub struct SearchUsersResult {
+    pub users: Vec<UserListEntry>,
+    pub total: u32,
 }
 
 impl Db {
@@ -70,7 +97,7 @@ impl Db {
 
         sqlx::query(
             "INSERT INTO allowthem_users (id, email, username, password_hash, email_verified, is_active, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?5)"
+             VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?5)",
         )
         .bind(id)
         .bind(&email)
@@ -221,6 +248,85 @@ impl Db {
         .map_err(AuthError::Database)
     }
 
+    /// Search and filter users with pagination.
+    ///
+    /// Builds a dynamic query with optional search term (matched against
+    /// email and username via LIKE), status filter, and MFA filter.
+    /// Returns matching users with their MFA enrollment status.
+    pub async fn search_users(
+        &self,
+        params: SearchUsersParams<'_>,
+    ) -> Result<SearchUsersResult, AuthError> {
+        let mut where_clauses: Vec<String> = Vec::new();
+        let mut bind_values: Vec<String> = Vec::new();
+
+        if let Some(q) = params.query {
+            let trimmed = q.trim();
+            if !trimmed.is_empty() {
+                let escaped = trimmed
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_");
+                let pattern = format!("%{escaped}%");
+                where_clauses.push(
+                    "(u.email LIKE ? ESCAPE '\\' OR u.username LIKE ? ESCAPE '\\')".into(),
+                );
+                bind_values.push(pattern.clone());
+                bind_values.push(pattern);
+            }
+        }
+
+        if let Some(active) = params.is_active {
+            where_clauses.push("u.is_active = ?".into());
+            bind_values.push(if active { "1".into() } else { "0".into() });
+        }
+
+        if let Some(has_mfa) = params.has_mfa {
+            let exists = if has_mfa { "EXISTS" } else { "NOT EXISTS" };
+            where_clauses.push(format!(
+                "{exists} (SELECT 1 FROM allowthem_mfa_secrets WHERE user_id = u.id AND enabled = 1)"
+            ));
+        }
+
+        let where_sql = if where_clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", where_clauses.join(" AND "))
+        };
+
+        let count_sql = format!("SELECT COUNT(*) FROM allowthem_users u {where_sql}");
+        let mut count_query = sqlx::query_scalar::<_, i64>(&*count_sql);
+        for val in &bind_values {
+            count_query = count_query.bind(val);
+        }
+        let total = count_query
+            .fetch_one(self.pool())
+            .await
+            .map_err(AuthError::Database)? as u32;
+
+        let data_sql = format!(
+            "SELECT u.id, u.email, u.username, u.is_active, \
+             EXISTS (SELECT 1 FROM allowthem_mfa_secrets \
+                     WHERE user_id = u.id AND enabled = 1) as has_mfa, \
+             u.created_at \
+             FROM allowthem_users u {where_sql} \
+             ORDER BY u.created_at ASC \
+             LIMIT ? OFFSET ?"
+        );
+        let mut data_query = sqlx::query_as::<_, UserListEntry>(&*data_sql);
+        for val in &bind_values {
+            data_query = data_query.bind(val);
+        }
+        data_query = data_query.bind(params.limit).bind(params.offset);
+
+        let users = data_query
+            .fetch_all(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+
+        Ok(SearchUsersResult { users, total })
+    }
+
     /// Update a user's password. Hashes `new_password` with Argon2id and stores it.
     ///
     /// Returns `AuthError::NotFound` if no user with `id` exists.
@@ -235,6 +341,27 @@ impl Db {
             "UPDATE allowthem_users SET password_hash = ?1, updated_at = ?2 WHERE id = ?3",
         )
         .bind(&pw_hash)
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Set a user's password hash to NULL.
+    ///
+    /// Used by admin force-password-reset to invalidate the current password.
+    /// The login flow falls back to a dummy hash when `password_hash` is NULL,
+    /// so `verify_password` will always fail.
+    pub async fn clear_password_hash(&self, id: UserId) -> Result<(), AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let result = sqlx::query(
+            "UPDATE allowthem_users SET password_hash = NULL, updated_at = ? WHERE id = ?",
+        )
         .bind(&now)
         .bind(id)
         .execute(self.pool())
