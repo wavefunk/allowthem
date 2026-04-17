@@ -339,7 +339,11 @@ fn build_authorize_query_string(params: &AuthorizeParams) -> String {
 fn login_redirect(params: &AuthorizeParams) -> Response {
     let full_uri = format!("/oauth/authorize?{}", build_authorize_query_string(params));
     let encoded: String = url::form_urlencoded::byte_serialize(full_uri.as_bytes()).collect();
-    let redirect = format!("/login?next={encoded}");
+    let mut redirect = format!("/login?next={encoded}");
+    if let Some(ref cid) = params.client_id {
+        redirect.push_str("&client_id=");
+        redirect.push_str(cid.as_str());
+    }
     (StatusCode::SEE_OTHER, [("location", redirect)]).into_response()
 }
 
