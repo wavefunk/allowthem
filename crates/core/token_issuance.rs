@@ -1417,4 +1417,68 @@ mod tests {
         .unwrap_err();
         assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("invalid")));
     }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_propagates_authorization_code_id() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let first_hash = hash_refresh_token(&initial.refresh_token);
+        let first_stored = db.get_refresh_token_by_hash(&first_hash).await.unwrap().unwrap();
+        let original_auth_code_id = first_stored.authorization_code_id;
+
+        let rotated = exchange_refresh_token(
+            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let second_hash = hash_refresh_token(&rotated.refresh_token);
+        let second_stored = db.get_refresh_token_by_hash(&second_hash).await.unwrap().unwrap();
+
+        assert_eq!(
+            second_stored.authorization_code_id, original_auth_code_id,
+            "authorization_code_id must propagate through rotation"
+        );
+    }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_chained_rotation_succeeds() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let second = exchange_refresh_token(
+            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+        assert_ne!(second.refresh_token, initial.refresh_token);
+
+        let third = exchange_refresh_token(
+            &db, &second.refresh_token, None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+        assert_ne!(third.refresh_token, second.refresh_token);
+
+        let first_hash = hash_refresh_token(&initial.refresh_token);
+        let first_stored = db.get_refresh_token_by_hash(&first_hash).await.unwrap().unwrap();
+        assert!(first_stored.revoked_at.is_some(), "first token must be revoked");
+
+        let second_hash = hash_refresh_token(&second.refresh_token);
+        let second_stored = db.get_refresh_token_by_hash(&second_hash).await.unwrap().unwrap();
+        assert!(second_stored.revoked_at.is_some(), "second token must be revoked");
+    }
 }

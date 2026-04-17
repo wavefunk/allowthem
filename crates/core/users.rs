@@ -294,8 +294,10 @@ impl Db {
             format!("WHERE {}", where_clauses.join(" AND "))
         };
 
-        let count_sql = format!("SELECT COUNT(*) FROM allowthem_users u {where_sql}");
-        let mut count_query = sqlx::query_scalar::<_, i64>(&*count_sql);
+        let count_sql: &'static str = Box::leak(
+            format!("SELECT COUNT(*) FROM allowthem_users u {where_sql}").into_boxed_str(),
+        );
+        let mut count_query = sqlx::query_scalar::<_, i64>(count_sql);
         for val in &bind_values {
             count_query = count_query.bind(val);
         }
@@ -304,16 +306,19 @@ impl Db {
             .await
             .map_err(AuthError::Database)? as u32;
 
-        let data_sql = format!(
-            "SELECT u.id, u.email, u.username, u.is_active, \
-             EXISTS (SELECT 1 FROM allowthem_mfa_secrets \
-                     WHERE user_id = u.id AND enabled = 1) as has_mfa, \
-             u.created_at \
-             FROM allowthem_users u {where_sql} \
-             ORDER BY u.created_at ASC \
-             LIMIT ? OFFSET ?"
+        let data_sql: &'static str = Box::leak(
+            format!(
+                "SELECT u.id, u.email, u.username, u.is_active, \
+                 EXISTS (SELECT 1 FROM allowthem_mfa_secrets \
+                         WHERE user_id = u.id AND enabled = 1) as has_mfa, \
+                 u.created_at \
+                 FROM allowthem_users u {where_sql} \
+                 ORDER BY u.created_at ASC \
+                 LIMIT ? OFFSET ?"
+            )
+            .into_boxed_str(),
         );
-        let mut data_query = sqlx::query_as::<_, UserListEntry>(&*data_sql);
+        let mut data_query = sqlx::query_as::<_, UserListEntry>(data_sql);
         for val in &bind_values {
             data_query = data_query.bind(val);
         }
