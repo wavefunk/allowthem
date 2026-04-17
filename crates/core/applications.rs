@@ -111,8 +111,7 @@ pub fn validate_redirect_uris(uris: &[String]) -> Result<(), AuthError> {
         ));
     }
     for uri in uris {
-        let parsed = Url::parse(uri)
-            .map_err(|_| AuthError::InvalidRedirectUri(uri.clone()))?;
+        let parsed = Url::parse(uri).map_err(|_| AuthError::InvalidRedirectUri(uri.clone()))?;
         if parsed.fragment().is_some() {
             return Err(AuthError::InvalidRedirectUri(uri.clone()));
         }
@@ -510,7 +509,10 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        assert!(matches!(app.redirect_uri_list(), Err(AuthError::Database(_))));
+        assert!(matches!(
+            app.redirect_uri_list(),
+            Err(AuthError::Database(_))
+        ));
     }
 
     #[test]

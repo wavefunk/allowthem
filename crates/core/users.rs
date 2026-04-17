@@ -268,9 +268,8 @@ impl Db {
                     .replace('%', "\\%")
                     .replace('_', "\\_");
                 let pattern = format!("%{escaped}%");
-                where_clauses.push(
-                    "(u.email LIKE ? ESCAPE '\\' OR u.username LIKE ? ESCAPE '\\')".into(),
-                );
+                where_clauses
+                    .push("(u.email LIKE ? ESCAPE '\\' OR u.username LIKE ? ESCAPE '\\')".into());
                 bind_values.push(pattern.clone());
                 bind_values.push(pattern);
             }

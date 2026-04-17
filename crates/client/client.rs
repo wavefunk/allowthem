@@ -16,8 +16,8 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use allowthem_core::{
-    AuthClient, AuthError, AuthFuture, Email, PermissionName, RoleName, SessionToken, User,
-    UserId, Username,
+    AuthClient, AuthError, AuthFuture, Email, PermissionName, RoleName, SessionToken, User, UserId,
+    Username,
 };
 
 use crate::jwks::JwksManager;
@@ -230,7 +230,13 @@ impl ExternalAuthClient {
             urlencoded(&state),
         );
 
-        (url, AuthorizeRequest { code_verifier, state })
+        (
+            url,
+            AuthorizeRequest {
+                code_verifier,
+                state,
+            },
+        )
     }
 
     /// Exchange an authorization code for tokens.
@@ -263,9 +269,7 @@ impl ExternalAuthClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(AuthError::OAuthTokenExchange(format!(
-                "{status}: {body}"
-            )));
+            return Err(AuthError::OAuthTokenExchange(format!("{status}: {body}")));
         }
 
         resp.json::<TokenExchangeResponse>()
@@ -306,11 +310,14 @@ impl AuthClient for ExternalAuthClient {
             validation.set_audience(&[&self.inner.client_id]);
             validation.leeway = 0;
 
-            let token_data =
-                match jsonwebtoken::decode::<ExternalAccessTokenClaims>(jwt, &decoding_key, &validation) {
-                    Ok(td) => td,
-                    Err(_) => return Ok(None),
-                };
+            let token_data = match jsonwebtoken::decode::<ExternalAccessTokenClaims>(
+                jwt,
+                &decoding_key,
+                &validation,
+            ) {
+                Ok(td) => td,
+                Err(_) => return Ok(None),
+            };
 
             let claims = token_data.claims;
 
@@ -388,12 +395,13 @@ impl AuthClient for ExternalAuthClient {
             insecure.insecure_disable_signature_validation();
             insecure.validate_aud = false;
             insecure.validate_exp = false;
-            if let Ok(data) =
-                jsonwebtoken::decode::<MinimalClaims>(jwt, &DecodingKey::from_secret(&[]), &insecure)
+            if let Ok(data) = jsonwebtoken::decode::<MinimalClaims>(
+                jwt,
+                &DecodingKey::from_secret(&[]),
+                &insecure,
+            ) && let Ok(uuid) = Uuid::parse_str(&data.claims.sub)
             {
-                if let Ok(uuid) = Uuid::parse_str(&data.claims.sub) {
-                    self.inner.claims_cache.remove(&UserId::from_uuid(uuid));
-                }
+                self.inner.claims_cache.remove(&UserId::from_uuid(uuid));
             }
             Ok(())
         })

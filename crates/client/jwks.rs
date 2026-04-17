@@ -102,15 +102,14 @@ impl JwksManager {
 
         let mut keys = HashMap::new();
         for jwk in &jwks.keys {
-            if let Some(kid) = &jwk.common.key_id {
-                if matches!(
+            if let Some(kid) = &jwk.common.key_id
+                && matches!(
                     jwk.algorithm,
                     jsonwebtoken::jwk::AlgorithmParameters::RSA(_)
-                ) {
-                    if let Ok(dk) = DecodingKey::from_jwk(jwk) {
-                        keys.insert(kid.clone(), dk);
-                    }
-                }
+                )
+                && let Ok(dk) = DecodingKey::from_jwk(jwk)
+            {
+                keys.insert(kid.clone(), dk);
             }
         }
 

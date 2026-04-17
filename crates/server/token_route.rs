@@ -41,24 +41,22 @@ fn extract_client_credentials(
     headers: &HeaderMap,
     params: &TokenParams,
 ) -> Result<(ClientId, String), TokenError> {
-    if let Some(auth_header) = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok()) {
-        if let Some(encoded) = auth_header.strip_prefix("Basic ") {
-            let decoded = Base64::decode_vec(encoded)
-                .map_err(|_| TokenError::InvalidClient("malformed Basic credentials".into()))?;
-            let decoded_str = String::from_utf8(decoded)
-                .map_err(|_| TokenError::InvalidClient("malformed Basic credentials".into()))?;
-            let (id_str, secret) = decoded_str
-                .split_once(':')
-                .ok_or_else(|| TokenError::InvalidClient("malformed Basic credentials".into()))?;
-            let client_id: ClientId =
-                serde_json::from_value::<ClientId>(serde_json::Value::String(
-                    id_str.to_string(),
-                ))
+    if let Some(auth_header) = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok())
+        && let Some(encoded) = auth_header.strip_prefix("Basic ")
+    {
+        let decoded = Base64::decode_vec(encoded)
+            .map_err(|_| TokenError::InvalidClient("malformed Basic credentials".into()))?;
+        let decoded_str = String::from_utf8(decoded)
+            .map_err(|_| TokenError::InvalidClient("malformed Basic credentials".into()))?;
+        let (id_str, secret) = decoded_str
+            .split_once(':')
+            .ok_or_else(|| TokenError::InvalidClient("malformed Basic credentials".into()))?;
+        let client_id: ClientId =
+            serde_json::from_value::<ClientId>(serde_json::Value::String(id_str.to_string()))
                 .map_err(|_| {
                     TokenError::InvalidClient("invalid client_id in Basic credentials".into())
                 })?;
-            return Ok((client_id, secret.to_string()));
-        }
+        return Ok((client_id, secret.to_string()));
     }
 
     let client_id = params
@@ -81,18 +79,20 @@ fn token_error_response(error: &TokenError) -> Response {
         TokenError::InvalidClient(desc) => {
             (StatusCode::UNAUTHORIZED, "invalid_client", desc.as_str())
         }
-        TokenError::InvalidGrant(desc) => {
-            (StatusCode::BAD_REQUEST, "invalid_grant", desc.as_str())
-        }
+        TokenError::InvalidGrant(desc) => (StatusCode::BAD_REQUEST, "invalid_grant", desc.as_str()),
         TokenError::InvalidRequest(desc) => {
             (StatusCode::BAD_REQUEST, "invalid_request", desc.as_str())
         }
-        TokenError::UnsupportedGrantType => {
-            (StatusCode::BAD_REQUEST, "unsupported_grant_type", "unsupported grant_type")
-        }
-        TokenError::ServerError(desc) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, "server_error", desc.as_str())
-        }
+        TokenError::UnsupportedGrantType => (
+            StatusCode::BAD_REQUEST,
+            "unsupported_grant_type",
+            "unsupported grant_type",
+        ),
+        TokenError::ServerError(desc) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "server_error",
+            desc.as_str(),
+        ),
     };
 
     let body = json!({"error": error_code, "error_description": description});
@@ -131,13 +131,9 @@ async fn token(
     let application = match ath.db().get_application_by_client_id(&client_id).await {
         Ok(app) => app,
         Err(AuthError::NotFound) => {
-            return token_error_response(&TokenError::InvalidClient(
-                "unknown client_id".into(),
-            ))
+            return token_error_response(&TokenError::InvalidClient("unknown client_id".into()));
         }
-        Err(_) => {
-            return token_error_response(&TokenError::ServerError("internal error".into()))
-        }
+        Err(_) => return token_error_response(&TokenError::ServerError("internal error".into())),
     };
 
     match verify_password(&client_secret, &application.client_secret_hash) {
@@ -145,23 +141,19 @@ async fn token(
         _ => {
             return token_error_response(&TokenError::InvalidClient(
                 "invalid client_secret".into(),
-            ))
+            ));
         }
     }
 
     if !application.is_active {
-        return token_error_response(&TokenError::InvalidClient(
-            "application is inactive".into(),
-        ));
+        return token_error_response(&TokenError::InvalidClient("application is inactive".into()));
     }
 
     // 3. Get signing key and issuer (shared by both grant types)
     let (signing_key, private_key_pem) = match ath.get_decrypted_signing_key().await {
         Ok(pair) => pair,
         Err(AuthError::NotFound) => {
-            return token_error_response(&TokenError::ServerError(
-                "no active signing key".into(),
-            ))
+            return token_error_response(&TokenError::ServerError("no active signing key".into()));
         }
         Err(e) => return token_error_response(&TokenError::ServerError(e.to_string())),
     };
@@ -212,7 +204,7 @@ async fn handle_authorization_code(
         _ => {
             return token_error_response(&TokenError::InvalidRequest(
                 "missing code parameter".into(),
-            ))
+            ));
         }
     };
     let redirect_uri = match params.redirect_uri.as_deref() {
@@ -220,7 +212,7 @@ async fn handle_authorization_code(
         _ => {
             return token_error_response(&TokenError::InvalidRequest(
                 "missing redirect_uri parameter".into(),
-            ))
+            ));
         }
     };
     let code_verifier = match params.code_verifier.as_deref() {
@@ -228,7 +220,7 @@ async fn handle_authorization_code(
         _ => {
             return token_error_response(&TokenError::InvalidRequest(
                 "missing code_verifier parameter".into(),
-            ))
+            ));
         }
     };
 
@@ -262,7 +254,7 @@ async fn handle_refresh_token(
         _ => {
             return token_error_response(&TokenError::InvalidRequest(
                 "missing refresh_token parameter".into(),
-            ))
+            ));
         }
     };
 
@@ -422,8 +414,7 @@ mod tests {
     #[tokio::test]
     async fn valid_code_exchange_returns_200() {
         let (ath, app) = test_app().await;
-        let (application, secret, code, verifier, redirect_uri) =
-            setup_code_exchange(&ath).await;
+        let (application, secret, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
         let body = build_token_body(&application, &secret, &code, &verifier, &redirect_uri);
 
         let req = Request::builder()
@@ -454,8 +445,7 @@ mod tests {
     #[tokio::test]
     async fn missing_grant_type_returns_400() {
         let (ath, app) = test_app().await;
-        let (application, secret, code, verifier, redirect_uri) =
-            setup_code_exchange(&ath).await;
+        let (application, secret, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
 
         let body = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("code", &code)
@@ -516,8 +506,13 @@ mod tests {
         let (ath, app) = test_app().await;
         let (application, _, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
 
-        let body =
-            build_token_body(&application, "wrong_secret", &code, &verifier, &redirect_uri);
+        let body = build_token_body(
+            &application,
+            "wrong_secret",
+            &code,
+            &verifier,
+            &redirect_uri,
+        );
         let req = Request::builder()
             .method("POST")
             .uri("/oauth/token")
@@ -531,8 +526,7 @@ mod tests {
     #[tokio::test]
     async fn basic_auth_valid() {
         let (ath, app) = test_app().await;
-        let (application, secret, code, verifier, redirect_uri) =
-            setup_code_exchange(&ath).await;
+        let (application, secret, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
 
         let credentials = format!("{}:{}", application.client_id.as_str(), secret);
         let encoded = Base64::encode_string(credentials.as_bytes());
@@ -582,7 +576,13 @@ mod tests {
         let (ath, app) = test_app().await;
         let (application, secret, code, _, redirect_uri) = setup_code_exchange(&ath).await;
 
-        let body = build_token_body(&application, &secret, &code, "wrong_verifier", &redirect_uri);
+        let body = build_token_body(
+            &application,
+            &secret,
+            &code,
+            "wrong_verifier",
+            &redirect_uri,
+        );
         let req = Request::builder()
             .method("POST")
             .uri("/oauth/token")
@@ -622,8 +622,7 @@ mod tests {
     #[tokio::test]
     async fn wrong_grant_type_returns_400() {
         let (ath, app) = test_app().await;
-        let (application, secret, code, verifier, redirect_uri) =
-            setup_code_exchange(&ath).await;
+        let (application, secret, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
 
         let body = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("grant_type", "client_credentials")
@@ -747,8 +746,7 @@ mod tests {
     #[tokio::test]
     async fn success_response_has_pragma_no_cache() {
         let (ath, app) = test_app().await;
-        let (application, secret, code, verifier, redirect_uri) =
-            setup_code_exchange(&ath).await;
+        let (application, secret, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
         let body = build_token_body(&application, &secret, &code, &verifier, &redirect_uri);
 
         let req = Request::builder()
@@ -805,7 +803,12 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let cache_control = resp.headers().get("cache-control").unwrap().to_str().unwrap();
+        let cache_control = resp
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert_eq!(cache_control, "no-store");
 
         let json = read_body(resp).await;
@@ -843,7 +846,10 @@ mod tests {
         let second = read_body(resp).await;
         let second_refresh = second["refresh_token"].as_str().unwrap().to_string();
 
-        assert_ne!(first_refresh, second_refresh, "rotated refresh token must differ");
+        assert_ne!(
+            first_refresh, second_refresh,
+            "rotated refresh token must differ"
+        );
     }
 
     #[tokio::test]
@@ -946,7 +952,11 @@ mod tests {
 
         // Create app_b
         let email_b = allowthem_core::types::Email::new("other_http@example.com".into()).unwrap();
-        let user_b = ath.db().create_user(email_b, "password123", None).await.unwrap();
+        let user_b = ath
+            .db()
+            .create_user(email_b, "password123", None)
+            .await
+            .unwrap();
         let (app_b, secret_b) = ath
             .db()
             .create_application(

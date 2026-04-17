@@ -9,24 +9,24 @@ pub mod mfa_routes;
 pub mod middleware;
 pub mod oauth_bearer;
 pub mod oauth_routes;
-pub mod userinfo_route;
 pub mod password_reset_routes;
 pub mod token_route;
+pub mod userinfo_route;
 pub mod well_known_routes;
 
+pub use authorize_routes::{
+    AuthorizeOutcome, AuthorizeParams, ConsentContext, ConsentNeededData, ValidatedAuthorize,
+    authorize_post, check_authorization,
+};
 pub use bearer::BearerAuthUser;
-pub use oauth_bearer::{OAuthBearerError, OAuthBearerToken};
-pub use userinfo_route::userinfo_route;
 pub use csrf::{CsrfToken, csrf_middleware};
 pub use error::AuthExtractError;
 pub use extractors::{AuthUser, BrowserAdminUser, BrowserAuthUser, OptionalAuthUser};
 pub use mfa_routes::mfa_routes;
 pub use middleware::{require_auth, require_permission, require_role};
+pub use oauth_bearer::{OAuthBearerError, OAuthBearerToken};
 pub use oauth_routes::oauth_routes;
 pub use password_reset_routes::password_reset_routes;
 pub use token_route::token_route;
+pub use userinfo_route::userinfo_route;
 pub use well_known_routes::well_known_routes;
-pub use authorize_routes::{
-    authorize_post, check_authorization, AuthorizeOutcome, AuthorizeParams,
-    ConsentContext, ValidatedAuthorize,
-};

@@ -1,15 +1,15 @@
+use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{FromRequest, Path, Request, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use minijinja::context;
 use serde::Deserialize;
 
+use allowthem_core::AuthError;
 use allowthem_core::applications::UpdateApplication;
 use allowthem_core::types::ApplicationId;
-use allowthem_core::AuthError;
 use allowthem_server::{BrowserAdminUser, CsrfToken};
 
 use crate::error::AppError;
@@ -109,8 +109,7 @@ pub async fn list(
             applications => &applications,
         },
         state.is_production,
-    )
-    ?;
+    )?;
     Ok(html.into_response())
 }
 
@@ -351,9 +350,9 @@ fn render_new_form(
 mod tests {
     use std::sync::Arc;
 
+    use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header::COOKIE};
-    use axum::Router;
     use chrono::{Duration, Utc};
     use minijinja::Environment;
     use tower::ServiceExt;
@@ -924,7 +923,10 @@ mod tests {
 
         // Verify the application is no longer trusted
         let updated = ath.db().get_application(created_app.id).await.unwrap();
-        assert!(!updated.is_trusted, "absent checkbox must set is_trusted to false");
+        assert!(
+            !updated.is_trusted,
+            "absent checkbox must set is_trusted to false"
+        );
         assert!(updated.is_active, "is_active=on must set is_active to true");
     }
 }

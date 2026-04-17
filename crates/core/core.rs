@@ -1,9 +1,9 @@
 pub mod access_tokens;
 pub mod api_tokens;
 pub mod applications;
-pub mod authorization;
 pub mod audit;
 pub mod auth_client;
+pub mod authorization;
 pub mod db;
 pub mod email;
 pub mod error;
@@ -20,16 +20,16 @@ pub mod permissions;
 pub mod roles;
 pub mod sessions;
 pub mod signing_keys;
-pub mod totp;
 pub mod token_issuance;
+pub mod totp;
 pub mod types;
 pub mod users;
 
+pub use access_tokens::{AccessTokenClaims, has_scope};
 pub use audit::{AuditEntry, AuditEvent};
 pub use auth_client::{AuthClient, AuthFuture, EmbeddedAuthClient};
 pub use db::Db;
 pub use email::{EmailMessage, EmailSender, LogEmailSender};
-pub use access_tokens::{AccessTokenClaims, has_scope};
 pub use error::{AccessTokenError, AuthError};
 pub use handle::{AllowThem, AllowThemBuilder, BuildError};
 pub use invitations::Invitation;
@@ -44,10 +44,9 @@ pub use signing_keys::{
     JwkEntry, JwkSet, OidcDiscovery, SigningKey, build_discovery, build_jwks, decrypt_private_key,
 };
 pub use token_issuance::{
-    RefreshToken, TokenError, TokenResponse, compute_at_hash,
-    exchange_authorization_code, exchange_refresh_token,
-    generate_refresh_token, hash_refresh_token,
-    mint_access_token, mint_id_token, verify_pkce_s256,
+    RefreshToken, TokenError, TokenResponse, compute_at_hash, exchange_authorization_code,
+    exchange_refresh_token, generate_refresh_token, hash_refresh_token, mint_access_token,
+    mint_id_token, verify_pkce_s256,
 };
 pub use types::*;
 

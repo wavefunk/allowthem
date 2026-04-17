@@ -74,9 +74,9 @@ impl Db {
             .map_err(|e| AuthError::AccessToken(AccessTokenError::MalformedToken(e.to_string())))?;
 
         // Step 2: extract kid
-        let kid_str = header
-            .kid
-            .ok_or_else(|| AuthError::AccessToken(AccessTokenError::MalformedToken("missing kid".into())))?;
+        let kid_str = header.kid.ok_or_else(|| {
+            AuthError::AccessToken(AccessTokenError::MalformedToken("missing kid".into()))
+        })?;
 
         // Step 3: parse kid as UUID then SigningKeyId
         let kid_uuid = Uuid::parse_str(&kid_str)
@@ -118,8 +118,9 @@ impl Db {
         let raw = token_data.claims;
 
         // Step 8: parse sub as UUID
-        let sub_uuid = Uuid::parse_str(&raw.sub)
-            .map_err(|_| AuthError::AccessToken(AccessTokenError::InvalidClaims("invalid sub".into())))?;
+        let sub_uuid = Uuid::parse_str(&raw.sub).map_err(|_| {
+            AuthError::AccessToken(AccessTokenError::InvalidClaims("invalid sub".into()))
+        })?;
 
         Ok(AccessTokenClaims {
             sub: UserId::from_uuid(sub_uuid),
@@ -140,8 +141,8 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64ct::{Base64UrlUnpadded as _, Encoding as _};
     use crate::signing_keys::decrypt_private_key;
+    use base64ct::{Base64UrlUnpadded as _, Encoding as _};
     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde::Serialize;
     use sqlx::SqlitePool;
@@ -241,13 +242,9 @@ mod tests {
     async fn validate_access_token_wrong_issuer() {
         let db = test_db().await;
         let sub = UserId::new().to_string();
-        let (token, _) =
-            sign_test_jwt(&db, &sub, "openid", "https://wrong.example.com", 300).await;
+        let (token, _) = sign_test_jwt(&db, &sub, "openid", "https://wrong.example.com", 300).await;
 
-        let err = db
-            .validate_access_token(&token, ISSUER)
-            .await
-            .unwrap_err();
+        let err = db.validate_access_token(&token, ISSUER).await.unwrap_err();
         assert!(matches!(
             err,
             AuthError::AccessToken(AccessTokenError::InvalidClaims(_))
@@ -266,8 +263,9 @@ mod tests {
         // Tamper: reconstruct token with a random kid not in DB
         let random_kid = Uuid::new_v4().to_string();
         let parts: Vec<&str> = token.splitn(3, '.').collect();
-        let fake_header =
-            base64ct::Base64UrlUnpadded::encode_string(format!(r#"{{"alg":"RS256","kid":"{random_kid}","typ":"JWT"}}"#).as_bytes());
+        let fake_header = base64ct::Base64UrlUnpadded::encode_string(
+            format!(r#"{{"alg":"RS256","kid":"{random_kid}","typ":"JWT"}}"#).as_bytes(),
+        );
         let tampered = format!("{}.{}.{}", fake_header, parts[1], parts[2]);
 
         let err = db

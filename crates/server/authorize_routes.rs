@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::json;
 use url::Url;
 
-use allowthem_core::applications::{validate_redirect_uri, Application};
+use allowthem_core::applications::{Application, validate_redirect_uri};
 use allowthem_core::authorization::{
     generate_authorization_code, hash_authorization_code, validate_scopes,
 };
@@ -48,10 +48,12 @@ pub enum AuthorizeOutcome {
     /// Redirect the user (success with code, error, or login redirect).
     Redirect(Response),
     /// Consent is needed — render the consent screen.
-    ConsentNeeded {
-        context: ConsentContext,
-        params: ValidatedAuthorize,
-    },
+    ConsentNeeded(Box<ConsentNeededData>),
+}
+
+pub struct ConsentNeededData {
+    pub context: ConsentContext,
+    pub params: ValidatedAuthorize,
 }
 
 /// Query parameters for GET /oauth/authorize.
@@ -156,13 +158,11 @@ pub async fn resolve_user(
         None => return Ok(None),
     };
 
-    let token = match allowthem_core::parse_session_cookie(
-        cookie_str,
-        ath.session_config().cookie_name,
-    ) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
+    let token =
+        match allowthem_core::parse_session_cookie(cookie_str, ath.session_config().cookie_name) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
 
     let session = match ath
         .db()
@@ -215,10 +215,7 @@ pub async fn validate_authorize_params(
     }
 
     // Step 3: Validate redirect_uri
-    let redirect_uri = params
-        .redirect_uri
-        .as_deref()
-        .unwrap_or("");
+    let redirect_uri = params.redirect_uri.as_deref().unwrap_or("");
     if redirect_uri.is_empty() {
         return Err(display_error(
             StatusCode::BAD_REQUEST,
@@ -244,7 +241,7 @@ pub async fn validate_authorize_params(
                 "missing state parameter",
                 "",
                 StatusCode::FOUND,
-            ))
+            ));
         }
     };
 
@@ -281,7 +278,7 @@ pub async fn validate_authorize_params(
                 "missing code_challenge (PKCE required)",
                 &state,
                 StatusCode::FOUND,
-            ))
+            ));
         }
     };
     let code_challenge_method = params.code_challenge_method.as_deref().unwrap_or("");
@@ -410,7 +407,7 @@ pub async fn check_authorization(
                 "internal error",
                 &validated.state,
                 StatusCode::FOUND,
-            ))
+            ));
         }
     };
 
@@ -431,7 +428,7 @@ pub async fn check_authorization(
                     "internal error",
                     &validated.state,
                     StatusCode::FOUND,
-                ))
+                ));
             }
         }
     };
@@ -443,10 +440,10 @@ pub async fn check_authorization(
             primary_color: validated.application.primary_color.clone(),
             scopes: validated.scopes.clone(),
         };
-        return AuthorizeOutcome::ConsentNeeded {
+        return AuthorizeOutcome::ConsentNeeded(Box::new(ConsentNeededData {
             context,
             params: validated,
-        };
+        }));
     }
 
     // Consent exists or app is trusted — generate code and redirect
@@ -487,7 +484,7 @@ pub async fn authorize_post(
                 "internal error",
                 &validated.state,
                 StatusCode::SEE_OTHER,
-            )
+            );
         }
     };
 
@@ -535,10 +532,10 @@ mod tests {
     use super::*;
     use allowthem_core::handle::AllowThemBuilder;
     use allowthem_core::types::Email;
+    use axum::Router;
     use axum::body::Body;
     use axum::http::Request;
     use axum::routing::post;
-    use axum::Router;
     use tower::ServiceExt;
 
     async fn test_ath() -> AllowThem {
@@ -589,7 +586,7 @@ mod tests {
     fn expect_redirect(outcome: AuthorizeOutcome) -> Response {
         match outcome {
             AuthorizeOutcome::Redirect(resp) => resp,
-            AuthorizeOutcome::ConsentNeeded { .. } => {
+            AuthorizeOutcome::ConsentNeeded(_) => {
                 panic!("expected Redirect, got ConsentNeeded")
             }
         }
@@ -603,13 +600,23 @@ mod tests {
     }
 
     // Helper: create a user, session, and return (user_id, session_cookie_header)
-    async fn create_session(ath: &AllowThem, email: &str) -> (allowthem_core::types::UserId, String) {
+    async fn create_session(
+        ath: &AllowThem,
+        email: &str,
+    ) -> (allowthem_core::types::UserId, String) {
         let email = Email::new(email.into()).unwrap();
-        let user = ath.db().create_user(email, "password123", None).await.unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
         let token = allowthem_core::generate_token();
         let hash = allowthem_core::hash_token(&token);
         let expires = chrono::Utc::now() + chrono::Duration::hours(24);
-        ath.db().create_session(user.id, hash, None, None, expires).await.unwrap();
+        ath.db()
+            .create_session(user.id, hash, None, None, expires)
+            .await
+            .unwrap();
         let cookie = format!("allowthem_session={}", token.as_str());
         (user.id, cookie)
     }
@@ -830,9 +837,9 @@ mod tests {
 
         let outcome = check_authorization(&ath, &headers, &params).await;
         match outcome {
-            AuthorizeOutcome::ConsentNeeded { context, .. } => {
-                assert_eq!(context.application_name, "TestApp");
-                assert_eq!(context.scopes, vec!["openid", "profile"]);
+            AuthorizeOutcome::ConsentNeeded(data) => {
+                assert_eq!(data.context.application_name, "TestApp");
+                assert_eq!(data.context.scopes, vec!["openid", "profile"]);
             }
             AuthorizeOutcome::Redirect(_) => panic!("expected ConsentNeeded, got Redirect"),
         }

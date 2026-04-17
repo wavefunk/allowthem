@@ -6,9 +6,7 @@ use sha2::{Digest, Sha256};
 
 use crate::db::Db;
 use crate::error::AuthError;
-use crate::types::{
-    ApplicationId, AuthorizationCodeId, ConsentId, TokenHash, UserId,
-};
+use crate::types::{ApplicationId, AuthorizationCodeId, ConsentId, TokenHash, UserId};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AuthorizationCode {
@@ -60,9 +58,9 @@ pub fn validate_scopes(scope_str: &str) -> Result<Vec<String>, AuthError> {
 
     for scope in &scopes {
         if !SUPPORTED_SCOPES.contains(&scope.as_str()) {
-            return Err(AuthError::InvalidAuthorizationRequest(
-                format!("unsupported scope: {scope}"),
-            ));
+            return Err(AuthError::InvalidAuthorizationRequest(format!(
+                "unsupported scope: {scope}"
+            )));
         }
     }
 
@@ -121,8 +119,7 @@ impl Db {
         scopes: &[String],
     ) -> Result<(), AuthError> {
         let id = ConsentId::new();
-        let scopes_json =
-            serde_json::to_string(scopes).expect("Vec<String> serializes to JSON");
+        let scopes_json = serde_json::to_string(scopes).expect("Vec<String> serializes to JSON");
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
         let existing = self.get_consent(user_id, application_id).await?;
@@ -187,8 +184,7 @@ impl Db {
         nonce: Option<&str>,
     ) -> Result<AuthorizationCode, AuthError> {
         let id = AuthorizationCodeId::new();
-        let scopes_json =
-            serde_json::to_string(scopes).expect("Vec<String> serializes to JSON");
+        let scopes_json = serde_json::to_string(scopes).expect("Vec<String> serializes to JSON");
         let now = Utc::now();
         let now_str = now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         let expires_at = now + chrono::Duration::minutes(10);
@@ -247,13 +243,12 @@ impl Db {
         id: AuthorizationCodeId,
     ) -> Result<(), AuthError> {
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let result = sqlx::query(
-            "UPDATE allowthem_authorization_codes SET used_at = ? WHERE id = ?",
-        )
-        .bind(&now)
-        .bind(id)
-        .execute(self.pool())
-        .await?;
+        let result =
+            sqlx::query("UPDATE allowthem_authorization_codes SET used_at = ? WHERE id = ?")
+                .bind(&now)
+                .bind(id)
+                .execute(self.pool())
+                .await?;
 
         if result.rows_affected() == 0 {
             return Err(AuthError::NotFound);

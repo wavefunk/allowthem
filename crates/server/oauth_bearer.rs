@@ -52,9 +52,7 @@ impl IntoResponse for OAuthBearerError {
 
         let mut response = status.into_response();
         if let Ok(value) = www_auth.parse() {
-            response
-                .headers_mut()
-                .insert("WWW-Authenticate", value);
+            response.headers_mut().insert("WWW-Authenticate", value);
         }
         response
     }

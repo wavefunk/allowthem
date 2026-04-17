@@ -11,9 +11,7 @@ use crate::authorization::hash_authorization_code;
 use crate::db::Db;
 use crate::error::AuthError;
 use crate::signing_keys::SigningKey;
-use crate::types::{
-    ApplicationId, AuthorizationCodeId, RefreshTokenId, TokenHash, UserId,
-};
+use crate::types::{ApplicationId, AuthorizationCodeId, RefreshTokenId, TokenHash, UserId};
 
 // ---------------------------------------------------------------------------
 // Token endpoint error type
@@ -132,6 +130,7 @@ pub fn compute_at_hash(access_token_jwt: &str) -> String {
 /// Header: `alg: RS256`, `kid`, `typ: at+jwt` (RFC 9068).
 /// Claims: `sub`, `iss`, `aud`, `exp`, `iat`, `scope`, plus identity
 /// and authorization claims for external-mode AuthClient consumption.
+#[allow(clippy::too_many_arguments)]
 pub fn mint_access_token(
     sub: UserId,
     issuer: &str,
@@ -173,6 +172,7 @@ pub fn mint_access_token(
 ///
 /// Header: `alg: RS256`, `kid`, `typ: JWT`.
 /// Claims: `sub`, `iss`, `aud`, `exp`, `iat`, `nonce` (optional), `at_hash`, `auth_time`.
+#[allow(clippy::too_many_arguments)]
 pub fn mint_id_token(
     sub: UserId,
     issuer: &str,
@@ -238,8 +238,7 @@ impl Db {
         authorization_code_id: Option<AuthorizationCodeId>,
     ) -> Result<RefreshToken, AuthError> {
         let id = RefreshTokenId::new();
-        let scopes_json =
-            serde_json::to_string(scopes).expect("Vec<String> serializes to JSON");
+        let scopes_json = serde_json::to_string(scopes).expect("Vec<String> serializes to JSON");
         let now = Utc::now();
         let now_str = now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         let expires_at = now + chrono::Duration::days(30);
@@ -319,13 +318,11 @@ impl Db {
     /// before the new one is issued.
     pub async fn revoke_refresh_token(&self, id: RefreshTokenId) -> Result<(), AuthError> {
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        sqlx::query(
-            "UPDATE allowthem_refresh_tokens SET revoked_at = ? WHERE id = ?",
-        )
-        .bind(&now)
-        .bind(id)
-        .execute(self.pool())
-        .await?;
+        sqlx::query("UPDATE allowthem_refresh_tokens SET revoked_at = ? WHERE id = ?")
+            .bind(&now)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
         Ok(())
     }
 }
@@ -345,6 +342,7 @@ impl Db {
 ///
 /// The caller provides the `SigningKey` (for `kid`) and decrypted private
 /// key PEM (for JWT signing) — obtained via `AllowThem::get_decrypted_signing_key()`.
+#[allow(clippy::too_many_arguments)]
 pub async fn exchange_authorization_code(
     db: &Db,
     code: &str,
@@ -365,9 +363,7 @@ pub async fn exchange_authorization_code(
 
     // 2. Check if already used — triggers revocation
     if auth_code.used_at.is_some() {
-        let _ = db
-            .revoke_refresh_tokens_by_auth_code(auth_code.id)
-            .await;
+        let _ = db.revoke_refresh_tokens_by_auth_code(auth_code.id).await;
         return Err(TokenError::InvalidGrant(
             "authorization code already used".into(),
         ));
@@ -399,9 +395,7 @@ pub async fn exchange_authorization_code(
 
     // 7. Verify PKCE
     if !verify_pkce_s256(code_verifier, &auth_code.code_challenge) {
-        return Err(TokenError::InvalidGrant(
-            "PKCE verification failed".into(),
-        ));
+        return Err(TokenError::InvalidGrant("PKCE verification failed".into()));
     }
 
     // 8. Parse scopes to space-delimited string
@@ -422,8 +416,14 @@ pub async fn exchange_authorization_code(
         .get_user_permissions(&auth_code.user_id)
         .await
         .map_err(|e| TokenError::ServerError(e.to_string()))?;
-    let role_names: Vec<String> = user_roles.iter().map(|r| r.name.as_str().to_owned()).collect();
-    let perm_names: Vec<String> = user_perms.iter().map(|p| p.name.as_str().to_owned()).collect();
+    let role_names: Vec<String> = user_roles
+        .iter()
+        .map(|r| r.name.as_str().to_owned())
+        .collect();
+    let perm_names: Vec<String> = user_perms
+        .iter()
+        .map(|p| p.name.as_str().to_owned())
+        .collect();
 
     // 9. Mint access token
     let kid = signing_key.id.to_string();
@@ -518,9 +518,7 @@ pub async fn exchange_refresh_token(
 
     // 3. Check not expired
     if stored.expires_at < Utc::now() {
-        return Err(TokenError::InvalidGrant(
-            "refresh token has expired".into(),
-        ));
+        return Err(TokenError::InvalidGrant("refresh token has expired".into()));
     }
 
     // 4. Check client binding
@@ -531,8 +529,8 @@ pub async fn exchange_refresh_token(
     }
 
     // 5. Resolve effective scopes
-    let original_scopes: Vec<String> = serde_json::from_str(&stored.scopes)
-        .map_err(|e| TokenError::ServerError(e.to_string()))?;
+    let original_scopes: Vec<String> =
+        serde_json::from_str(&stored.scopes).map_err(|e| TokenError::ServerError(e.to_string()))?;
 
     let effective_scopes = match requested_scopes {
         Some(s) if !s.is_empty() => {
@@ -569,8 +567,14 @@ pub async fn exchange_refresh_token(
         .get_user_permissions(&stored.user_id)
         .await
         .map_err(|e| TokenError::ServerError(e.to_string()))?;
-    let role_names: Vec<String> = user_roles.iter().map(|r| r.name.as_str().to_owned()).collect();
-    let perm_names: Vec<String> = user_perms.iter().map(|p| p.name.as_str().to_owned()).collect();
+    let role_names: Vec<String> = user_roles
+        .iter()
+        .map(|r| r.name.as_str().to_owned())
+        .collect();
+    let perm_names: Vec<String> = user_perms
+        .iter()
+        .map(|p| p.name.as_str().to_owned())
+        .collect();
 
     // 7. Mint access token
     let kid = signing_key.id.to_string();
@@ -805,7 +809,15 @@ mod tests {
 
         let user_id = UserId::new();
         let token = mint_id_token(
-            user_id, ISSUER, "ath_test_client", None, "hash", 0, &kid, &pem, 3600,
+            user_id,
+            ISSUER,
+            "ath_test_client",
+            None,
+            "hash",
+            0,
+            &kid,
+            &pem,
+            3600,
         )
         .unwrap();
 
@@ -818,9 +830,7 @@ mod tests {
     // Exchange orchestration tests
 
     /// Helper: create user, application, signing key, authorization code
-    async fn setup_exchange(
-        db: &Db,
-    ) -> (Application, SigningKey, String, String, String, String) {
+    async fn setup_exchange(db: &Db) -> (Application, SigningKey, String, String, String, String) {
         let email = Email::new("exchange@example.com".into()).unwrap();
         let user = db.create_user(email, "password123", None).await.unwrap();
 
@@ -1007,7 +1017,10 @@ mod tests {
             .create_application(
                 "ExpiredApp".to_string(),
                 vec!["https://example.com/callback".to_string()],
-                false, Some(user.id), None, None,
+                false,
+                Some(user.id),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -1023,9 +1036,17 @@ mod tests {
         let raw_code = crate::authorization::generate_authorization_code();
         let code_hash = hash_authorization_code(&raw_code);
         db.create_authorization_code(
-            app.id, user.id, &code_hash, "https://example.com/callback",
-            &["openid".to_string()], &code_challenge, "S256", None,
-        ).await.unwrap();
+            app.id,
+            user.id,
+            &code_hash,
+            "https://example.com/callback",
+            &["openid".to_string()],
+            &code_challenge,
+            "S256",
+            None,
+        )
+        .await
+        .unwrap();
 
         // Expire the code
         sqlx::query(
@@ -1037,9 +1058,17 @@ mod tests {
         .unwrap();
 
         let err = exchange_authorization_code(
-            &db, &raw_code, "https://example.com/callback", code_verifier,
-            &app, ISSUER, &key, &pem,
-        ).await.unwrap_err();
+            &db,
+            &raw_code,
+            "https://example.com/callback",
+            code_verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("expired")));
     }
 
@@ -1054,15 +1083,29 @@ mod tests {
             .create_application(
                 "OtherApp".to_string(),
                 vec!["https://other.example.com/callback".to_string()],
-                false, Some(user_b.id), None, None,
+                false,
+                Some(user_b.id),
+                None,
+                None,
             )
             .await
             .unwrap();
 
         let err = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app_b, ISSUER, &key, &pem,
-        ).await.unwrap_err();
-        assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("different client")));
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app_b,
+            ISSUER,
+            &key,
+            &pem,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("different client"))
+        );
     }
 
     #[tokio::test]
@@ -1072,9 +1115,20 @@ mod tests {
         let pem = decrypt_private_key(&key, &ENC_KEY).unwrap();
 
         let token = mint_access_token(
-            UserId::new(), ISSUER, "client", "openid", &key.id.to_string(), &pem, 3600,
-            "t@example.com", true, None, &[], &[],
-        ).unwrap();
+            UserId::new(),
+            ISSUER,
+            "client",
+            "openid",
+            &key.id.to_string(),
+            &pem,
+            3600,
+            "t@example.com",
+            true,
+            None,
+            &[],
+            &[],
+        )
+        .unwrap();
 
         let header = jsonwebtoken::decode_header(&token).unwrap();
         assert_eq!(header.typ.as_deref(), Some("at+jwt"));
@@ -1089,8 +1143,17 @@ mod tests {
         let pem = decrypt_private_key(&key, &ENC_KEY).unwrap();
 
         let token = mint_id_token(
-            UserId::new(), ISSUER, "client", None, "hash", 0, &key.id.to_string(), &pem, 3600,
-        ).unwrap();
+            UserId::new(),
+            ISSUER,
+            "client",
+            None,
+            "hash",
+            0,
+            &key.id.to_string(),
+            &pem,
+            3600,
+        )
+        .unwrap();
 
         let header = jsonwebtoken::decode_header(&token).unwrap();
         assert_eq!(header.typ.as_deref(), Some("JWT"));
@@ -1103,8 +1166,17 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let resp = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
-        ).await.unwrap();
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
+        )
+        .await
+        .unwrap();
 
         let parts: Vec<&str> = resp.id_token.splitn(3, '.').collect();
         let payload = base64ct::Base64UrlUnpadded::decode_vec(parts[1]).unwrap();
@@ -1120,17 +1192,25 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let resp = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
-        ).await.unwrap();
-
-        let refresh_hash = hash_refresh_token(&resp.refresh_token);
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM allowthem_refresh_tokens WHERE token_hash = ?",
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
-        .bind(&refresh_hash)
-        .fetch_one(db.pool())
         .await
         .unwrap();
+
+        let refresh_hash = hash_refresh_token(&resp.refresh_token);
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM allowthem_refresh_tokens WHERE token_hash = ?")
+                .bind(&refresh_hash)
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
         assert_eq!(count.0, 1, "refresh token should be stored in DB");
     }
 
@@ -1142,7 +1222,14 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let resp = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
@@ -1167,7 +1254,14 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let resp = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
@@ -1188,7 +1282,14 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let resp = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
@@ -1208,16 +1309,22 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
-        let resp = exchange_refresh_token(
-            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
-        )
-        .await
-        .unwrap();
+        let resp =
+            exchange_refresh_token(&db, &initial.refresh_token, None, &app, ISSUER, &key, &pem)
+                .await
+                .unwrap();
 
         assert!(!resp.access_token.is_empty());
         assert!(!resp.refresh_token.is_empty());
@@ -1225,7 +1332,10 @@ mod tests {
         assert_eq!(resp.token_type, "Bearer");
         assert_eq!(resp.expires_in, 3600);
 
-        let claims = db.validate_access_token(&resp.access_token, ISSUER).await.unwrap();
+        let claims = db
+            .validate_access_token(&resp.access_token, ISSUER)
+            .await
+            .unwrap();
         assert_eq!(claims.scope, "openid profile");
     }
 
@@ -1235,20 +1345,32 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
         let old_hash = hash_refresh_token(&initial.refresh_token);
-        exchange_refresh_token(
-            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
-        )
-        .await
-        .unwrap();
+        exchange_refresh_token(&db, &initial.refresh_token, None, &app, ISSUER, &key, &pem)
+            .await
+            .unwrap();
 
-        let old_stored = db.get_refresh_token_by_hash(&old_hash).await.unwrap().unwrap();
-        assert!(old_stored.revoked_at.is_some(), "old token should be revoked");
+        let old_stored = db
+            .get_refresh_token_by_hash(&old_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            old_stored.revoked_at.is_some(),
+            "old token should be revoked"
+        );
     }
 
     #[tokio::test]
@@ -1257,24 +1379,28 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
         // First exchange succeeds, revoking the token
-        exchange_refresh_token(
-            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
-        )
-        .await
-        .unwrap();
+        exchange_refresh_token(&db, &initial.refresh_token, None, &app, ISSUER, &key, &pem)
+            .await
+            .unwrap();
 
         // Second exchange with the same (now revoked) token fails
-        let err = exchange_refresh_token(
-            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
-        )
-        .await
-        .unwrap_err();
+        let err =
+            exchange_refresh_token(&db, &initial.refresh_token, None, &app, ISSUER, &key, &pem)
+                .await
+                .unwrap_err();
         assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("revoked")));
     }
 
@@ -1284,7 +1410,14 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
@@ -1298,11 +1431,10 @@ mod tests {
         .await
         .unwrap();
 
-        let err = exchange_refresh_token(
-            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
-        )
-        .await
-        .unwrap_err();
+        let err =
+            exchange_refresh_token(&db, &initial.refresh_token, None, &app, ISSUER, &key, &pem)
+                .await
+                .unwrap_err();
         assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("expired")));
     }
 
@@ -1312,7 +1444,14 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
@@ -1332,11 +1471,19 @@ mod tests {
             .unwrap();
 
         let err = exchange_refresh_token(
-            &db, &initial.refresh_token, None, &app_b, ISSUER, &key, &pem,
+            &db,
+            &initial.refresh_token,
+            None,
+            &app_b,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap_err();
-        assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("different client")));
+        assert!(
+            matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("different client"))
+        );
     }
 
     #[tokio::test]
@@ -1345,18 +1492,34 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
         let resp = exchange_refresh_token(
-            &db, &initial.refresh_token, Some("openid"), &app, ISSUER, &key, &pem,
+            &db,
+            &initial.refresh_token,
+            Some("openid"),
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
-        let claims = db.validate_access_token(&resp.access_token, ISSUER).await.unwrap();
+        let claims = db
+            .validate_access_token(&resp.access_token, ISSUER)
+            .await
+            .unwrap();
         assert_eq!(claims.scope, "openid");
     }
 
@@ -1366,13 +1529,26 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
         let err = exchange_refresh_token(
-            &db, &initial.refresh_token, Some("openid admin"), &app, ISSUER, &key, &pem,
+            &db,
+            &initial.refresh_token,
+            Some("openid admin"),
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap_err();
@@ -1385,18 +1561,27 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
-        let resp = exchange_refresh_token(
-            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
-        )
-        .await
-        .unwrap();
+        let resp =
+            exchange_refresh_token(&db, &initial.refresh_token, None, &app, ISSUER, &key, &pem)
+                .await
+                .unwrap();
 
-        let claims = db.validate_access_token(&resp.access_token, ISSUER).await.unwrap();
+        let claims = db
+            .validate_access_token(&resp.access_token, ISSUER)
+            .await
+            .unwrap();
         assert_eq!(claims.scope, "openid profile");
     }
 
@@ -1405,13 +1590,26 @@ mod tests {
         let db = test_db().await;
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
         let _ = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
         let err = exchange_refresh_token(
-            &db, "totally_invalid_garbage_token", None, &app, ISSUER, &key, &pem,
+            &db,
+            "totally_invalid_garbage_token",
+            None,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap_err();
@@ -1424,23 +1622,37 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
         let first_hash = hash_refresh_token(&initial.refresh_token);
-        let first_stored = db.get_refresh_token_by_hash(&first_hash).await.unwrap().unwrap();
+        let first_stored = db
+            .get_refresh_token_by_hash(&first_hash)
+            .await
+            .unwrap()
+            .unwrap();
         let original_auth_code_id = first_stored.authorization_code_id;
 
-        let rotated = exchange_refresh_token(
-            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
-        )
-        .await
-        .unwrap();
+        let rotated =
+            exchange_refresh_token(&db, &initial.refresh_token, None, &app, ISSUER, &key, &pem)
+                .await
+                .unwrap();
 
         let second_hash = hash_refresh_token(&rotated.refresh_token);
-        let second_stored = db.get_refresh_token_by_hash(&second_hash).await.unwrap().unwrap();
+        let second_stored = db
+            .get_refresh_token_by_hash(&second_hash)
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             second_stored.authorization_code_id, original_auth_code_id,
@@ -1454,31 +1666,50 @@ mod tests {
         let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let initial = exchange_authorization_code(
-            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
         )
         .await
         .unwrap();
 
-        let second = exchange_refresh_token(
-            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
-        )
-        .await
-        .unwrap();
+        let second =
+            exchange_refresh_token(&db, &initial.refresh_token, None, &app, ISSUER, &key, &pem)
+                .await
+                .unwrap();
         assert_ne!(second.refresh_token, initial.refresh_token);
 
-        let third = exchange_refresh_token(
-            &db, &second.refresh_token, None, &app, ISSUER, &key, &pem,
-        )
-        .await
-        .unwrap();
+        let third =
+            exchange_refresh_token(&db, &second.refresh_token, None, &app, ISSUER, &key, &pem)
+                .await
+                .unwrap();
         assert_ne!(third.refresh_token, second.refresh_token);
 
         let first_hash = hash_refresh_token(&initial.refresh_token);
-        let first_stored = db.get_refresh_token_by_hash(&first_hash).await.unwrap().unwrap();
-        assert!(first_stored.revoked_at.is_some(), "first token must be revoked");
+        let first_stored = db
+            .get_refresh_token_by_hash(&first_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            first_stored.revoked_at.is_some(),
+            "first token must be revoked"
+        );
 
         let second_hash = hash_refresh_token(&second.refresh_token);
-        let second_stored = db.get_refresh_token_by_hash(&second_hash).await.unwrap().unwrap();
-        assert!(second_stored.revoked_at.is_some(), "second token must be revoked");
+        let second_stored = db
+            .get_refresh_token_by_hash(&second_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            second_stored.revoked_at.is_some(),
+            "second token must be revoked"
+        );
     }
 }

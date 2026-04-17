@@ -2169,10 +2169,7 @@ async fn create_application_returns_app_and_secret() {
 #[tokio::test]
 async fn get_application_not_found() {
     let db = test_db().await;
-    let err = db
-        .get_application(ApplicationId::new())
-        .await
-        .unwrap_err();
+    let err = db.get_application(ApplicationId::new()).await.unwrap_err();
     assert!(matches!(err, AuthError::NotFound));
 }
 
@@ -2197,10 +2194,7 @@ async fn get_application_by_client_id_not_found() {
     let db = test_db().await;
     use crate::types::ClientId;
     let fake = ClientId::new_unchecked("ath_doesnotexist0000000000000000000".to_string());
-    let err = db
-        .get_application_by_client_id(&fake)
-        .await
-        .unwrap_err();
+    let err = db.get_application_by_client_id(&fake).await.unwrap_err();
     assert!(matches!(err, AuthError::NotFound));
 }
 
@@ -2282,7 +2276,10 @@ async fn update_application_sets_logo_url_and_primary_color() {
     .expect("update_application");
 
     let updated = db.get_application(app.id).await.expect("get_application");
-    assert_eq!(updated.logo_url.as_deref(), Some("https://example.com/logo.png"));
+    assert_eq!(
+        updated.logo_url.as_deref(),
+        Some("https://example.com/logo.png")
+    );
     assert_eq!(updated.primary_color.as_deref(), Some("#ff0000"));
 }
 
@@ -2325,10 +2322,14 @@ async fn regenerate_client_secret_returns_new_secret() {
 
     // New secret verifies against the stored hash; old one should not
     use crate::password::verify_password;
-    assert!(verify_password(new_secret.as_str(), &updated_app.client_secret_hash)
-        .expect("verify new secret"));
-    assert!(!verify_password(original_secret.as_str(), &updated_app.client_secret_hash)
-        .expect("verify old secret against new hash"));
+    assert!(
+        verify_password(new_secret.as_str(), &updated_app.client_secret_hash)
+            .expect("verify new secret")
+    );
+    assert!(
+        !verify_password(original_secret.as_str(), &updated_app.client_secret_hash)
+            .expect("verify old secret against new hash")
+    );
 }
 
 #[tokio::test]
@@ -2350,7 +2351,9 @@ async fn delete_application_removes_row() {
         .await
         .expect("create_application");
 
-    db.delete_application(app.id).await.expect("delete_application");
+    db.delete_application(app.id)
+        .await
+        .expect("delete_application");
 
     let err = db.get_application(app.id).await.unwrap_err();
     assert!(matches!(err, AuthError::NotFound));
@@ -2395,7 +2398,14 @@ async fn authz_fixtures(db: &Db) -> (UserId, Application) {
 
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application("AuthzApp".to_string(), uris, false, Some(user_id), None, None)
+        .create_application(
+            "AuthzApp".to_string(),
+            uris,
+            false,
+            Some(user_id),
+            None,
+            None,
+        )
         .await
         .expect("create test application");
     (user_id, app)

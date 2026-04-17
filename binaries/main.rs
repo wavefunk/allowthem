@@ -18,7 +18,9 @@ use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
 use allowthem_core::{AllowThemBuilder, AuthClient, EmbeddedAuthClient};
-use allowthem_server::{authorize_post, csrf_middleware, token_route, userinfo_route, well_known_routes};
+use allowthem_server::{
+    authorize_post, csrf_middleware, token_route, userinfo_route, well_known_routes,
+};
 
 use crate::state::AppState;
 
@@ -106,8 +108,8 @@ async fn main() -> Result<()> {
         .merge(wk_router)
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
-        .merge(ui_router)   // after CSRF layer — Bearer auth, not browser sessions
-        .merge(tk_router)   // after CSRF layer — client_secret auth, not browser sessions
+        .merge(ui_router) // after CSRF layer — Bearer auth, not browser sessions
+        .merge(tk_router) // after CSRF layer — client_secret auth, not browser sessions
         .with_state(state);
 
     // 8. Serve
@@ -455,8 +457,7 @@ mod consent_tests {
         Router::new()
             .route(
                 "/oauth/authorize",
-                axum::routing::get(consent::get_authorize)
-                    .post(authorize_post),
+                axum::routing::get(consent::get_authorize).post(authorize_post),
             )
             .layer(axum::middleware::from_fn(csrf_middleware))
             .with_state(state)
@@ -464,11 +465,18 @@ mod consent_tests {
 
     async fn create_test_session(ath: &allowthem_core::AllowThem, email: &str) -> String {
         let email = allowthem_core::types::Email::new(email.into()).unwrap();
-        let user = ath.db().create_user(email, "password123", None).await.unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
         let token = allowthem_core::generate_token();
         let hash = allowthem_core::hash_token(&token);
         let expires = chrono::Utc::now() + chrono::Duration::hours(24);
-        ath.db().create_session(user.id, hash, None, None, expires).await.unwrap();
+        ath.db()
+            .create_session(user.id, hash, None, None, expires)
+            .await
+            .unwrap();
         format!("allowthem_session={}", token.as_str())
     }
 
@@ -481,7 +489,9 @@ mod consent_tests {
     }
 
     async fn read_body(resp: axum::http::Response<Body>) -> String {
-        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         String::from_utf8(bytes.to_vec()).unwrap()
     }
 
@@ -489,13 +499,25 @@ mod consent_tests {
     async fn consent_screen_renders_html_with_scope_descriptions() {
         let (ath, state) = consent_test_state().await;
         let cookie = create_test_session(&ath, "html@test.com").await;
-        let (app, _) = ath.db().create_application(
-            "MyTestApp".into(), vec!["https://example.com/callback".into()],
-            false, None, None, None,
-        ).await.unwrap();
+        let (app, _) = ath
+            .db()
+            .create_application(
+                "MyTestApp".into(),
+                vec!["https://example.com/callback".into()],
+                false,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         let router = consent_router(state);
-        let req = Request::builder().method("GET").uri(&authorize_query(&app))
-            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .method("GET")
+            .uri(&authorize_query(&app))
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body(resp).await;
@@ -505,20 +527,35 @@ mod consent_tests {
         assert!(body.contains("View your email address"), "email scope");
         assert!(body.contains("Allow"), "allow button");
         assert!(body.contains("Deny"), "deny button");
-        assert!(body.contains(r#"name="state" value="teststate""#), "state field");
+        assert!(
+            body.contains(r#"name="state" value="teststate""#),
+            "state field"
+        );
     }
 
     #[tokio::test]
     async fn consent_screen_redirects_for_trusted_app() {
         let (ath, state) = consent_test_state().await;
         let cookie = create_test_session(&ath, "trusted@test.com").await;
-        let (app, _) = ath.db().create_application(
-            "TrustedApp".into(), vec!["https://example.com/callback".into()],
-            true, None, None, None,
-        ).await.unwrap();
+        let (app, _) = ath
+            .db()
+            .create_application(
+                "TrustedApp".into(),
+                vec!["https://example.com/callback".into()],
+                true,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         let router = consent_router(state);
-        let req = Request::builder().method("GET").uri(&authorize_query(&app))
-            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .method("GET")
+            .uri(&authorize_query(&app))
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::FOUND);
         let loc = resp.headers().get("location").unwrap().to_str().unwrap();
@@ -529,13 +566,24 @@ mod consent_tests {
     #[tokio::test]
     async fn consent_screen_redirects_to_login_unauthenticated() {
         let (ath, state) = consent_test_state().await;
-        let (app, _) = ath.db().create_application(
-            "NoAuth".into(), vec!["https://example.com/callback".into()],
-            false, None, None, None,
-        ).await.unwrap();
+        let (app, _) = ath
+            .db()
+            .create_application(
+                "NoAuth".into(),
+                vec!["https://example.com/callback".into()],
+                false,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         let router = consent_router(state);
-        let req = Request::builder().method("GET").uri(&authorize_query(&app))
-            .body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .method("GET")
+            .uri(&authorize_query(&app))
+            .body(Body::empty())
+            .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
         let loc = resp.headers().get("location").unwrap().to_str().unwrap();
@@ -546,13 +594,25 @@ mod consent_tests {
     async fn consent_screen_no_logo_for_http_url() {
         let (ath, state) = consent_test_state().await;
         let cookie = create_test_session(&ath, "httplogo@test.com").await;
-        let (app, _) = ath.db().create_application(
-            "HttpLogo".into(), vec!["https://example.com/callback".into()],
-            false, None, Some("http://example.com/logo.png".into()), None,
-        ).await.unwrap();
+        let (app, _) = ath
+            .db()
+            .create_application(
+                "HttpLogo".into(),
+                vec!["https://example.com/callback".into()],
+                false,
+                None,
+                Some("http://example.com/logo.png".into()),
+                None,
+            )
+            .await
+            .unwrap();
         let router = consent_router(state);
-        let req = Request::builder().method("GET").uri(&authorize_query(&app))
-            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .method("GET")
+            .uri(&authorize_query(&app))
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
         assert!(!body.contains("<img"), "no img for http logo");
@@ -562,32 +622,59 @@ mod consent_tests {
     async fn consent_screen_renders_logo_for_https_url() {
         let (ath, state) = consent_test_state().await;
         let cookie = create_test_session(&ath, "httpslogo@test.com").await;
-        let (app, _) = ath.db().create_application(
-            "HttpsLogo".into(), vec!["https://example.com/callback".into()],
-            false, None, Some("https://cdn.example.com/logo.png".into()), None,
-        ).await.unwrap();
+        let (app, _) = ath
+            .db()
+            .create_application(
+                "HttpsLogo".into(),
+                vec!["https://example.com/callback".into()],
+                false,
+                None,
+                Some("https://cdn.example.com/logo.png".into()),
+                None,
+            )
+            .await
+            .unwrap();
         let router = consent_router(state);
-        let req = Request::builder().method("GET").uri(&authorize_query(&app))
-            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .method("GET")
+            .uri(&authorize_query(&app))
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
         assert!(body.contains("<img"), "should render img");
         // MiniJinja HTML-escapes attribute values; check that the img tag and a recognizable
         // portion of the URL are present
-        assert!(body.contains("cdn.example.com"), "logo url should contain domain");
+        assert!(
+            body.contains("cdn.example.com"),
+            "logo url should contain domain"
+        );
     }
 
     #[tokio::test]
     async fn consent_screen_applies_primary_color() {
         let (ath, state) = consent_test_state().await;
         let cookie = create_test_session(&ath, "color@test.com").await;
-        let (app, _) = ath.db().create_application(
-            "ColorApp".into(), vec!["https://example.com/callback".into()],
-            false, None, None, Some("#ff6600".into()),
-        ).await.unwrap();
+        let (app, _) = ath
+            .db()
+            .create_application(
+                "ColorApp".into(),
+                vec!["https://example.com/callback".into()],
+                false,
+                None,
+                None,
+                Some("#ff6600".into()),
+            )
+            .await
+            .unwrap();
         let router = consent_router(state);
-        let req = Request::builder().method("GET").uri(&authorize_query(&app))
-            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .method("GET")
+            .uri(&authorize_query(&app))
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
         assert!(body.contains("background-color: #ff6600"), "custom color");
@@ -597,13 +684,25 @@ mod consent_tests {
     async fn consent_screen_default_button_color() {
         let (ath, state) = consent_test_state().await;
         let cookie = create_test_session(&ath, "defcolor@test.com").await;
-        let (app, _) = ath.db().create_application(
-            "DefaultColor".into(), vec!["https://example.com/callback".into()],
-            false, None, None, None,
-        ).await.unwrap();
+        let (app, _) = ath
+            .db()
+            .create_application(
+                "DefaultColor".into(),
+                vec!["https://example.com/callback".into()],
+                false,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         let router = consent_router(state);
-        let req = Request::builder().method("GET").uri(&authorize_query(&app))
-            .header("cookie", &cookie).body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .method("GET")
+            .uri(&authorize_query(&app))
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
         assert!(body.contains("background-color: #2563eb"), "default blue");

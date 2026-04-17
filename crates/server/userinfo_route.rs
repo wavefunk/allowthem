@@ -65,8 +65,8 @@ pub fn userinfo_route() -> Router<AllowThem> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use allowthem_core::{AllowThem, AllowThemBuilder, Email, UserId};
     use allowthem_core::decrypt_private_key;
+    use allowthem_core::{AllowThem, AllowThemBuilder, Email, UserId};
     use axum::http::{Request, StatusCode, header::AUTHORIZATION};
     use jsonwebtoken::{Algorithm, EncodingKey, Header};
     use serde::Serialize;
