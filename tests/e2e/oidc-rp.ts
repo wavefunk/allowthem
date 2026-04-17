@@ -61,19 +61,14 @@ export async function armRedirectCapture(
   page: Page,
   redirectUri: string
 ): Promise<() => Promise<URLSearchParams>> {
-  let captured: URLSearchParams | null = null;
-
-  await page.route(`${redirectUri}**`, (route) => {
-    const url = new URL(route.request().url());
-    captured = url.searchParams;
-    route.fulfill({ status: 200, body: "ok" });
-  });
-
+  // Instead of intercepting the redirect, wait for navigation to the
+  // callback URL and parse query params from page.url() directly.
   return async () => {
-    await page.waitForURL((url) => url.href.startsWith(redirectUri));
-    await page.unroute(`${redirectUri}**`);
-    if (!captured) throw new Error("Redirect to callback not captured");
-    return captured;
+    await page.waitForURL((url) => url.href.startsWith(redirectUri), {
+      timeout: 10_000,
+    });
+    const url = new URL(page.url());
+    return url.searchParams;
   };
 }
 
