@@ -32,3 +32,4 @@ serde_html_form.workspace = true
 
 [dev-dependencies]
 tower.workspace = true
+totp-rs.workspace = true

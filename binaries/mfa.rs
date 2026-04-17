@@ -365,3 +365,569 @@ fn derive_issuer(base_url: &str) -> String {
         .unwrap_or("allowthem")
         .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::sync::Arc;
+
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use axum::routing::get;
+    use chrono::{Duration, Utc};
+    use totp_rs::{Algorithm, Secret, TOTP};
+    use tower::ServiceExt;
+
+    use allowthem_core::{
+        AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, LogEmailSender, generate_token,
+        hash_token,
+    };
+    use allowthem_server::csrf_middleware;
+
+    use crate::state::AppState;
+
+    const TEST_MFA_KEY: [u8; 32] = [0x42; 32];
+
+    // ---------------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------------
+
+    async fn setup() -> AppState {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .mfa_key(TEST_MFA_KEY)
+            .build()
+            .await
+            .unwrap();
+        let auth_client: Arc<dyn AuthClient> =
+            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let templates = crate::templates::build_template_env().unwrap();
+        AppState {
+            ath,
+            auth_client,
+            base_url: "http://127.0.0.1:3100".into(),
+            templates,
+            is_production: false,
+            login_attempts: Arc::new(dashmap::DashMap::new()),
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
+            email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
+        }
+    }
+
+    /// Build a router that exercises only the MFA routes (no login).
+    /// Setup-side routes are CSRF-protected; challenge routes are not.
+    fn test_app(state: AppState) -> Router {
+        Router::new()
+            .route("/settings/mfa/setup", get(super::get_mfa_setup))
+            .route("/settings/mfa/confirm", axum::routing::post(super::post_mfa_confirm))
+            .route("/settings/mfa/disable", axum::routing::post(super::post_mfa_disable))
+            .layer(axum::middleware::from_fn(csrf_middleware))
+            .route(
+                "/mfa/challenge",
+                get(super::get_mfa_challenge).post(super::post_mfa_challenge),
+            )
+            .with_state(state)
+    }
+
+    async fn create_session(state: &AppState) -> (allowthem_core::types::UserId, String) {
+        let email = Email::new("mfa-test@example.com".into()).unwrap();
+        let user = state.ath.db().create_user(email, "pass", None).await.unwrap();
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        let expires = Utc::now() + Duration::hours(24);
+        state
+            .ath
+            .db()
+            .create_session(user.id, token_hash, None, None, expires)
+            .await
+            .unwrap();
+        let cookie = state.ath.session_cookie(&token);
+        let cookie_val = cookie.split(';').next().unwrap().to_string();
+        (user.id, cookie_val)
+    }
+
+    /// Acquire a CSRF token by hitting the setup GET endpoint.
+    async fn get_csrf(app: &Router, session_cookie: &str) -> String {
+        let req = Request::builder()
+            .uri("/settings/mfa/setup")
+            .header(header::COOKIE, session_cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let set_cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        set_cookie
+            .split(';')
+            .next()
+            .unwrap()
+            .split('=')
+            .nth(1)
+            .unwrap()
+            .to_string()
+    }
+
+    /// Create a user with MFA enabled. Returns (user_id, totp, recovery_codes).
+    async fn enable_mfa_for_user(
+        state: &AppState,
+        user_id: allowthem_core::types::UserId,
+    ) -> (TOTP, Vec<String>) {
+        let secret_b32 = state.ath.create_mfa_secret(user_id).await.unwrap();
+        let totp = TOTP::new(
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            Secret::Encoded(secret_b32).to_bytes().unwrap(),
+            None,
+            String::new(),
+        )
+        .unwrap();
+        let code = totp.generate_current().unwrap();
+        let recovery_codes = state.ath.enable_mfa(user_id, &code).await.unwrap();
+        (totp, recovery_codes)
+    }
+
+    // ---------------------------------------------------------------------------
+    // derive_issuer — pure function, no I/O
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn derive_issuer_strips_http_scheme() {
+        assert_eq!(derive_issuer("http://example.com"), "example.com");
+    }
+
+    #[test]
+    fn derive_issuer_strips_https_scheme() {
+        assert_eq!(derive_issuer("https://auth.example.com"), "auth.example.com");
+    }
+
+    #[test]
+    fn derive_issuer_strips_port() {
+        // totp-rs rejects issuer strings containing colons; port must be removed.
+        assert_eq!(derive_issuer("http://127.0.0.1:3100"), "127.0.0.1");
+    }
+
+    #[test]
+    fn derive_issuer_strips_path() {
+        assert_eq!(
+            derive_issuer("https://auth.example.com/some/path"),
+            "auth.example.com"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // GET /settings/mfa/setup — idempotency
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_mfa_setup_renders_secret() {
+        let state = setup().await;
+        let app = test_app(state.clone());
+        let (_, cookie) = create_session(&state).await;
+
+        let csrf = get_csrf(&app, &cookie).await;
+        let req = Request::builder()
+            .uri("/settings/mfa/setup")
+            .header(header::COOKIE, format!("{cookie}; csrf_token={csrf}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("totp-secret"), "setup page must show secret element");
+        // The totp_uri value is HTML-escaped by MiniJinja; check the testid container exists.
+        assert!(html.contains("totp-uri"), "setup page must show QR URI container");
+    }
+
+    #[tokio::test]
+    async fn get_mfa_setup_is_idempotent() {
+        // Two GETs must return the same secret so wrong-code-then-retry works.
+        let state = setup().await;
+        let app = test_app(state.clone());
+        let (_, cookie) = create_session(&state).await;
+        let csrf = get_csrf(&app, &cookie).await;
+
+        let secret_of = |html: String| -> String {
+            // Extract the text content of the <code data-testid="totp-secret"> element.
+            // The template renders the element with additional class attributes before >,
+            // so split on the data-testid attribute value then find the closing > to skip
+            // all attributes, then read up to </code>.
+            let after_attr = html
+                .split("data-testid=\"totp-secret\"")
+                .nth(1)
+                .expect("totp-secret element not found in HTML");
+            let after_tag_close = after_attr
+                .splitn(2, '>')
+                .nth(1)
+                .expect("closing > of totp-secret element not found");
+            after_tag_close
+                .split('<')
+                .next()
+                .unwrap_or("")
+                .to_string()
+        };
+
+        let req1 = Request::builder()
+            .uri("/settings/mfa/setup")
+            .header(header::COOKIE, format!("{cookie}; csrf_token={csrf}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp1 = app.clone().oneshot(req1).await.unwrap();
+        let html1 = String::from_utf8(
+            axum::body::to_bytes(resp1.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+
+        let req2 = Request::builder()
+            .uri("/settings/mfa/setup")
+            .header(header::COOKIE, format!("{cookie}; csrf_token={csrf}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp2 = app.clone().oneshot(req2).await.unwrap();
+        let html2 = String::from_utf8(
+            axum::body::to_bytes(resp2.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            secret_of(html1),
+            secret_of(html2),
+            "repeated GET /settings/mfa/setup must return the same pending secret"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // POST /settings/mfa/confirm
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn post_mfa_confirm_invalid_code_shows_error_and_does_not_enable() {
+        let state = setup().await;
+        let app = test_app(state.clone());
+        let (user_id, cookie) = create_session(&state).await;
+
+        // Trigger secret creation via GET (idempotency path)
+        let csrf = get_csrf(&app, &cookie).await;
+
+        let body_str = format!("code=000000&csrf_token={csrf}");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/settings/mfa/confirm")
+            .header(header::COOKIE, format!("{cookie}; csrf_token={csrf}"))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains(SETUP_INVALID_CODE),
+            "wrong code must show setup error"
+        );
+        assert!(
+            !state.ath.has_mfa_enabled(user_id).await.unwrap(),
+            "MFA must not be enabled after wrong code"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_mfa_confirm_valid_code_enables_mfa_and_renders_recovery_codes() {
+        let state = setup().await;
+        let app = test_app(state.clone());
+        let (user_id, cookie) = create_session(&state).await;
+
+        let csrf = get_csrf(&app, &cookie).await;
+
+        // Create and retrieve the pending secret
+        let secret = state.ath.create_mfa_secret(user_id).await.unwrap();
+        let totp = TOTP::new(
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            Secret::Encoded(secret).to_bytes().unwrap(),
+            None,
+            String::new(),
+        )
+        .unwrap();
+        let code = totp.generate_current().unwrap();
+
+        let body_str = format!("code={code}&csrf_token={csrf}");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/settings/mfa/confirm")
+            .header(header::COOKIE, format!("{cookie}; csrf_token={csrf}"))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains("recovery-code"),
+            "success must render recovery codes"
+        );
+        assert!(
+            state.ath.has_mfa_enabled(user_id).await.unwrap(),
+            "MFA must be enabled after valid confirm"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // POST /settings/mfa/disable
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn post_mfa_disable_removes_mfa_and_redirects() {
+        let state = setup().await;
+        let app = test_app(state.clone());
+        let (user_id, cookie) = create_session(&state).await;
+        enable_mfa_for_user(&state, user_id).await;
+
+        let csrf = get_csrf(&app, &cookie).await;
+        let body_str = format!("csrf_token={csrf}");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/settings/mfa/disable")
+            .header(header::COOKIE, format!("{cookie}; csrf_token={csrf}"))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/settings");
+        assert!(
+            !state.ath.has_mfa_enabled(user_id).await.unwrap(),
+            "MFA must be disabled after disable POST"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // GET /mfa/challenge
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_mfa_challenge_with_invalid_token_redirects_to_login() {
+        let state = setup().await;
+        let app = test_app(state);
+
+        let req = Request::builder()
+            .uri("/mfa/challenge?token=not-a-real-token")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/login");
+    }
+
+    #[tokio::test]
+    async fn get_mfa_challenge_with_valid_token_renders_form() {
+        let state = setup().await;
+        let app = test_app(state.clone());
+        let (user_id, _) = create_session(&state).await;
+        enable_mfa_for_user(&state, user_id).await;
+
+        let token = state.ath.db().create_mfa_challenge(user_id).await.unwrap();
+        let req = Request::builder()
+            .uri(format!("/mfa/challenge?token={token}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(html.contains("name=\"code\""), "challenge form must have code input");
+        assert!(
+            html.contains("mfa_token"),
+            "challenge form must embed mfa_token hidden field"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // POST /mfa/challenge
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn post_mfa_challenge_invalid_token_redirects_to_login() {
+        let state = setup().await;
+        let app = test_app(state);
+
+        let body_str = "mfa_token=garbage&code=123456";
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mfa/challenge")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/login");
+    }
+
+    #[tokio::test]
+    async fn post_mfa_challenge_wrong_totp_does_not_consume_challenge() {
+        // Retry must be possible after a wrong code.
+        let state = setup().await;
+        let app = test_app(state.clone());
+        let (user_id, _) = create_session(&state).await;
+        enable_mfa_for_user(&state, user_id).await;
+
+        let token = state.ath.db().create_mfa_challenge(user_id).await.unwrap();
+
+        let body_str = format!("mfa_token={token}&code=000000");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mfa/challenge")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(html.contains(CHALLENGE_INVALID_TOTP), "wrong code must show TOTP error");
+
+        // Challenge must still be valid (not consumed) so the user can retry
+        let still_valid = state
+            .ath
+            .db()
+            .validate_mfa_challenge(&token)
+            .await
+            .unwrap();
+        assert!(still_valid.is_some(), "challenge must survive a failed attempt");
+    }
+
+    #[tokio::test]
+    async fn post_mfa_challenge_valid_totp_creates_session_and_emits_login() {
+        let state = setup().await;
+        let app = test_app(state.clone());
+        let (user_id, _) = create_session(&state).await;
+        let (totp, _) = enable_mfa_for_user(&state, user_id).await;
+
+        let token = state.ath.db().create_mfa_challenge(user_id).await.unwrap();
+        let code = totp.generate_current().unwrap();
+
+        let body_str = format!("mfa_token={token}&code={code}");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mfa/challenge")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/");
+        assert!(
+            resp.headers().get(header::SET_COOKIE).is_some(),
+            "session cookie must be set on success"
+        );
+
+        // Challenge must be consumed
+        let consumed = state
+            .ath
+            .db()
+            .validate_mfa_challenge(&token)
+            .await
+            .unwrap();
+        assert!(consumed.is_none(), "challenge must be consumed after success");
+
+        // Both MfaChallengeSuccess and Login must be in the audit log
+        let entries = state
+            .ath
+            .db()
+            .get_audit_log(Some(&user_id), 50, 0)
+            .await
+            .unwrap();
+        let event_types: Vec<&allowthem_core::AuditEvent> =
+            entries.iter().map(|e| &e.event_type).collect();
+        assert!(
+            event_types.contains(&&allowthem_core::AuditEvent::MfaChallengeSuccess),
+            "MfaChallengeSuccess must be in audit log"
+        );
+        assert!(
+            event_types.contains(&&allowthem_core::AuditEvent::Login),
+            "Login must be in audit log after MFA challenge success"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_mfa_challenge_wrong_recovery_code_shows_error() {
+        let state = setup().await;
+        let app = test_app(state.clone());
+        let (user_id, _) = create_session(&state).await;
+        enable_mfa_for_user(&state, user_id).await;
+
+        let token = state.ath.db().create_mfa_challenge(user_id).await.unwrap();
+
+        let body_str = format!("mfa_token={token}&recovery_code=AAAAAAAA&use_recovery=on");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mfa/challenge")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains(CHALLENGE_INVALID_RECOVERY),
+            "wrong recovery code must show recovery error"
+        );
+    }
+}
