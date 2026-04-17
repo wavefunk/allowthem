@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::json;
 use url::Url;
 
-use allowthem_core::applications::{Application, validate_redirect_uri};
+use allowthem_core::applications::{Application, BrandingConfig, validate_redirect_uri};
 use allowthem_core::authorization::{
     generate_authorization_code, hash_authorization_code, validate_scopes,
 };
@@ -91,9 +91,7 @@ pub struct ConsentSubmission {
 
 /// Data for the consent screen. M39 produces this; M40 renders it.
 pub struct ConsentContext {
-    pub application_name: String,
-    pub logo_url: Option<String>,
-    pub primary_color: Option<String>,
+    pub branding: BrandingConfig,
     pub scopes: Vec<String>,
 }
 
@@ -435,9 +433,7 @@ pub async fn check_authorization(
 
     if needs_consent {
         let context = ConsentContext {
-            application_name: validated.application.name.clone(),
-            logo_url: validated.application.logo_url.clone(),
-            primary_color: validated.application.primary_color.clone(),
+            branding: validated.application.branding(),
             scopes: validated.scopes.clone(),
         };
         return AuthorizeOutcome::ConsentNeeded(Box::new(ConsentNeededData {
@@ -838,7 +834,7 @@ mod tests {
         let outcome = check_authorization(&ath, &headers, &params).await;
         match outcome {
             AuthorizeOutcome::ConsentNeeded(data) => {
-                assert_eq!(data.context.application_name, "TestApp");
+                assert_eq!(data.context.branding.application_name, "TestApp");
                 assert_eq!(data.context.scopes, vec!["openid", "profile"]);
             }
             AuthorizeOutcome::Redirect(_) => panic!("expected ConsentNeeded, got Redirect"),

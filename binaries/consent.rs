@@ -44,13 +44,15 @@ pub async fn get_authorize(
         AuthorizeOutcome::ConsentNeeded(data) => {
             let scope_items = build_scope_items(&data.context.scopes);
 
+            let branding = &data.context.branding;
+
             let html = render(
                 &state.templates,
                 "consent.html",
                 context! {
-                    application_name => data.context.application_name,
-                    logo_url => data.context.logo_url,
-                    primary_color => data.context.primary_color,
+                    application_name => branding.application_name.clone(),
+                    logo_url => branding.logo_url.clone(),
+                    primary_color => branding.primary_color.clone(),
                     scope_items => scope_items,
                     client_id => data.params.application.client_id.as_str(),
                     redirect_uri => data.params.redirect_uri,
