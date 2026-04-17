@@ -248,7 +248,7 @@ impl AllowThem {
             .ok_or(AuthError::BaseUrlNotConfigured)
     }
 
-    pub(crate) fn csrf_key(&self) -> Result<&[u8; 32], AuthError> {
+    pub fn csrf_key(&self) -> Result<&[u8; 32], AuthError> {
         self.inner
             .csrf_key
             .as_ref()
