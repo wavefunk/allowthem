@@ -83,6 +83,60 @@ export async function extractResetToken(email: string): Promise<string> {
   throw new Error(`Reset token for ${email} not found in server.log within 5s`);
 }
 
+// ---------------------------------------------------------------------------
+// OAuth helpers
+// ---------------------------------------------------------------------------
+
+export interface MockOAuthIdentity {
+  email: string;
+  verified?: boolean; // default: true
+  uid?: string; // default: identity.email
+  name?: string;
+}
+
+export async function oauthLogin(
+  page: Page,
+  provider: "google" | "github",
+  identity: MockOAuthIdentity
+): Promise<void> {
+  // Intercept the redirect to /test-oauth/simulate and inject identity params.
+  // page.route() on a local URL is safe — no cross-origin concerns.
+  await page.route("**/test-oauth/simulate**", async (route) => {
+    const url = new URL(route.request().url());
+    url.searchParams.set("email", identity.email);
+    url.searchParams.set("verified", String(identity.verified ?? true));
+    url.searchParams.set("uid", identity.uid ?? identity.email);
+    if (identity.name) url.searchParams.set("name", identity.name);
+    await route.continue({ url: url.toString() });
+  });
+
+  await page.goto(`/oauth/${provider}/authorize`);
+  // Chain: authorize → 307 simulate (intercepted, identity injected)
+  //        simulate → 307 /oauth/{provider}/callback?code=...&state=...
+  //        callback → session cookie + 307 /
+  await page.waitForURL((url) => !url.pathname.startsWith("/oauth"));
+  await page.unroute("**/test-oauth/simulate**");
+}
+
+export async function oauthLoginExpectingError(
+  page: Page,
+  provider: "google" | "github",
+  identity: MockOAuthIdentity
+): Promise<void> {
+  await page.route("**/test-oauth/simulate**", async (route) => {
+    const url = new URL(route.request().url());
+    url.searchParams.set("email", identity.email);
+    url.searchParams.set("verified", String(identity.verified ?? true));
+    url.searchParams.set("uid", identity.uid ?? identity.email);
+    if (identity.name) url.searchParams.set("name", identity.name);
+    await route.continue({ url: url.toString() });
+  });
+
+  await page.goto(`/oauth/${provider}/authorize`);
+  // On error the flow does not complete to a non-oauth URL.
+  await page.unroute("**/test-oauth/simulate**");
+}
+
 export const test = base.extend<{ authenticatedPage: Page }>({
   authenticatedPage: async ({ page }, use) => {
     const email = `test-${Date.now()}@example.com`;

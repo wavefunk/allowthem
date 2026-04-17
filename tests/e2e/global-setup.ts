@@ -65,6 +65,7 @@ export default async function globalSetup(): Promise<void> {
         "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
       ALLOWTHEM_IS_PRODUCTION: "false",
       ALLOWTHEM_MAX_LOGIN_ATTEMPTS: "50",
+      ALLOWTHEM_OAUTH_MOCK: "true",
     },
     stdio: "pipe",
     detached: false,
