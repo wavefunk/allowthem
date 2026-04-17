@@ -27,6 +27,9 @@ pub enum AuthError {
     #[error("not found")]
     NotFound,
 
+    #[error("invalid credentials")]
+    InvalidCredentials,
+
     #[error("conflict: {0}")]
     Conflict(String),
 
