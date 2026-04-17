@@ -145,7 +145,7 @@ impl TokenHash {
 pub struct SessionToken(String);
 
 impl SessionToken {
-    pub(crate) fn from_encoded(s: String) -> Self {
+    pub fn from_encoded(s: String) -> Self {
         Self(s)
     }
 
