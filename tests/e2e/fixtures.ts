@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { test as base, Page } from "@playwright/test";
+import * as OTPAuth from "otpauth";
 
 export async function registerUser(
   page: Page,
@@ -118,6 +119,64 @@ export async function oauthLogin(
   await page.unroute("**/test-oauth/simulate**");
 }
 
+
+// ---------------------------------------------------------------------------
+// MFA helpers
+// ---------------------------------------------------------------------------
+
+export function generateTotpCode(secretBase32: string): string {
+  const totp = new OTPAuth.TOTP({
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    secret: OTPAuth.Secret.fromBase32(secretBase32),
+  });
+  return totp.generate();
+}
+
+export async function enableMfa(page: Page): Promise<string[]> {
+  // Navigate to MFA setup — expects an already-authenticated page
+  await page.goto("/settings/mfa/setup");
+  const secret = await page
+    .locator('[data-testid="totp-secret"]')
+    .textContent();
+  if (!secret) throw new Error("TOTP secret not found on setup page");
+
+  // Generate code and confirm
+  const code = generateTotpCode(secret.trim());
+  await page.locator('input[name="code"]').fill(code);
+  await page.locator('button[type="submit"]').click();
+  // post_mfa_confirm renders mfa_recovery.html directly (no redirect) —
+  // wait for recovery codes to appear in the DOM rather than a URL change.
+  await page.locator('[data-testid="recovery-code"]').first().waitFor();
+
+  // Read and return recovery codes
+  const codeElements = page.locator('[data-testid="recovery-code"]');
+  const count = await codeElements.count();
+  const codes: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const text = await codeElements.nth(i).textContent();
+    if (text) codes.push(text.trim());
+  }
+  return codes;
+}
+
+export async function loginWithMfaChallenge(
+  page: Page,
+  email: string,
+  password: string,
+  code: string
+): Promise<void> {
+  await page.goto("/login");
+  await page.locator('input[name="identifier"]').fill(email);
+  await page.locator('input[name="password"]').fill(password);
+  await page.locator('button[type="submit"]').click();
+  // Password OK with MFA → redirects to /mfa/challenge
+  await page.waitForURL(/\/mfa\/challenge/);
+  await page.locator('input[name="code"]').fill(code);
+  await page.locator('button[type="submit"]').click();
+  await page.waitForURL((url) => !url.pathname.startsWith("/mfa/challenge"));
+}
 
 export const test = base.extend<{ authenticatedPage: Page }>({
   authenticatedPage: async ({ page }, use) => {
