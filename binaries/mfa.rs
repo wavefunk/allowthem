@@ -43,14 +43,7 @@ pub async fn get_mfa_setup(
         None => state.ath.create_mfa_secret(user.id).await?,
     };
 
-    let issuer = state
-        .base_url
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split('/')
-        .next()
-        .unwrap_or("allowthem")
-        .to_string();
+    let issuer = derive_issuer(&state.base_url);
     let uri = totp_uri(&secret, user.email.as_str(), &issuer);
 
     let html = render(
@@ -120,14 +113,7 @@ pub async fn post_mfa_confirm(
                 .get_pending_mfa_secret(user.id)
                 .await?
                 .unwrap_or_default();
-            let issuer = state
-                .base_url
-                .trim_start_matches("https://")
-                .trim_start_matches("http://")
-                .split('/')
-                .next()
-                .unwrap_or("allowthem")
-                .to_string();
+            let issuer = derive_issuer(&state.base_url);
             let uri = totp_uri(&secret, user.email.as_str(), &issuer);
 
             let html = render(
@@ -346,4 +332,21 @@ fn client_ip(headers: &axum::http::HeaderMap) -> Option<String> {
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
         .map(|s| s.trim().to_string())
+}
+
+/// Extract the host from a base URL for use as the TOTP issuer.
+///
+/// Strips the scheme and path, and also strips the port (the totp-rs
+/// library rejects issuer strings containing colons).
+fn derive_issuer(base_url: &str) -> String {
+    base_url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap_or("allowthem")
+        .split(':')
+        .next()
+        .unwrap_or("allowthem")
+        .to_string()
 }
