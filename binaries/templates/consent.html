@@ -51,14 +51,9 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
             <button type="submit" name="consent" value="approve"
-                    class="w-full rounded-lg px-4 py-2.5 text-sm font-medium
+                    class="at-btn-primary w-full rounded-lg px-4 py-2.5 text-sm font-medium
                            text-white focus:outline-none focus:ring-2
-                           focus:ring-offset-2"
-                    {% if primary_color %}
-                    style="background-color: {{ primary_color }}"
-                    {% else %}
-                    style="background-color: #2563eb"
-                    {% endif %}>
+                           focus:ring-offset-2">
                 Allow
             </button>
 
