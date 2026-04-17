@@ -197,15 +197,16 @@ async fn list(
         .await?;
 
     match query.format.as_deref() {
-        Some("csv") => Ok(build_csv_response(&result.entries)),
+        Some("csv") => Ok(build_csv_response(&result.entries, result.total)),
         Some("json") => {
+            let truncated = result.total > EXPORT_MAX_ROWS;
             let json = serde_json::to_string(&result.entries).map_err(|e| {
                 AppError::Template(minijinja::Error::new(
                     minijinja::ErrorKind::InvalidOperation,
                     format!("JSON serialization failed: {e}"),
                 ))
             })?;
-            Ok((
+            let mut resp = (
                 [
                     (header::CONTENT_TYPE, "application/json"),
                     (
@@ -215,7 +216,12 @@ async fn list(
                 ],
                 json,
             )
-                .into_response())
+                .into_response();
+            if truncated {
+                resp.headers_mut()
+                    .insert("X-Truncated", axum::http::HeaderValue::from_static("true"));
+            }
+            Ok(resp)
         }
         _ => {
             let page = query.page.unwrap_or(1).max(1);
@@ -245,7 +251,7 @@ async fn list(
     }
 }
 
-fn build_csv_response(entries: &[AuditListEntry]) -> Response {
+fn build_csv_response(entries: &[AuditListEntry], total: u32) -> Response {
     let mut csv = String::from(
         "id,event_type,user_id,user_email,target_id,ip_address,user_agent,detail,created_at\n",
     );
@@ -271,7 +277,7 @@ fn build_csv_response(entries: &[AuditListEntry]) -> Response {
         csv.push_str(&csv_field(&e.created_at.to_rfc3339()));
         csv.push('\n');
     }
-    (
+    let mut resp = (
         [
             (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
             (
@@ -281,7 +287,12 @@ fn build_csv_response(entries: &[AuditListEntry]) -> Response {
         ],
         csv,
     )
-        .into_response()
+        .into_response();
+    if total > EXPORT_MAX_ROWS {
+        resp.headers_mut()
+            .insert("X-Truncated", axum::http::HeaderValue::from_static("true"));
+    }
+    resp
 }
 
 fn csv_field(value: &str) -> String {
@@ -866,5 +877,115 @@ mod tests {
     #[test]
     fn csv_field_escapes_inner_quotes() {
         assert_eq!(super::csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+    }
+
+    #[tokio::test]
+    async fn list_page_filters_by_date_range() {
+        let (ath, state, cookie) = setup().await;
+
+        let user = ath
+            .db()
+            .create_user(
+                Email::new("date-range@example.com".into()).unwrap(),
+                "password123",
+                None,
+            )
+            .await
+            .unwrap();
+        let _ = ath
+            .db()
+            .log_audit(AuditEvent::Login, Some(&user.id), None, None, None, None)
+            .await;
+
+        let app = test_app(state);
+
+        // Filter to a date range that definitely includes today
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let uri = format!("/admin/audit?from={}&to={}", today, today);
+        let req = Request::builder()
+            .uri(&uri)
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(body.contains("date-range@example.com"));
+        assert!(body.contains("Login"));
+    }
+
+    #[tokio::test]
+    async fn list_page_filters_by_date_range_excludes_future() {
+        let (ath, state, cookie) = setup().await;
+
+        let user = ath
+            .db()
+            .create_user(
+                Email::new("date-exclude@example.com".into()).unwrap(),
+                "password123",
+                None,
+            )
+            .await
+            .unwrap();
+        let _ = ath
+            .db()
+            .log_audit(AuditEvent::Login, Some(&user.id), None, None, None, None)
+            .await;
+
+        let app = test_app(state);
+
+        // Filter to a past date range — should return no results
+        let req = Request::builder()
+            .uri("/admin/audit?from=2020-01-01&to=2020-01-02")
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(body.contains("No audit events found"));
+    }
+
+    #[tokio::test]
+    async fn list_page_paginates() {
+        let (ath, state, cookie) = setup().await;
+
+        let user = ath
+            .db()
+            .create_user(
+                Email::new("paginate@example.com".into()).unwrap(),
+                "password123",
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Insert PAGE_SIZE + 1 events so two pages exist
+        for _ in 0..(super::PAGE_SIZE + 1) {
+            let _ = ath
+                .db()
+                .log_audit(AuditEvent::Login, Some(&user.id), None, None, None, None)
+                .await;
+        }
+
+        let app = test_app(state);
+
+        // Page 1 should show pagination controls and indicate > 1 page
+        let req = Request::builder()
+            .uri("/admin/audit?user=".to_string() + &user.id.to_string())
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        // Should show total count
+        let expected = format!("{} events", super::PAGE_SIZE + 1);
+        assert!(body.contains(&expected));
+        // Pagination nav should be present (Next link)
+        assert!(body.contains("Next"));
     }
 }
