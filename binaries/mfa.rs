@@ -398,6 +398,7 @@ mod tests {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .mfa_key(TEST_MFA_KEY)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
@@ -425,7 +426,7 @@ mod tests {
             .route("/settings/mfa/setup", get(super::get_mfa_setup))
             .route("/settings/mfa/confirm", axum::routing::post(super::post_mfa_confirm))
             .route("/settings/mfa/disable", axum::routing::post(super::post_mfa_disable))
-            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
             .route(
                 "/mfa/challenge",
                 get(super::get_mfa_challenge).post(super::post_mfa_challenge),
@@ -450,7 +451,7 @@ mod tests {
         (user.id, cookie_val)
     }
 
-    /// Acquire a CSRF token by hitting the setup GET endpoint.
+    /// Acquire a CSRF token by hitting the setup GET endpoint and parsing it from HTML.
     async fn get_csrf(app: &Router, session_cookie: &str) -> String {
         let req = Request::builder()
             .uri("/settings/mfa/setup")
@@ -458,21 +459,14 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.clone().oneshot(req).await.unwrap();
-        let set_cookie = resp
-            .headers()
-            .get(header::SET_COOKIE)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string();
-        set_cookie
-            .split(';')
-            .next()
-            .unwrap()
-            .split('=')
-            .nth(1)
-            .unwrap()
-            .to_string()
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(bytes.to_vec()).unwrap();
+        let marker = "name=\"csrf_token\" value=\"";
+        let start = html.find(marker).expect("csrf_token not found in HTML") + marker.len();
+        let end = html[start..].find('"').unwrap() + start;
+        html[start..end].to_string()
     }
 
     /// Create a user with MFA enabled. Returns (user_id, totp, recovery_codes).
@@ -717,12 +711,20 @@ mod tests {
         let (user_id, cookie) = create_session(&state).await;
         enable_mfa_for_user(&state, user_id).await;
 
-        let csrf = get_csrf(&app, &cookie).await;
+        // Derive CSRF token from the session token (HMAC path — no Set-Cookie on GET).
+        let session_token_val = cookie.split('=').nth(1).unwrap().to_string();
+        let session_token =
+            allowthem_core::types::SessionToken::from_encoded(session_token_val);
+        let csrf = allowthem_core::derive_csrf_token(
+            &session_token,
+            b"test-csrf-key-for-binary-tests!!",
+        );
+
         let body_str = format!("csrf_token={csrf}");
         let req = Request::builder()
             .method("POST")
             .uri("/settings/mfa/disable")
-            .header(header::COOKIE, format!("{cookie}; csrf_token={csrf}"))
+            .header(header::COOKIE, &cookie)
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from(body_str))
             .unwrap();

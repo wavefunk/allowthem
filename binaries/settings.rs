@@ -400,6 +400,7 @@ mod tests {
     async fn setup() -> (AllowThem, AppState, String) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
@@ -446,7 +447,7 @@ mod tests {
                 get(super::get_settings).post(super::post_settings),
             )
             .route("/settings/password", post(super::post_change_password))
-            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
             .with_state(state)
     }
 
@@ -457,21 +458,14 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.clone().oneshot(req).await.unwrap();
-        let set_cookie = resp
-            .headers()
-            .get(header::SET_COOKIE)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string();
-        set_cookie
-            .split(';')
-            .next()
-            .unwrap()
-            .split('=')
-            .nth(1)
-            .unwrap()
-            .to_string()
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(bytes.to_vec()).unwrap();
+        let marker = "name=\"csrf_token\" value=\"";
+        let start = html.find(marker).expect("csrf_token not found in HTML") + marker.len();
+        let end = html[start..].find('"').unwrap() + start;
+        html[start..end].to_string()
     }
 
     async fn body_string(resp: axum::http::Response<Body>) -> String {
@@ -944,6 +938,7 @@ mod tests {
         // must return "Current password is incorrect", not a crash or 500.
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();

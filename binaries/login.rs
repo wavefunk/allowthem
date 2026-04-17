@@ -348,6 +348,7 @@ mod tests {
     async fn setup() -> AppState {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
@@ -371,7 +372,7 @@ mod tests {
     fn test_app(state: AppState) -> Router {
         Router::new()
             .route("/login", get(super::get_login).post(super::post_login))
-            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
             .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))))
             .with_state(state)
     }
@@ -416,7 +417,7 @@ mod tests {
             .method("POST")
             .uri("/login")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={}", csrf))
+            .header(header::COOKIE, format!("csrf_pre={}", csrf))
             .body(Body::from(body))
             .unwrap()
     }
@@ -798,7 +799,7 @@ mod tests {
             .method("POST")
             .uri("/login")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .header(header::COOKIE, format!("csrf_token={}", csrf))
+            .header(header::COOKIE, format!("csrf_pre={}", csrf))
             .body(Body::from(body_str))
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
@@ -825,6 +826,7 @@ mod tests {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .mfa_key(MFA_KEY)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
