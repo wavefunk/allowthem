@@ -76,6 +76,12 @@ struct AccessTokenJwtClaims {
     exp: i64,
     iat: i64,
     scope: String,
+    email: String,
+    email_verified: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+    roles: Vec<String>,
+    permissions: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -124,7 +130,8 @@ pub fn compute_at_hash(access_token_jwt: &str) -> String {
 /// Mint an RS256-signed access token JWT.
 ///
 /// Header: `alg: RS256`, `kid`, `typ: at+jwt` (RFC 9068).
-/// Claims: `sub` (UserId), `iss`, `aud` (client_id), `exp`, `iat`, `scope`.
+/// Claims: `sub`, `iss`, `aud`, `exp`, `iat`, `scope`, plus identity
+/// and authorization claims for external-mode AuthClient consumption.
 pub fn mint_access_token(
     sub: UserId,
     issuer: &str,
@@ -133,6 +140,11 @@ pub fn mint_access_token(
     kid: &str,
     private_key_pem: &str,
     ttl_secs: i64,
+    email: &str,
+    email_verified: bool,
+    username: Option<&str>,
+    roles: &[String],
+    permissions: &[String],
 ) -> Result<String, AuthError> {
     let now = Utc::now().timestamp();
     let claims = AccessTokenJwtClaims {
@@ -142,6 +154,11 @@ pub fn mint_access_token(
         exp: now + ttl_secs,
         iat: now,
         scope: scope.to_owned(),
+        email: email.to_owned(),
+        email_verified,
+        username: username.map(|u| u.to_owned()),
+        roles: roles.to_vec(),
+        permissions: permissions.to_vec(),
     };
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some(kid.to_owned());
@@ -392,6 +409,22 @@ pub async fn exchange_authorization_code(
         .map_err(|e| TokenError::ServerError(e.to_string()))?;
     let scopes_str = scopes.join(" ");
 
+    // 8b. Fetch user, roles, permissions for access token claims
+    let user = db
+        .get_user(auth_code.user_id)
+        .await
+        .map_err(|e| TokenError::ServerError(e.to_string()))?;
+    let user_roles = db
+        .get_user_roles(&auth_code.user_id)
+        .await
+        .map_err(|e| TokenError::ServerError(e.to_string()))?;
+    let user_perms = db
+        .get_user_permissions(&auth_code.user_id)
+        .await
+        .map_err(|e| TokenError::ServerError(e.to_string()))?;
+    let role_names: Vec<String> = user_roles.iter().map(|r| r.name.as_str().to_owned()).collect();
+    let perm_names: Vec<String> = user_perms.iter().map(|p| p.name.as_str().to_owned()).collect();
+
     // 9. Mint access token
     let kid = signing_key.id.to_string();
     let access_token = mint_access_token(
@@ -402,6 +435,11 @@ pub async fn exchange_authorization_code(
         &kid,
         private_key_pem,
         3600,
+        user.email.as_str(),
+        user.email_verified,
+        user.username.as_ref().map(|u| u.as_str()),
+        &role_names,
+        &perm_names,
     )
     .map_err(|e| TokenError::ServerError(e.to_string()))?;
 
@@ -518,6 +556,22 @@ pub async fn exchange_refresh_token(
         .await
         .map_err(|e| TokenError::ServerError(e.to_string()))?;
 
+    // 6b. Fetch user, roles, permissions for access token claims
+    let user = db
+        .get_user(stored.user_id)
+        .await
+        .map_err(|e| TokenError::ServerError(e.to_string()))?;
+    let user_roles = db
+        .get_user_roles(&stored.user_id)
+        .await
+        .map_err(|e| TokenError::ServerError(e.to_string()))?;
+    let user_perms = db
+        .get_user_permissions(&stored.user_id)
+        .await
+        .map_err(|e| TokenError::ServerError(e.to_string()))?;
+    let role_names: Vec<String> = user_roles.iter().map(|r| r.name.as_str().to_owned()).collect();
+    let perm_names: Vec<String> = user_perms.iter().map(|p| p.name.as_str().to_owned()).collect();
+
     // 7. Mint access token
     let kid = signing_key.id.to_string();
     let access_token = mint_access_token(
@@ -528,6 +582,11 @@ pub async fn exchange_refresh_token(
         &kid,
         private_key_pem,
         3600,
+        user.email.as_str(),
+        user.email_verified,
+        user.username.as_ref().map(|u| u.as_str()),
+        &role_names,
+        &perm_names,
     )
     .map_err(|e| TokenError::ServerError(e.to_string()))?;
 
@@ -687,12 +746,22 @@ mod tests {
             &kid,
             &pem,
             3600,
+            "test@example.com",
+            true,
+            Some("testuser"),
+            &["admin".to_string()],
+            &["posts:write".to_string()],
         )
         .unwrap();
 
         // Validate using the existing access_tokens module
         let claims = db.validate_access_token(&token, ISSUER).await.unwrap();
         assert_eq!(claims.sub, user_id);
+        assert_eq!(claims.email, "test@example.com");
+        assert!(claims.email_verified);
+        assert_eq!(claims.username.as_deref(), Some("testuser"));
+        assert_eq!(claims.roles, vec!["admin"]);
+        assert_eq!(claims.permissions, vec!["posts:write"]);
         assert_eq!(claims.scope, "openid profile");
         assert_eq!(claims.iss, ISSUER);
     }
@@ -1004,6 +1073,7 @@ mod tests {
 
         let token = mint_access_token(
             UserId::new(), ISSUER, "client", "openid", &key.id.to_string(), &pem, 3600,
+            "t@example.com", true, None, &[], &[],
         ).unwrap();
 
         let header = jsonwebtoken::decode_header(&token).unwrap();

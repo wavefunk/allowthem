@@ -19,6 +19,11 @@ pub struct AccessTokenClaims {
     pub aud: String,
     pub exp: i64,
     pub iat: i64,
+    pub email: String,
+    pub email_verified: bool,
+    pub username: Option<String>,
+    pub roles: Vec<String>,
+    pub permissions: Vec<String>,
 }
 
 /// Raw claims for `jsonwebtoken::decode()`. Private — callers use `AccessTokenClaims`.
@@ -30,6 +35,16 @@ struct RawAccessTokenClaims {
     aud: String,
     exp: i64,
     iat: i64,
+    #[serde(default)]
+    email: String,
+    #[serde(default)]
+    email_verified: bool,
+    #[serde(default)]
+    username: Option<String>,
+    #[serde(default)]
+    roles: Vec<String>,
+    #[serde(default)]
+    permissions: Vec<String>,
 }
 
 /// Check if a space-delimited scope string contains a specific scope.
@@ -113,6 +128,11 @@ impl Db {
             aud: raw.aud,
             exp: raw.exp,
             iat: raw.iat,
+            email: raw.email,
+            email_verified: raw.email_verified,
+            username: raw.username,
+            roles: raw.roles,
+            permissions: raw.permissions,
         })
     }
 }
@@ -148,6 +168,12 @@ mod tests {
         aud: String,
         exp: i64,
         iat: i64,
+        email: String,
+        email_verified: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        username: Option<String>,
+        roles: Vec<String>,
+        permissions: Vec<String>,
     }
 
     /// Create a signing key in the DB and return the signed JWT string.
@@ -172,6 +198,11 @@ mod tests {
             aud: "ath_test_client".to_string(),
             exp: now + exp_offset_secs,
             iat: now,
+            email: "test@example.com".to_string(),
+            email_verified: true,
+            username: Some("testuser".to_string()),
+            roles: vec!["admin".to_string()],
+            permissions: vec!["posts:write".to_string()],
         };
 
         let mut header = Header::new(Algorithm::RS256);
@@ -273,6 +304,11 @@ mod tests {
             aud: "ath_test_client".to_string(),
             exp: now + 300,
             iat: now,
+            email: "test@example.com".to_string(),
+            email_verified: true,
+            username: None,
+            roles: vec![],
+            permissions: vec![],
         };
 
         // Set kid to key1's id but sign with key2's private key
@@ -305,6 +341,11 @@ mod tests {
             aud: "ath_test_client".to_string(),
             exp: now + 300,
             iat: now,
+            email: "test@example.com".to_string(),
+            email_verified: true,
+            username: None,
+            roles: vec![],
+            permissions: vec![],
         };
 
         // No kid in header
