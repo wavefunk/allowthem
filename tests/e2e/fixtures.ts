@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import { test as base, Page } from "@playwright/test";
 
 export async function registerUser(
@@ -50,6 +52,35 @@ export async function loginExpectingError(
   await page.locator('input[name="password"]').fill(password);
   await page.locator('button[type="submit"]').click();
   // No waitForURL — error case stays on /login
+}
+
+export async function requestPasswordReset(
+  page: Page,
+  email: string
+): Promise<void> {
+  await page.goto("/forgot-password");
+  await page.locator('input[name="email"]').fill(email);
+  await page.locator('button[type="submit"]').click();
+  // No waitForURL — success state renders in-place
+}
+
+export async function extractResetToken(email: string): Promise<string> {
+  const logPath = path.resolve(__dirname, "server.log");
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const content = fs.readFileSync(logPath, "utf8");
+    const lines = content.split("\n").filter((l) => l.includes(email));
+    for (const line of lines.reverse()) {
+      // Anchor to body=" to avoid matching the html= field (both carry the same URL
+      // on the same tracing span line). LogEmailSender logs: body=<URL> html=<URL>.
+      const m = line.match(
+        /body="[^"]*auth\/reset-password\?token=([A-Za-z0-9_-]{43})/
+      );
+      if (m) return m[1];
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Reset token for ${email} not found in server.log within 5s`);
 }
 
 export const test = base.extend<{ authenticatedPage: Page }>({
