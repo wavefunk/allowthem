@@ -33,6 +33,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 argon2 = { version = "0.5", features = ["std"] }
 password-hash = { version = "0.5", features = ["getrandom"] }
 sha2 = "0.10"
+hmac = { version = "0.12", features = ["std"] }
+subtle = "2"
 rand = "0.9"
 base64ct = { version = "1", features = ["alloc"] }
 jsonwebtoken = "9"

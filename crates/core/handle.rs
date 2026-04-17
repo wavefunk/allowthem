@@ -43,6 +43,7 @@ pub struct AllowThemBuilder {
     cookie_domain: String,
     mfa_key: Option<[u8; 32]>,
     signing_key: Option<[u8; 32]>,
+    csrf_key: Option<[u8; 32]>,
     base_url: Option<String>,
 }
 
@@ -60,6 +61,7 @@ impl AllowThemBuilder {
             cookie_domain: String::new(),
             mfa_key: None,
             signing_key: None,
+            csrf_key: None,
             base_url: None,
         }
     }
@@ -77,6 +79,7 @@ impl AllowThemBuilder {
             cookie_domain: String::new(),
             mfa_key: None,
             signing_key: None,
+            csrf_key: None,
             base_url: None,
         }
     }
@@ -138,6 +141,16 @@ impl AllowThemBuilder {
         self
     }
 
+    /// Set the HMAC key for session-bound CSRF token derivation.
+    ///
+    /// Required for `csrf_middleware` in `crates/server`. If not set,
+    /// `csrf_middleware` returns 500. Use 32 random bytes distinct from
+    /// `mfa_key` and `signing_key`.
+    pub fn csrf_key(mut self, key: [u8; 32]) -> Self {
+        self.csrf_key = Some(key);
+        self
+    }
+
     /// Construct the [`AllowThem`] handle.
     ///
     /// Connects to (or wraps) the database, runs migrations, and assembles
@@ -162,6 +175,7 @@ impl AllowThemBuilder {
                 cookie_domain: self.cookie_domain,
                 mfa_key: self.mfa_key,
                 signing_key: self.signing_key,
+                csrf_key: self.csrf_key,
                 base_url: self.base_url,
             }),
         })
@@ -174,6 +188,7 @@ struct Inner {
     cookie_domain: String,
     mfa_key: Option<[u8; 32]>,
     signing_key: Option<[u8; 32]>,
+    csrf_key: Option<[u8; 32]>,
     base_url: Option<String>,
 }
 
@@ -231,6 +246,13 @@ impl AllowThem {
             .base_url
             .as_deref()
             .ok_or(AuthError::BaseUrlNotConfigured)
+    }
+
+    pub(crate) fn csrf_key(&self) -> Result<&[u8; 32], AuthError> {
+        self.inner
+            .csrf_key
+            .as_ref()
+            .ok_or(AuthError::CsrfKeyNotConfigured)
     }
 
     /// Fetch the active signing key and decrypt its private key PEM.

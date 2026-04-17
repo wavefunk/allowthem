@@ -90,6 +90,9 @@ pub enum AuthError {
     #[error("base URL not configured -- provide base_url to AllowThemBuilder")]
     BaseUrlNotConfigured,
 
+    #[error("CSRF key not configured -- provide csrf_key to AllowThemBuilder")]
+    CsrfKeyNotConfigured,
+
     #[error("access token error: {0}")]
     AccessToken(#[from] AccessTokenError),
 }

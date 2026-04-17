@@ -24,6 +24,8 @@ tokio.workspace = true
 thiserror.workspace = true
 url.workspace = true
 uuid.workspace = true
+hmac.workspace = true
+subtle.workspace = true
 
 [dev-dependencies]
 jsonwebtoken.workspace = true
