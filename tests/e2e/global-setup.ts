@@ -72,6 +72,11 @@ export default async function globalSetup(): Promise<void> {
 
   const logPath = path.resolve(__dirname, "server.log");
   const logFile = fs.createWriteStream(logPath, { flags: "w" });
+  // tracing_subscriber::fmt() writes to stdout by default; tee both streams to server.log
+  server.stdout?.on("data", (d) => {
+    process.stderr.write(d);
+    logFile.write(d);
+  });
   server.stderr?.on("data", (d) => {
     process.stderr.write(d);
     logFile.write(d);
