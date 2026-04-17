@@ -27,6 +27,7 @@ impl Db {
         user_id: UserId,
         name: &str,
         expires_at: Option<DateTime<Utc>>,
+        metadata: Option<&str>,
     ) -> Result<(String, ApiTokenInfo), AuthError> {
         let id = ApiTokenId::new();
         let raw_session_token = generate_token();
@@ -35,15 +36,16 @@ impl Db {
         let expires_str = expires_at.map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
 
         let info = sqlx::query_as::<_, ApiTokenInfo>(
-            "INSERT INTO allowthem_api_tokens (id, user_id, name, token_hash, expires_at)
-             VALUES (?, ?, ?, ?, ?)
-             RETURNING id, user_id, name, expires_at, created_at",
+            "INSERT INTO allowthem_api_tokens (id, user_id, name, token_hash, expires_at, metadata)
+             VALUES (?, ?, ?, ?, ?, ?)
+             RETURNING id, user_id, name, metadata, expires_at, created_at",
         )
         .bind(id)
         .bind(user_id)
         .bind(name)
         .bind(token_hash)
         .bind(expires_str)
+        .bind(metadata)
         .fetch_one(self.pool())
         .await
         .map_err(AuthError::Database)?;
@@ -54,25 +56,31 @@ impl Db {
     /// Validate a raw bearer token.
     ///
     /// Hashes the token and queries by hash. Tokens with a past `expires_at`
-    /// are excluded. Returns `Some(UserId)` if valid, `None` otherwise.
-    pub async fn validate_api_token(&self, raw_token: &str) -> Result<Option<UserId>, AuthError> {
+    /// are excluded. Returns `Some((UserId, ApiTokenInfo))` if valid, `None` otherwise.
+    pub async fn validate_api_token(
+        &self,
+        raw_token: &str,
+    ) -> Result<Option<(UserId, ApiTokenInfo)>, AuthError> {
         let hash = hash_api_token(raw_token);
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        sqlx::query_scalar::<_, UserId>(
-            "SELECT user_id FROM allowthem_api_tokens
+        let info = sqlx::query_as::<_, ApiTokenInfo>(
+            "SELECT id, user_id, name, metadata, expires_at, created_at
+             FROM allowthem_api_tokens
              WHERE token_hash = ? AND (expires_at IS NULL OR expires_at > ?)",
         )
         .bind(hash)
         .bind(now)
         .fetch_optional(self.pool())
         .await
-        .map_err(AuthError::Database)
+        .map_err(AuthError::Database)?;
+
+        Ok(info.map(|i| (i.user_id, i)))
     }
 
     /// List all API tokens for a user (metadata only, no hashes).
     pub async fn list_api_tokens(&self, user_id: UserId) -> Result<Vec<ApiTokenInfo>, AuthError> {
         sqlx::query_as::<_, ApiTokenInfo>(
-            "SELECT id, user_id, name, expires_at, created_at
+            "SELECT id, user_id, name, metadata, expires_at, created_at
              FROM allowthem_api_tokens
              WHERE user_id = ?
              ORDER BY created_at DESC",
@@ -133,16 +141,18 @@ mod tests {
         let user_id = create_test_user(&db).await;
 
         let (raw, info) = db
-            .create_api_token(user_id, "my-token", None)
+            .create_api_token(user_id, "my-token", None, None)
             .await
             .unwrap();
 
         assert_eq!(info.user_id, user_id);
         assert_eq!(info.name, "my-token");
         assert!(info.expires_at.is_none());
+        assert!(info.metadata.is_none());
 
         let result = db.validate_api_token(&raw).await.unwrap();
-        assert_eq!(result, Some(user_id));
+        let (uid, _token_info) = result.expect("token must be valid");
+        assert_eq!(uid, user_id);
     }
 
     #[tokio::test]
@@ -152,7 +162,7 @@ mod tests {
 
         let past = Utc::now() - Duration::hours(1);
         let (raw, _) = db
-            .create_api_token(user_id, "expired-token", Some(past))
+            .create_api_token(user_id, "expired-token", Some(past), None)
             .await
             .unwrap();
 
@@ -166,7 +176,7 @@ mod tests {
         let user_id = create_test_user(&db).await;
 
         let (raw, info) = db
-            .create_api_token(user_id, "delete-me", None)
+            .create_api_token(user_id, "delete-me", None, None)
             .await
             .unwrap();
 
@@ -182,8 +192,8 @@ mod tests {
         let db = test_db().await;
         let user_id = create_test_user(&db).await;
 
-        db.create_api_token(user_id, "token-a", None).await.unwrap();
-        db.create_api_token(user_id, "token-b", None).await.unwrap();
+        db.create_api_token(user_id, "token-a", None, None).await.unwrap();
+        db.create_api_token(user_id, "token-b", None, None).await.unwrap();
 
         let tokens = db.list_api_tokens(user_id).await.unwrap();
         assert_eq!(tokens.len(), 2);
@@ -198,7 +208,7 @@ mod tests {
         let db = test_db().await;
         let user_id = create_test_user(&db).await;
 
-        db.create_api_token(user_id, "to-be-cascaded", None)
+        db.create_api_token(user_id, "to-be-cascaded", None, None)
             .await
             .unwrap();
 
@@ -213,5 +223,32 @@ mod tests {
                 .unwrap();
 
         assert_eq!(token_count, 0, "api tokens must cascade-delete with user");
+    }
+
+    #[tokio::test]
+    async fn test_create_with_metadata() {
+        let db = test_db().await;
+        let user_id = create_test_user(&db).await;
+
+        let (raw, info) = db
+            .create_api_token(user_id, "meta-token", None, Some("key=value"))
+            .await
+            .unwrap();
+
+        assert_eq!(info.metadata.as_deref(), Some("key=value"));
+
+        // validate returns correct metadata
+        let (uid, token_info) = db
+            .validate_api_token(&raw)
+            .await
+            .unwrap()
+            .expect("token must be valid");
+        assert_eq!(uid, user_id);
+        assert_eq!(token_info.metadata.as_deref(), Some("key=value"));
+
+        // list also returns correct metadata
+        let tokens = db.list_api_tokens(user_id).await.unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].metadata.as_deref(), Some("key=value"));
     }
 }
