@@ -156,8 +156,13 @@ pub async fn get_login(
 
     let branding = lookup_branding(&state, query.client_id.as_ref()).await;
     let html = render_login_form(
-        &state, csrf.as_str(), "", query.next.as_deref(), "",
-        query.client_id.as_ref(), branding.as_ref(),
+        &state,
+        csrf.as_str(),
+        "",
+        query.next.as_deref(),
+        "",
+        query.client_id.as_ref(),
+        branding.as_ref(),
     )?;
     Ok(html.into_response())
 }
@@ -183,7 +188,8 @@ pub async fn post_login(
             &form.identifier,
             form.next.as_deref(),
             "Too many login attempts. Please try again later.",
-            form.client_id.as_ref(), branding.as_ref(),
+            form.client_id.as_ref(),
+            branding.as_ref(),
         )?;
         return Ok((StatusCode::TOO_MANY_REQUESTS, html).into_response());
     }
@@ -191,8 +197,13 @@ pub async fn post_login(
     let identifier = form.identifier.trim();
     if identifier.is_empty() {
         let html = render_login_form(
-            &state, csrf.as_str(), "", form.next.as_deref(), LOGIN_ERROR,
-            form.client_id.as_ref(), branding.as_ref(),
+            &state,
+            csrf.as_str(),
+            "",
+            form.next.as_deref(),
+            LOGIN_ERROR,
+            form.client_id.as_ref(),
+            branding.as_ref(),
         )?;
         return Ok(html.into_response());
     }
@@ -265,7 +276,8 @@ pub async fn post_login(
                     identifier,
                     form.next.as_deref(),
                     LOGIN_ERROR,
-                    form.client_id.as_ref(), branding.as_ref(),
+                    form.client_id.as_ref(),
+                    branding.as_ref(),
                 )?;
                 Ok(html.into_response())
             }
@@ -294,7 +306,8 @@ pub async fn post_login(
                 identifier,
                 form.next.as_deref(),
                 LOGIN_ERROR,
-                form.client_id.as_ref(), branding.as_ref(),
+                form.client_id.as_ref(),
+                branding.as_ref(),
             )?;
             Ok(html.into_response())
         }
@@ -765,8 +778,7 @@ mod tests {
         let csrf = get_csrf_token(&router).await;
         let body_str = format!(
             "identifier=branded%40example.com&password=wrong&csrf_token={}&client_id={}",
-            csrf,
-            app.client_id,
+            csrf, app.client_id,
         );
         let req = Request::builder()
             .method("POST")
@@ -781,8 +793,14 @@ mod tests {
             .await
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
-        assert!(html.contains("BrandedPost"), "app name preserved after error");
-        assert!(html.contains("#ff6600"), "accent color preserved after error");
+        assert!(
+            html.contains("BrandedPost"),
+            "app name preserved after error"
+        );
+        assert!(
+            html.contains("#ff6600"),
+            "accent color preserved after error"
+        );
     }
 
     #[tokio::test]

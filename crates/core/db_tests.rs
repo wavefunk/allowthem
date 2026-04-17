@@ -2084,9 +2084,8 @@ async fn test_audit_log_null_user_id() {
 async fn audit_test_user(db: &Db, email: &str) -> UserId {
     let uid = UserId::new();
     let e = Email::new_unchecked(email.to_string());
-    let pw = PasswordHash::new_unchecked(
-        "$argon2id$v=19$m=65536,t=2,p=1$fakesalt$fakehash".to_string(),
-    );
+    let pw =
+        PasswordHash::new_unchecked("$argon2id$v=19$m=65536,t=2,p=1$fakesalt$fakehash".to_string());
     sqlx::query(
         "INSERT INTO allowthem_users \
          (id, email, username, password_hash, email_verified, is_active, created_at, updated_at) \
@@ -2286,7 +2285,10 @@ async fn search_audit_log_resolves_email() {
         .await
         .unwrap();
 
-    assert_eq!(result.entries[0].user_email.as_deref(), Some("audit-email@test.com"));
+    assert_eq!(
+        result.entries[0].user_email.as_deref(),
+        Some("audit-email@test.com")
+    );
 }
 
 #[tokio::test]
@@ -2863,10 +2865,7 @@ async fn get_branding_returns_config_for_active_app() {
         )
         .await
         .unwrap();
-    let branding = db
-        .get_branding_by_client_id(&app.client_id)
-        .await
-        .unwrap();
+    let branding = db.get_branding_by_client_id(&app.client_id).await.unwrap();
     assert!(branding.is_some());
     let b = branding.unwrap();
     assert_eq!(b.application_name, "Branded");
@@ -2901,10 +2900,7 @@ async fn get_branding_returns_none_for_inactive_app() {
     )
     .await
     .unwrap();
-    let branding = db
-        .get_branding_by_client_id(&app.client_id)
-        .await
-        .unwrap();
+    let branding = db.get_branding_by_client_id(&app.client_id).await.unwrap();
     assert!(branding.is_none());
 }
 

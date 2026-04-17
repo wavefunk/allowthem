@@ -174,9 +174,8 @@ pub fn validate_redirect_uri(redirect_uri: &str, registered: &[String]) -> Resul
 /// localhost and 127.0.0.1 (development loopback exception, matching
 /// redirect URI validation).
 pub fn validate_logo_url(url: &str) -> Result<(), AuthError> {
-    let parsed = Url::parse(url).map_err(|_| {
-        AuthError::Validation("logo_url must be a valid absolute URL".into())
-    })?;
+    let parsed = Url::parse(url)
+        .map_err(|_| AuthError::Validation("logo_url must be a valid absolute URL".into()))?;
     let scheme = parsed.scheme();
     if scheme == "https" {
         return Ok(());
@@ -187,7 +186,9 @@ pub fn validate_logo_url(url: &str) -> Result<(), AuthError> {
             return Ok(());
         }
     }
-    Err(AuthError::Validation("logo_url must be an HTTPS URL".into()))
+    Err(AuthError::Validation(
+        "logo_url must be an HTTPS URL".into(),
+    ))
 }
 
 /// Validate a primary color for branding.

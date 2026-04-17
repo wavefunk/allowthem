@@ -27,7 +27,10 @@ pub fn default_accents() -> (String, String, String) {
 ///
 /// Returns `None` for missing or inactive applications.
 /// Logs a warning on unexpected DB errors and falls back to `None`.
-pub async fn lookup_branding(state: &AppState, client_id: Option<&ClientId>) -> Option<BrandingConfig> {
+pub async fn lookup_branding(
+    state: &AppState,
+    client_id: Option<&ClientId>,
+) -> Option<BrandingConfig> {
     let cid = client_id?;
     match state.ath.db().get_branding_by_client_id(cid).await {
         Ok(branding) => branding,

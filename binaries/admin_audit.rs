@@ -556,13 +556,14 @@ mod tests {
             resp.headers().get("content-type").unwrap(),
             "text/csv; charset=utf-8"
         );
-        assert!(resp
-            .headers()
-            .get("content-disposition")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .contains("audit-log.csv"));
+        assert!(
+            resp.headers()
+                .get("content-disposition")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("audit-log.csv")
+        );
     }
 
     #[tokio::test]

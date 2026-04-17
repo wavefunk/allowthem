@@ -47,7 +47,15 @@ pub async fn get_register(
     }
 
     let branding = lookup_branding(&state, query.client_id.as_ref()).await;
-    let html = render_register_form(&state, csrf.as_str(), "", "", "", query.client_id.as_ref(), branding.as_ref())?;
+    let html = render_register_form(
+        &state,
+        csrf.as_str(),
+        "",
+        "",
+        "",
+        query.client_id.as_ref(),
+        branding.as_ref(),
+    )?;
     Ok(html.into_response())
 }
 
@@ -71,7 +79,12 @@ pub async fn post_register(
     // 2. Validate password length
     if form.password.len() < MIN_PASSWORD_LEN {
         return render_form_error(
-            &state, &csrf, &form, "Password must be at least 8 characters", cid, br,
+            &state,
+            &csrf,
+            &form,
+            "Password must be at least 8 characters",
+            cid,
+            br,
         );
     }
 
@@ -101,12 +114,22 @@ pub async fn post_register(
         Ok(u) => u,
         Err(AuthError::Conflict(ref msg)) if msg.contains("email") => {
             return render_form_error(
-                &state, &csrf, &form, "An account with this email already exists", cid, br,
+                &state,
+                &csrf,
+                &form,
+                "An account with this email already exists",
+                cid,
+                br,
             );
         }
         Err(AuthError::Conflict(ref msg)) if msg.contains("username") => {
             return render_form_error(
-                &state, &csrf, &form, "This username is already taken", cid, br,
+                &state,
+                &csrf,
+                &form,
+                "This username is already taken",
+                cid,
+                br,
             );
         }
         Err(e) => return Err(AppError::Auth(e)),
@@ -197,7 +220,13 @@ fn render_form_error(
     branding: Option<&BrandingConfig>,
 ) -> Result<Response, AppError> {
     let html = render_register_form(
-        state, csrf.as_str(), &form.email, &form.username, error, client_id, branding,
+        state,
+        csrf.as_str(),
+        &form.email,
+        &form.username,
+        error,
+        client_id,
+        branding,
     )?;
     Ok(html.into_response())
 }
