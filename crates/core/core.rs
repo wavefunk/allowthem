@@ -45,7 +45,8 @@ pub use signing_keys::{
 };
 pub use token_issuance::{
     RefreshToken, TokenError, TokenResponse, compute_at_hash,
-    exchange_authorization_code, generate_refresh_token, hash_refresh_token,
+    exchange_authorization_code, exchange_refresh_token,
+    generate_refresh_token, hash_refresh_token,
     mint_access_token, mint_id_token, verify_pkce_s256,
 };
 pub use types::*;

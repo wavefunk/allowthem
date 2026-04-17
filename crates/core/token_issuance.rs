@@ -445,6 +445,130 @@ pub async fn exchange_authorization_code(
     })
 }
 
+/// Exchange a refresh token for a new access token and rotated refresh token.
+///
+/// Validates the presented refresh token (hash match, not revoked, not expired,
+/// bound to this client), enforces scope subset rules, revokes the old token,
+/// and issues a new access token and a new refresh token.
+///
+/// The caller is responsible for client authentication before calling this
+/// function. `requested_scopes` is the parsed `scope` parameter from the
+/// request — if `None`, the original scopes from the stored token are used.
+pub async fn exchange_refresh_token(
+    db: &Db,
+    raw_token: &str,
+    requested_scopes: Option<&str>,
+    application: &Application,
+    issuer: &str,
+    signing_key: &SigningKey,
+    private_key_pem: &str,
+) -> Result<TokenResponse, TokenError> {
+    // 1. Hash the raw token and look it up
+    let hash = hash_refresh_token(raw_token);
+    let stored = db
+        .get_refresh_token_by_hash(&hash)
+        .await
+        .map_err(|e| TokenError::ServerError(e.to_string()))?
+        .ok_or_else(|| TokenError::InvalidGrant("invalid refresh token".into()))?;
+
+    // 2. Check not revoked
+    if stored.revoked_at.is_some() {
+        return Err(TokenError::InvalidGrant(
+            "refresh token has been revoked".into(),
+        ));
+    }
+
+    // 3. Check not expired
+    if stored.expires_at < Utc::now() {
+        return Err(TokenError::InvalidGrant(
+            "refresh token has expired".into(),
+        ));
+    }
+
+    // 4. Check client binding
+    if stored.application_id != application.id {
+        return Err(TokenError::InvalidGrant(
+            "refresh token was issued to a different client".into(),
+        ));
+    }
+
+    // 5. Resolve effective scopes
+    let original_scopes: Vec<String> = serde_json::from_str(&stored.scopes)
+        .map_err(|e| TokenError::ServerError(e.to_string()))?;
+
+    let effective_scopes = match requested_scopes {
+        Some(s) if !s.is_empty() => {
+            let requested: Vec<&str> = s.split_whitespace().collect();
+            for scope in &requested {
+                if !original_scopes.iter().any(|orig| orig == scope) {
+                    return Err(TokenError::InvalidGrant(
+                        "requested scope exceeds original grant".into(),
+                    ));
+                }
+            }
+            requested.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        }
+        _ => original_scopes.clone(),
+    };
+
+    let scopes_str = effective_scopes.join(" ");
+
+    // 6. Revoke old token before issuing new ones
+    db.revoke_refresh_token(stored.id)
+        .await
+        .map_err(|e| TokenError::ServerError(e.to_string()))?;
+
+    // 7. Mint access token
+    let kid = signing_key.id.to_string();
+    let access_token = mint_access_token(
+        stored.user_id,
+        issuer,
+        application.client_id.as_str(),
+        &scopes_str,
+        &kid,
+        private_key_pem,
+        3600,
+    )
+    .map_err(|e| TokenError::ServerError(e.to_string()))?;
+
+    // 8. Compute at_hash and mint ID token
+    let at_hash = compute_at_hash(&access_token);
+    let auth_time = stored.created_at.timestamp();
+    let id_token = mint_id_token(
+        stored.user_id,
+        issuer,
+        application.client_id.as_str(),
+        None,
+        &at_hash,
+        auth_time,
+        &kid,
+        private_key_pem,
+        3600,
+    )
+    .map_err(|e| TokenError::ServerError(e.to_string()))?;
+
+    // 9. Generate and store new refresh token (rotation)
+    let new_raw = generate_refresh_token();
+    let new_hash = hash_refresh_token(&new_raw);
+    db.create_refresh_token(
+        application.id,
+        stored.user_id,
+        &new_hash,
+        &effective_scopes,
+        stored.authorization_code_id,
+    )
+    .await
+    .map_err(|e| TokenError::ServerError(e.to_string()))?;
+
+    Ok(TokenResponse {
+        access_token,
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: new_raw,
+        id_token,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1004,5 +1128,223 @@ mod tests {
 
         db.revoke_refresh_token(stored.id).await.unwrap();
         db.revoke_refresh_token(stored.id).await.unwrap();
+    }
+
+    // exchange_refresh_token integration tests (M42)
+
+    #[tokio::test]
+    async fn exchange_refresh_token_valid() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let resp = exchange_refresh_token(
+            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        assert!(!resp.access_token.is_empty());
+        assert!(!resp.refresh_token.is_empty());
+        assert_ne!(resp.refresh_token, initial.refresh_token);
+        assert_eq!(resp.token_type, "Bearer");
+        assert_eq!(resp.expires_in, 3600);
+
+        let claims = db.validate_access_token(&resp.access_token, ISSUER).await.unwrap();
+        assert_eq!(claims.scope, "openid profile");
+    }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_revokes_old_token() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let old_hash = hash_refresh_token(&initial.refresh_token);
+        exchange_refresh_token(
+            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let old_stored = db.get_refresh_token_by_hash(&old_hash).await.unwrap().unwrap();
+        assert!(old_stored.revoked_at.is_some(), "old token should be revoked");
+    }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_revoked_token_fails() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        // First exchange succeeds, revoking the token
+        exchange_refresh_token(
+            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        // Second exchange with the same (now revoked) token fails
+        let err = exchange_refresh_token(
+            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("revoked")));
+    }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_expired_fails() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let hash = hash_refresh_token(&initial.refresh_token);
+        sqlx::query(
+            "UPDATE allowthem_refresh_tokens SET expires_at = '2020-01-01T00:00:00.000Z' WHERE token_hash = ?",
+        )
+        .bind(&hash)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        let err = exchange_refresh_token(
+            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("expired")));
+    }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_wrong_client_fails() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let email_b = Email::new("other_refresh@example.com".into()).unwrap();
+        let user_b = db.create_user(email_b, "password123", None).await.unwrap();
+        let (app_b, _) = db
+            .create_application(
+                "OtherRefreshApp".to_string(),
+                vec!["https://other.example.com/callback".to_string()],
+                false,
+                Some(user_b.id),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let err = exchange_refresh_token(
+            &db, &initial.refresh_token, None, &app_b, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("different client")));
+    }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_scope_subset_succeeds() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let resp = exchange_refresh_token(
+            &db, &initial.refresh_token, Some("openid"), &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let claims = db.validate_access_token(&resp.access_token, ISSUER).await.unwrap();
+        assert_eq!(claims.scope, "openid");
+    }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_scope_escalation_fails() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let err = exchange_refresh_token(
+            &db, &initial.refresh_token, Some("openid admin"), &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("exceeds")));
+    }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_no_scope_uses_original() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        let initial = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let resp = exchange_refresh_token(
+            &db, &initial.refresh_token, None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let claims = db.validate_access_token(&resp.access_token, ISSUER).await.unwrap();
+        assert_eq!(claims.scope, "openid profile");
+    }
+
+    #[tokio::test]
+    async fn exchange_refresh_token_invalid_hash_fails() {
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+        let _ = exchange_authorization_code(
+            &db, &raw_code, &redirect_uri, &verifier, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap();
+
+        let err = exchange_refresh_token(
+            &db, "totally_invalid_garbage_token", None, &app, ISSUER, &key, &pem,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, TokenError::InvalidGrant(ref msg) if msg.contains("invalid")));
     }
 }
