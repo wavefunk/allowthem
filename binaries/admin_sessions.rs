@@ -194,6 +194,7 @@ mod tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
         };
 
         (ath, state, cookie_value)
@@ -539,6 +540,7 @@ mod tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
         };
         let app = test_app(state);
 

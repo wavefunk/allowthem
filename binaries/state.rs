@@ -19,6 +19,7 @@ pub struct AppState {
     pub max_login_attempts: u32,
     pub rate_limit_window_secs: u64,
     pub email_sender: Arc<dyn EmailSender>,
+    pub oauth_providers: Vec<String>,
 }
 
 impl FromRef<AppState> for Arc<dyn AuthClient> {

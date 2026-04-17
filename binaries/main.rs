@@ -7,12 +7,15 @@ mod consent;
 mod error;
 mod login;
 mod logout;
+mod mock_oauth;
 mod password_reset;
 mod register;
 mod settings;
 mod state;
 mod templates;
+mod test_oauth_routes;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{Router, response::IntoResponse, routing::get};
@@ -21,9 +24,11 @@ use eyre::Result;
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
-use allowthem_core::{AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender};
+use allowthem_core::{
+    AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
+};
 use allowthem_server::{
-    authorize_post, csrf_middleware, token_route, userinfo_route, well_known_routes,
+    authorize_post, csrf_middleware, oauth_routes, token_route, userinfo_route, well_known_routes,
 };
 
 use crate::state::AppState;
@@ -76,10 +81,52 @@ async fn main() -> Result<()> {
     // 6. Templates
     let templates = templates::build_template_env()?;
 
+    // 6b. OAuth providers
+    let mut providers: HashMap<String, Box<dyn OAuthProvider>> = HashMap::new();
+
+    if config.oauth_mock {
+        providers.insert(
+            "google".into(),
+            Box::new(mock_oauth::MockOAuthProvider {
+                provider_name: "google".into(),
+                base_url: config.base_url.clone(),
+            }),
+        );
+        providers.insert(
+            "github".into(),
+            Box::new(mock_oauth::MockOAuthProvider {
+                provider_name: "github".into(),
+                base_url: config.base_url.clone(),
+            }),
+        );
+    } else {
+        if let (Some(id), Some(secret)) = (&config.google_client_id, &config.google_client_secret) {
+            use allowthem_core::GoogleProvider;
+            providers.insert(
+                "google".into(),
+                Box::new(GoogleProvider::new(id.clone(), secret.clone())),
+            );
+        }
+        if let (Some(id), Some(secret)) = (&config.github_client_id, &config.github_client_secret) {
+            use allowthem_core::GitHubProvider;
+            providers.insert(
+                "github".into(),
+                Box::new(GitHubProvider::new(id.clone(), secret.clone())),
+            );
+        }
+    }
+
+    // Collect provider names BEFORE moving providers into oauth_routes.
+    // Box<dyn OAuthProvider> is not Clone, so the map cannot be cloned.
+    let mut oauth_provider_names: Vec<String> = providers.keys().cloned().collect();
+    oauth_provider_names.sort();
+
+    let oauth_router = oauth_routes(providers, config.base_url.clone()).with_state(ath.clone());
+
     // 7. App state
     let auth_client: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
     let state = AppState {
-        ath,
+        ath: ath.clone(),
         auth_client,
         base_url: config.base_url.clone(),
         templates,
@@ -88,6 +135,7 @@ async fn main() -> Result<()> {
         max_login_attempts: config.max_login_attempts,
         rate_limit_window_secs: config.rate_limit_window_secs,
         email_sender: Arc::new(LogEmailSender),
+        oauth_providers: oauth_provider_names,
     };
 
     // 8. Router
@@ -127,7 +175,15 @@ async fn main() -> Result<()> {
         .layer(axum::middleware::from_fn(csrf_middleware))
         .merge(ui_router) // after CSRF layer — Bearer auth, not browser sessions
         .merge(tk_router) // after CSRF layer — client_secret auth, not browser sessions
+        .merge(oauth_router) // after CSRF layer — OAuth GET routes are external-initiated
         .with_state(state);
+
+    // Conditionally mount mock test routes
+    let app = if config.oauth_mock {
+        app.merge(test_oauth_routes::test_oauth_routes().with_state(ath))
+    } else {
+        app
+    };
 
     // 8. Serve
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
@@ -240,6 +296,7 @@ mod tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
         };
         let app = Router::new()
             .route("/health", get(health))
@@ -313,6 +370,7 @@ mod tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
         };
 
         // Verify Arc<dyn AuthClient> FromRef — used by AuthUser, OptionalAuthUser, middleware
@@ -426,6 +484,7 @@ mod tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
         };
         let static_dir = if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
             std::path::PathBuf::from(dir).join("static")
@@ -477,6 +536,7 @@ mod consent_tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
         };
         (ath, state)
     }

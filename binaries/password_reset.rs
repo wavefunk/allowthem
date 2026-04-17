@@ -42,9 +42,7 @@ pub async fn get_forgot_password(
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
     if user.0.is_some() {
-        return Ok(
-            (StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response(),
-        );
+        return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
     }
 
     let html = render(
@@ -277,6 +275,7 @@ mod tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
         }
     }
 
@@ -295,10 +294,7 @@ mod tests {
     }
 
     async fn get_csrf_token(app: &Router, path: &str) -> String {
-        let req = Request::builder()
-            .uri(path)
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
         let resp = app.clone().oneshot(req).await.unwrap();
         let set_cookie = resp
             .headers()

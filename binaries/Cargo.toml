@@ -16,6 +16,7 @@ path = "main.rs"
 allowthem-core = { path = "../crates/core" }
 allowthem-server = { path = "../crates/server" }
 axum.workspace = true
+base64ct.workspace = true
 chrono.workspace = true
 eyre.workspace = true
 figment.workspace = true

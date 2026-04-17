@@ -95,6 +95,7 @@ fn render_login_form(
             accent,
             accent_hover,
             accent_ring,
+            oauth_providers => &state.oauth_providers,
         },
         state.is_production,
     )
@@ -352,6 +353,7 @@ mod tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
         }
     }
 

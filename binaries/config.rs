@@ -19,6 +19,11 @@ pub struct ServerConfig {
     pub is_production: bool,
     pub max_login_attempts: u32,
     pub rate_limit_window_secs: u64,
+    pub oauth_mock: bool,
+    pub google_client_id: Option<String>,
+    pub google_client_secret: Option<String>,
+    pub github_client_id: Option<String>,
+    pub github_client_secret: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -35,6 +40,11 @@ impl Default for ServerConfig {
             is_production: false,
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
+            oauth_mock: false,
+            google_client_id: None,
+            google_client_secret: None,
+            github_client_id: None,
+            github_client_secret: None,
         }
     }
 }
