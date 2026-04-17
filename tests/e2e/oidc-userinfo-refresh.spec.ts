@@ -60,7 +60,7 @@ test("userinfo > happy path: returns sub, email, email_verified for authenticate
   expect(typeof userInfo.sub).toBe("string");
   expect(userInfo.email).toBe(email);
   // Newly registered users have email_verified = false (no verification flow in e2e)
-  expect(typeof userInfo.email_verified).toBe("boolean");
+  expect(userInfo.email_verified).toBe(false);
 });
 
 test("userinfo > no token: returns HTTP 401", async ({ page }) => {
