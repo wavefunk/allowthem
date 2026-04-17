@@ -671,4 +671,117 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
+
+    #[tokio::test]
+    async fn login_with_client_id_shows_branding() {
+        let state = setup().await;
+        let (app, _) = state
+            .ath
+            .db()
+            .create_application(
+                "BrandedApp".into(),
+                vec!["https://example.com/cb".into()],
+                false,
+                None,
+                Some("https://cdn.example.com/logo.png".into()),
+                Some("#ff6600".into()),
+            )
+            .await
+            .unwrap();
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri(&format!("/login?client_id={}", app.client_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("BrandedApp"), "should show app name");
+        assert!(html.contains("<img"), "should show logo");
+        assert!(html.contains("#ff6600"), "should have accent color");
+    }
+
+    #[tokio::test]
+    async fn login_without_client_id_shows_default() {
+        let state = setup().await;
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri("/login")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(!html.contains("<img"), "no logo without client_id");
+        assert!(html.contains("#2563eb"), "should have default blue");
+    }
+
+    #[tokio::test]
+    async fn login_with_invalid_client_id_shows_default() {
+        let state = setup().await;
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri("/login?client_id=ath_nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(!html.contains("<img"), "no logo for invalid client_id");
+        assert!(html.contains("#2563eb"), "should fall back to default blue");
+    }
+
+    #[tokio::test]
+    async fn branded_login_post_failure_preserves_branding() {
+        let state = setup().await;
+        create_user(&state, "branded@example.com", "correcthorse").await;
+        let (app, _) = state
+            .ath
+            .db()
+            .create_application(
+                "BrandedPost".into(),
+                vec!["https://example.com/cb".into()],
+                false,
+                None,
+                None,
+                Some("#ff6600".into()),
+            )
+            .await
+            .unwrap();
+        let router = test_app(state);
+
+        let csrf = get_csrf_token(&router).await;
+        let body_str = format!(
+            "identifier=branded%40example.com&password=wrong&csrf_token={}&client_id={}",
+            csrf,
+            app.client_id,
+        );
+        let req = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::COOKIE, format!("csrf_token={}", csrf))
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("BrandedPost"), "app name preserved after error");
+        assert!(html.contains("#ff6600"), "accent color preserved after error");
+    }
 }
