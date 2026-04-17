@@ -56,6 +56,10 @@ fn parse_event(s: &Option<String>) -> Option<AuditEvent> {
         Some("session_expired") => Some(AuditEvent::SessionExpired),
         Some("user_updated") => Some(AuditEvent::UserUpdated),
         Some("user_deleted") => Some(AuditEvent::UserDeleted),
+        Some("mfa_enabled") => Some(AuditEvent::MfaEnabled),
+        Some("mfa_disabled") => Some(AuditEvent::MfaDisabled),
+        Some("mfa_challenge_success") => Some(AuditEvent::MfaChallengeSuccess),
+        Some("mfa_challenge_failed") => Some(AuditEvent::MfaChallengeFailed),
         _ => None,
     }
 }
@@ -99,6 +103,10 @@ fn event_label(event: &AuditEvent) -> &'static str {
         AuditEvent::SessionExpired => "Session expired",
         AuditEvent::UserUpdated => "User updated",
         AuditEvent::UserDeleted => "User deleted",
+        AuditEvent::MfaEnabled => "MFA enabled",
+        AuditEvent::MfaDisabled => "MFA disabled",
+        AuditEvent::MfaChallengeSuccess => "MFA challenge success",
+        AuditEvent::MfaChallengeFailed => "MFA challenge failed",
     }
 }
 
@@ -149,7 +157,7 @@ fn to_entry_display(entries: Vec<AuditListEntry>) -> Vec<EntryDisplay> {
         .into_iter()
         .map(|e| EntryDisplay {
             event_label: event_label(&e.event_type).to_string(),
-            is_failure: e.event_type == AuditEvent::LoginFailed,
+            is_failure: matches!(e.event_type, AuditEvent::LoginFailed | AuditEvent::MfaChallengeFailed),
             user_id: e.user_id.map(|u| u.to_string()),
             user_email: e.user_email,
             ip_address: e.ip_address,

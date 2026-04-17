@@ -79,6 +79,34 @@ pub fn totp_uri(secret_base32: &str, account_name: &str, issuer: &str) -> String
 }
 
 impl Db {
+    /// Retrieve a pending (non-enabled) MFA secret for a user.
+    ///
+    /// Returns `Some(base32_secret)` if a non-enabled secret exists, `None` otherwise.
+    /// Used by the setup page to avoid regenerating the secret on every page load.
+    pub async fn get_pending_mfa_secret(
+        &self,
+        user_id: UserId,
+        mfa_key: &[u8; 32],
+    ) -> Result<Option<String>, AuthError> {
+        let row: Option<MfaSecretRow> = sqlx::query_as(
+            "SELECT id, user_id, secret, enabled, created_at \
+             FROM allowthem_mfa_secrets WHERE user_id = ? AND enabled = 0",
+        )
+        .bind(user_id)
+        .fetch_optional(self.pool())
+        .await?;
+
+        match row {
+            Some(r) => {
+                let secret_bytes = mfa_encrypt::decrypt_secret(&r.secret, mfa_key)?;
+                let secret_base32 = String::from_utf8(secret_bytes)
+                    .map_err(|e| AuthError::MfaEncryption(e.to_string()))?;
+                Ok(Some(secret_base32))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Generate a new TOTP secret for a user and store it (encrypted, not yet enabled).
     ///
     /// Returns the plaintext base32-encoded secret for display to the user
@@ -416,6 +444,15 @@ impl Db {
 use crate::handle::AllowThem;
 
 impl AllowThem {
+    pub async fn get_pending_mfa_secret(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<String>, AuthError> {
+        self.db()
+            .get_pending_mfa_secret(user_id, self.mfa_key()?)
+            .await
+    }
+
     pub async fn create_mfa_secret(&self, user_id: UserId) -> Result<String, AuthError> {
         self.db().create_mfa_secret(user_id, self.mfa_key()?).await
     }

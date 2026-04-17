@@ -7,6 +7,7 @@ mod consent;
 mod error;
 mod login;
 mod logout;
+mod mfa;
 mod mock_oauth;
 mod password_reset;
 mod register;
@@ -164,6 +165,18 @@ async fn main() -> Result<()> {
             axum::routing::post(settings::post_change_password),
         )
         .route(
+            "/settings/mfa/setup",
+            get(mfa::get_mfa_setup),
+        )
+        .route(
+            "/settings/mfa/confirm",
+            axum::routing::post(mfa::post_mfa_confirm),
+        )
+        .route(
+            "/settings/mfa/disable",
+            axum::routing::post(mfa::post_mfa_disable),
+        )
+        .route(
             "/oauth/authorize",
             get(consent::get_authorize).post(authorize_post),
         )
@@ -173,6 +186,10 @@ async fn main() -> Result<()> {
         .merge(wk_router)
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn(csrf_middleware))
+        .route(
+            "/mfa/challenge",
+            get(mfa::get_mfa_challenge).post(mfa::post_mfa_challenge),
+        )
         .merge(ui_router) // after CSRF layer — Bearer auth, not browser sessions
         .merge(tk_router) // after CSRF layer — client_secret auth, not browser sessions
         .merge(oauth_router) // after CSRF layer — OAuth GET routes are external-initiated

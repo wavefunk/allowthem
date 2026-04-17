@@ -23,6 +23,10 @@ pub enum AuditEvent {
     SessionExpired,
     UserUpdated,
     UserDeleted,
+    MfaEnabled,
+    MfaDisabled,
+    MfaChallengeSuccess,
+    MfaChallengeFailed,
 }
 
 /// A single record in the audit log.
@@ -59,6 +63,10 @@ fn event_to_slug(event: &AuditEvent) -> &'static str {
         AuditEvent::SessionExpired => "session_expired",
         AuditEvent::UserUpdated => "user_updated",
         AuditEvent::UserDeleted => "user_deleted",
+        AuditEvent::MfaEnabled => "mfa_enabled",
+        AuditEvent::MfaDisabled => "mfa_disabled",
+        AuditEvent::MfaChallengeSuccess => "mfa_challenge_success",
+        AuditEvent::MfaChallengeFailed => "mfa_challenge_failed",
     }
 }
 

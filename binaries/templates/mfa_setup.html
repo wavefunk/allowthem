@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Set up two-factor authentication — allowthem{% endblock %}
+
+{% block body %}
+<div class="flex min-h-screen justify-center px-4 py-12">
+    <div class="w-full max-w-md space-y-6">
+        <h1 class="text-2xl font-bold text-gray-900">Set up two-factor authentication</h1>
+
+        <p class="text-sm text-gray-600">
+            Scan the QR code with your authenticator app, or enter the secret key manually.
+        </p>
+
+        <div class="rounded border border-gray-200 bg-white p-4 space-y-3">
+            <div data-testid="totp-uri" class="text-xs text-gray-400 break-all">
+                {{ totp_uri }}
+            </div>
+            <div>
+                <span class="text-sm font-medium text-gray-700">Secret key:</span>
+                <code data-testid="totp-secret" class="ml-2 rounded bg-gray-100 px-2 py-1 text-sm font-mono text-gray-900">{{ secret }}</code>
+            </div>
+        </div>
+
+        {% if error %}
+        <div class="rounded bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form method="post" action="/settings/mfa/confirm" class="space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div>
+                <label for="code" class="block text-sm font-medium text-gray-700">
+                    Enter the 6-digit code from your authenticator app
+                </label>
+                <input type="text" id="code" name="code"
+                       required autocomplete="one-time-code" inputmode="numeric"
+                       maxlength="6" pattern="[0-9]{6}"
+                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
+                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+            </div>
+
+            <button type="submit"
+                    class="rounded bg-blue-600 px-4 py-2 text-white font-medium
+                           hover:bg-blue-700 focus:outline-none focus:ring-2
+                           focus:ring-blue-500 focus:ring-offset-2">
+                Verify and enable
+            </button>
+        </form>
+
+        <p class="text-sm text-gray-500">
+            <a href="/settings" class="text-blue-600 hover:text-blue-700">Back to settings</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

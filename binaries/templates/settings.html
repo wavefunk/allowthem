@@ -147,16 +147,35 @@
             <h2 class="text-lg font-semibold text-gray-900 mb-4">Two-factor authentication</h2>
 
             {% if mfa_enabled %}
-            <div class="flex items-center space-x-2">
-                <span class="inline-block h-2 w-2 rounded-full bg-green-500"></span>
-                <span class="text-sm text-gray-700">
-                    Enabled — {{ mfa_recovery_remaining }} of 10 recovery codes remaining
-                </span>
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <span class="inline-block h-2 w-2 rounded-full bg-green-500"></span>
+                    <span class="text-sm text-gray-700">
+                        Enabled — {{ mfa_recovery_remaining }} of 10 recovery codes remaining
+                    </span>
+                </div>
+                <form method="post" action="/settings/mfa/disable">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit"
+                            class="rounded border border-red-300 px-3 py-1 text-sm text-red-600
+                                   hover:bg-red-50 focus:outline-none focus:ring-2
+                                   focus:ring-red-500 focus:ring-offset-2">
+                        Disable 2FA
+                    </button>
+                </form>
             </div>
             {% else %}
-            <div class="flex items-center space-x-2">
-                <span class="inline-block h-2 w-2 rounded-full bg-gray-300"></span>
-                <span class="text-sm text-gray-500">Not configured.</span>
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <span class="inline-block h-2 w-2 rounded-full bg-gray-300"></span>
+                    <span class="text-sm text-gray-500">Not configured.</span>
+                </div>
+                <a href="/settings/mfa/setup"
+                   class="rounded border border-blue-300 px-3 py-1 text-sm text-blue-600
+                          hover:bg-blue-50 focus:outline-none focus:ring-2
+                          focus:ring-blue-500 focus:ring-offset-2">
+                    Enable 2FA
+                </a>
             </div>
             {% endif %}
         </section>

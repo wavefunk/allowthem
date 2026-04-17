@@ -219,6 +219,17 @@ pub async fn post_login(
                 // Success
                 record_login_success(&state, ip);
 
+                // MFA gate: if user has MFA enabled, redirect to challenge page
+                if state.ath.has_mfa_enabled(user.id).await? {
+                    let mfa_token = state.ath.db().create_mfa_challenge(user.id).await?;
+                    let dest = format!("/mfa/challenge?token={mfa_token}");
+                    return Ok((
+                        StatusCode::SEE_OTHER,
+                        [(axum::http::header::LOCATION, dest)],
+                    )
+                        .into_response());
+                }
+
                 let token = sessions::generate_token();
                 let token_hash = sessions::hash_token(&token);
                 let ttl = state.ath.session_config().ttl;
