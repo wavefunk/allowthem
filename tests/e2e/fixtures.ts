@@ -131,7 +131,12 @@ export function generateTotpCode(secretBase32: string): string {
     period: 30,
     secret: OTPAuth.Secret.fromBase32(secretBase32),
   });
-  return totp.generate();
+  // Period-boundary safety: if the code changes between two generates,
+  // we're at the edge of a 30-second window — use the second code so it
+  // has a full period before expiry, avoiding a one-in-thirty-seconds flake.
+  const first = totp.generate();
+  const second = totp.generate();
+  return first === second ? first : second;
 }
 
 export async function enableMfa(page: Page): Promise<string[]> {
