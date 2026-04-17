@@ -70,7 +70,12 @@ export default async function globalSetup(): Promise<void> {
     detached: false,
   });
 
-  server.stderr?.on("data", (d) => process.stderr.write(d));
+  const logPath = path.resolve(__dirname, "server.log");
+  const logFile = fs.createWriteStream(logPath, { flags: "w" });
+  server.stderr?.on("data", (d) => {
+    process.stderr.write(d);
+    logFile.write(d);
+  });
 
   fs.writeFileSync(pidFile, String(server.pid));
   console.log(`[e2e] Server PID ${server.pid} written to ${pidFile}`);
