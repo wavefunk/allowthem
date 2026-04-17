@@ -303,6 +303,7 @@ pub struct ApiTokenInfo {
     pub id: ApiTokenId,
     pub user_id: UserId,
     pub name: String,
+    pub metadata: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
