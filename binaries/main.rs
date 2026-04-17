@@ -591,10 +591,9 @@ mod consent_tests {
     }
 
     #[tokio::test]
-    async fn consent_screen_no_logo_for_http_url() {
-        let (ath, state) = consent_test_state().await;
-        let cookie = create_test_session(&ath, "httplogo@test.com").await;
-        let (app, _) = ath
+    async fn create_application_rejects_http_logo_url() {
+        let (ath, _state) = consent_test_state().await;
+        let result = ath
             .db()
             .create_application(
                 "HttpLogo".into(),
@@ -604,18 +603,8 @@ mod consent_tests {
                 Some("http://example.com/logo.png".into()),
                 None,
             )
-            .await
-            .unwrap();
-        let router = consent_router(state);
-        let req = Request::builder()
-            .method("GET")
-            .uri(&authorize_query(&app))
-            .header("cookie", &cookie)
-            .body(Body::empty())
-            .unwrap();
-        let resp = router.oneshot(req).await.unwrap();
-        let body = read_body(resp).await;
-        assert!(!body.contains("<img"), "no img for http logo");
+            .await;
+        assert!(result.is_err(), "HTTP logo URL should be rejected");
     }
 
     #[tokio::test]
