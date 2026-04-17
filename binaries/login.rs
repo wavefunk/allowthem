@@ -818,6 +818,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn post_login_with_mfa_enabled_redirects_to_challenge_without_session() {
+        // When a user has MFA enabled, correct credentials must NOT create a session —
+        // they must redirect to /mfa/challenge?token=... instead.
+        const MFA_KEY: [u8; 32] = [0x42; 32];
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .mfa_key(MFA_KEY)
+            .build()
+            .await
+            .unwrap();
+        let auth_client: Arc<dyn AuthClient> =
+            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let templates = crate::templates::build_template_env().unwrap();
+        let state = AppState {
+            ath,
+            auth_client,
+            base_url: "http://localhost:3000".into(),
+            templates,
+            is_production: false,
+            login_attempts: Arc::new(dashmap::DashMap::new()),
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
+            email_sender: Arc::new(LogEmailSender),
+            oauth_providers: Vec::new(),
+        };
+
+        // Create user and enable MFA
+        create_user(&state, "mfa-gate@example.com", "correcthorse").await;
+        let user = state
+            .ath
+            .db()
+            .find_for_login("mfa-gate@example.com")
+            .await
+            .unwrap();
+        let secret = state.ath.create_mfa_secret(user.id).await.unwrap();
+        use totp_rs::{Algorithm, Secret, TOTP};
+        let totp = TOTP::new(
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            Secret::Encoded(secret).to_bytes().unwrap(),
+            None,
+            String::new(),
+        )
+        .unwrap();
+        let code = totp.generate_current().unwrap();
+        state.ath.enable_mfa(user.id, &code).await.unwrap();
+
+        let app = test_app(state);
+        let csrf = get_csrf_token(&app).await;
+        let req = login_request(&csrf, "mfa-gate@example.com", "correcthorse", None);
+        let resp = app.oneshot(req).await.unwrap();
+
+        // Must redirect to MFA challenge page, not to /
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        let location = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert!(
+            location.starts_with("/mfa/challenge?token="),
+            "MFA gate must redirect to /mfa/challenge, got: {location}"
+        );
+        // Must NOT set a session cookie
+        assert!(
+            resp.headers().get(SET_COOKIE).is_none(),
+            "MFA gate must not set a session cookie before TOTP is verified"
+        );
+    }
+
+    #[tokio::test]
     async fn login_register_link_carries_client_id() {
         let state = setup().await;
         let (app, _) = state
