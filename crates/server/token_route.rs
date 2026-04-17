@@ -10,7 +10,9 @@ use serde_json::json;
 
 use allowthem_core::password::verify_password;
 use allowthem_core::types::ClientId;
-use allowthem_core::{AllowThem, AuthError, TokenError, exchange_authorization_code};
+use allowthem_core::{
+    AllowThem, AuthError, TokenError, exchange_authorization_code, exchange_refresh_token,
+};
 
 // ---------------------------------------------------------------------------
 // Request types
@@ -19,9 +21,14 @@ use allowthem_core::{AllowThem, AuthError, TokenError, exchange_authorization_co
 #[derive(Deserialize)]
 struct TokenParams {
     grant_type: Option<String>,
+    // authorization_code grant
     code: Option<String>,
     redirect_uri: Option<String>,
     code_verifier: Option<String>,
+    // refresh_token grant
+    refresh_token: Option<String>,
+    scope: Option<String>,
+    // client credentials (both grants)
     client_id: Option<ClientId>,
     client_secret: Option<String>,
 }
@@ -80,11 +87,9 @@ fn token_error_response(error: &TokenError) -> Response {
         TokenError::InvalidRequest(desc) => {
             (StatusCode::BAD_REQUEST, "invalid_request", desc.as_str())
         }
-        TokenError::UnsupportedGrantType => (
-            StatusCode::BAD_REQUEST,
-            "unsupported_grant_type",
-            "only authorization_code is supported",
-        ),
+        TokenError::UnsupportedGrantType => {
+            (StatusCode::BAD_REQUEST, "unsupported_grant_type", "unsupported grant_type")
+        }
         TokenError::ServerError(desc) => {
             (StatusCode::INTERNAL_SERVER_ERROR, "server_error", desc.as_str())
         }
@@ -150,12 +155,58 @@ async fn token(
         ));
     }
 
-    // 3. Validate grant_type
-    if params.grant_type.as_deref() != Some("authorization_code") {
-        return token_error_response(&TokenError::UnsupportedGrantType);
-    }
+    // 3. Get signing key and issuer (shared by both grant types)
+    let (signing_key, private_key_pem) = match ath.get_decrypted_signing_key().await {
+        Ok(pair) => pair,
+        Err(AuthError::NotFound) => {
+            return token_error_response(&TokenError::ServerError(
+                "no active signing key".into(),
+            ))
+        }
+        Err(e) => return token_error_response(&TokenError::ServerError(e.to_string())),
+    };
 
-    // 4. Validate required params
+    let issuer = match ath.base_url() {
+        Ok(url) => url,
+        Err(e) => return token_error_response(&TokenError::ServerError(e.to_string())),
+    };
+
+    // 4. Dispatch on grant_type
+    match params.grant_type.as_deref() {
+        Some("authorization_code") => {
+            handle_authorization_code(
+                ath.db(),
+                params,
+                signing_key,
+                private_key_pem,
+                &application,
+                issuer,
+            )
+            .await
+        }
+        Some("refresh_token") => {
+            handle_refresh_token(
+                ath.db(),
+                params,
+                signing_key,
+                private_key_pem,
+                &application,
+                issuer,
+            )
+            .await
+        }
+        _ => token_error_response(&TokenError::UnsupportedGrantType),
+    }
+}
+
+async fn handle_authorization_code(
+    db: &allowthem_core::db::Db,
+    params: TokenParams,
+    signing_key: allowthem_core::SigningKey,
+    private_key_pem: String,
+    application: &allowthem_core::applications::Application,
+    issuer: &str,
+) -> Response {
     let code = match params.code.as_deref() {
         Some(c) if !c.is_empty() => c,
         _ => {
@@ -181,46 +232,65 @@ async fn token(
         }
     };
 
-    // 5. Get signing key and decrypted PEM
-    let (signing_key, private_key_pem) = match ath.get_decrypted_signing_key().await {
-        Ok(pair) => pair,
-        Err(AuthError::NotFound) => {
-            return token_error_response(&TokenError::ServerError(
-                "no active signing key".into(),
-            ))
-        }
-        Err(e) => return token_error_response(&TokenError::ServerError(e.to_string())),
-    };
-
-    // 6. Get issuer
-    let issuer = match ath.base_url() {
-        Ok(url) => url,
-        Err(e) => return token_error_response(&TokenError::ServerError(e.to_string())),
-    };
-
-    // 7. Exchange authorization code for tokens
     match exchange_authorization_code(
-        ath.db(),
+        db,
         code,
         redirect_uri,
         code_verifier,
-        &application,
+        application,
         issuer,
         &signing_key,
         &private_key_pem,
     )
     .await
     {
-        Ok(token_response) => {
-            let mut resp = (StatusCode::OK, Json(token_response)).into_response();
-            resp.headers_mut()
-                .insert("Cache-Control", "no-store".parse().expect("valid header"));
-            resp.headers_mut()
-                .insert("Pragma", "no-cache".parse().expect("valid header"));
-            resp
-        }
+        Ok(token_response) => token_success_response(token_response),
         Err(e) => token_error_response(&e),
     }
+}
+
+async fn handle_refresh_token(
+    db: &allowthem_core::db::Db,
+    params: TokenParams,
+    signing_key: allowthem_core::SigningKey,
+    private_key_pem: String,
+    application: &allowthem_core::applications::Application,
+    issuer: &str,
+) -> Response {
+    let raw_token = match params.refresh_token.as_deref() {
+        Some(t) if !t.is_empty() => t,
+        _ => {
+            return token_error_response(&TokenError::InvalidRequest(
+                "missing refresh_token parameter".into(),
+            ))
+        }
+    };
+
+    let requested_scopes = params.scope.as_deref();
+
+    match exchange_refresh_token(
+        db,
+        raw_token,
+        requested_scopes,
+        application,
+        issuer,
+        &signing_key,
+        &private_key_pem,
+    )
+    .await
+    {
+        Ok(token_response) => token_success_response(token_response),
+        Err(e) => token_error_response(&e),
+    }
+}
+
+fn token_success_response(token_response: allowthem_core::TokenResponse) -> Response {
+    let mut resp = (StatusCode::OK, Json(token_response)).into_response();
+    resp.headers_mut()
+        .insert("Cache-Control", "no-store".parse().expect("valid header"));
+    resp.headers_mut()
+        .insert("Pragma", "no-cache".parse().expect("valid header"));
+    resp
 }
 
 // ---------------------------------------------------------------------------
@@ -692,5 +762,239 @@ mod tests {
 
         let pragma = resp.headers().get("pragma").unwrap().to_str().unwrap();
         assert_eq!(pragma, "no-cache");
+    }
+
+    fn build_refresh_body(
+        application: &allowthem_core::applications::Application,
+        secret: &str,
+        refresh_token: &str,
+    ) -> String {
+        url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "refresh_token")
+            .append_pair("refresh_token", refresh_token)
+            .append_pair("client_id", application.client_id.as_str())
+            .append_pair("client_secret", secret)
+            .finish()
+    }
+
+    #[tokio::test]
+    async fn refresh_token_grant_returns_200() {
+        let (ath, app) = test_app().await;
+        let (application, secret, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
+
+        // First: exchange authorization code
+        let body = build_token_body(&application, &secret, &code, &verifier, &redirect_uri);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let initial = read_body(resp).await;
+        let refresh_token = initial["refresh_token"].as_str().unwrap().to_string();
+
+        // Second: use the refresh token
+        let body = build_refresh_body(&application, &secret, &refresh_token);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let cache_control = resp.headers().get("cache-control").unwrap().to_str().unwrap();
+        assert_eq!(cache_control, "no-store");
+
+        let json = read_body(resp).await;
+        assert_eq!(json["token_type"], "Bearer");
+        assert_eq!(json["expires_in"], 3600);
+        assert!(json["access_token"].is_string());
+        assert!(json["refresh_token"].is_string());
+        assert!(json["id_token"].is_string());
+    }
+
+    #[tokio::test]
+    async fn refresh_token_new_token_differs_from_old() {
+        let (ath, app) = test_app().await;
+        let (application, secret, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
+
+        let body = build_token_body(&application, &secret, &code, &verifier, &redirect_uri);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let first = read_body(resp).await;
+        let first_refresh = first["refresh_token"].as_str().unwrap().to_string();
+
+        let body = build_refresh_body(&application, &secret, &first_refresh);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let second = read_body(resp).await;
+        let second_refresh = second["refresh_token"].as_str().unwrap().to_string();
+
+        assert_ne!(first_refresh, second_refresh, "rotated refresh token must differ");
+    }
+
+    #[tokio::test]
+    async fn refresh_token_missing_returns_400() {
+        let (ath, app) = test_app().await;
+        let (application, secret, _, _, _) = setup_code_exchange(&ath).await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "refresh_token")
+            .append_pair("client_id", application.client_id.as_str())
+            .append_pair("client_secret", &secret)
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let json = read_body(resp).await;
+        assert_eq!(json["error"], "invalid_request");
+    }
+
+    #[tokio::test]
+    async fn refresh_token_reuse_returns_400() {
+        let (ath, app) = test_app().await;
+        let (application, secret, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
+
+        let body = build_token_body(&application, &secret, &code, &verifier, &redirect_uri);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let initial = read_body(resp).await;
+        let refresh_token = initial["refresh_token"].as_str().unwrap().to_string();
+
+        // First use — succeeds, revokes old token
+        let body = build_refresh_body(&application, &secret, &refresh_token);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let _ = app.clone().oneshot(req).await.unwrap();
+
+        // Second use — fails, token was revoked
+        let body = build_refresh_body(&application, &secret, &refresh_token);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let json = read_body(resp).await;
+        assert_eq!(json["error"], "invalid_grant");
+    }
+
+    #[tokio::test]
+    async fn refresh_token_invalid_token_returns_400() {
+        let (ath, app) = test_app().await;
+        let (application, secret, _, _, _) = setup_code_exchange(&ath).await;
+
+        let body = build_refresh_body(&application, &secret, "totally_garbage_token");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let json = read_body(resp).await;
+        assert_eq!(json["error"], "invalid_grant");
+    }
+
+    #[tokio::test]
+    async fn refresh_token_wrong_client_returns_400() {
+        let (ath, app) = test_app().await;
+        let (application, secret, code, verifier, redirect_uri) = setup_code_exchange(&ath).await;
+
+        // Obtain refresh token for app_a
+        let body = build_token_body(&application, &secret, &code, &verifier, &redirect_uri);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let initial = read_body(resp).await;
+        let refresh_token = initial["refresh_token"].as_str().unwrap().to_string();
+
+        // Create app_b
+        let email_b = allowthem_core::types::Email::new("other_http@example.com".into()).unwrap();
+        let user_b = ath.db().create_user(email_b, "password123", None).await.unwrap();
+        let (app_b, secret_b) = ath
+            .db()
+            .create_application(
+                "OtherApp".to_string(),
+                vec!["https://other.example.com/callback".to_string()],
+                false,
+                Some(user_b.id),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let raw_secret_b = secret_b.as_str().to_string();
+
+        // Try to use app_a's refresh token as app_b
+        let body = build_refresh_body(&app_b, &raw_secret_b, &refresh_token);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let json = read_body(resp).await;
+        assert_eq!(json["error"], "invalid_grant");
+    }
+
+    #[tokio::test]
+    async fn unsupported_grant_type_returns_400() {
+        let (ath, app) = test_app().await;
+        let (application, secret, _, _, _) = setup_code_exchange(&ath).await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "client_credentials")
+            .append_pair("client_id", application.client_id.as_str())
+            .append_pair("client_secret", &secret)
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let json = read_body(resp).await;
+        assert_eq!(json["error"], "unsupported_grant_type");
     }
 }
