@@ -2609,3 +2609,72 @@ async fn create_authorization_code_with_nonce() {
 
     assert_eq!(code.nonce.as_deref(), Some("test-nonce-value"));
 }
+
+// --- get_branding_by_client_id tests ---
+
+#[tokio::test]
+async fn get_branding_returns_config_for_active_app() {
+    let db = test_db().await;
+    let (app, _secret) = db
+        .create_application(
+            "Branded".into(),
+            vec!["https://example.com/cb".into()],
+            false,
+            None,
+            Some("https://example.com/logo.png".into()),
+            Some("#3B82F6".into()),
+        )
+        .await
+        .unwrap();
+    let branding = db
+        .get_branding_by_client_id(&app.client_id)
+        .await
+        .unwrap();
+    assert!(branding.is_some());
+    let b = branding.unwrap();
+    assert_eq!(b.application_name, "Branded");
+    assert_eq!(b.logo_url.as_deref(), Some("https://example.com/logo.png"));
+    assert_eq!(b.primary_color.as_deref(), Some("#3B82F6"));
+}
+
+#[tokio::test]
+async fn get_branding_returns_none_for_inactive_app() {
+    let db = test_db().await;
+    let (app, _secret) = db
+        .create_application(
+            "Inactive".into(),
+            vec!["https://example.com/cb".into()],
+            false,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    db.update_application(
+        app.id,
+        UpdateApplication {
+            name: "Inactive".into(),
+            redirect_uris: vec!["https://example.com/cb".into()],
+            is_trusted: false,
+            is_active: false,
+            logo_url: None,
+            primary_color: None,
+        },
+    )
+    .await
+    .unwrap();
+    let branding = db
+        .get_branding_by_client_id(&app.client_id)
+        .await
+        .unwrap();
+    assert!(branding.is_none());
+}
+
+#[tokio::test]
+async fn get_branding_returns_none_for_missing_app() {
+    let db = test_db().await;
+    let fake_id = ClientId::new_unchecked("ath_doesnotexistXXXXXXXXXXXXXX".into());
+    let branding = db.get_branding_by_client_id(&fake_id).await.unwrap();
+    assert!(branding.is_none());
+}
