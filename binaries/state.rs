@@ -16,6 +16,8 @@ pub struct AppState {
     pub templates: Arc<Environment<'static>>,
     pub is_production: bool,
     pub login_attempts: Arc<DashMap<IpAddr, (u32, Instant)>>,
+    pub max_login_attempts: u32,
+    pub rate_limit_window_secs: u64,
 }
 
 impl FromRef<AppState> for Arc<dyn AuthClient> {

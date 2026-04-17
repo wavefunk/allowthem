@@ -64,6 +64,7 @@ export default async function globalSetup(): Promise<void> {
       ALLOWTHEM_SIGNING_KEY_HEX:
         "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
       ALLOWTHEM_IS_PRODUCTION: "false",
+      ALLOWTHEM_MAX_LOGIN_ATTEMPTS: "50",
     },
     stdio: "pipe",
     detached: false,

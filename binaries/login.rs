@@ -22,9 +22,6 @@ use crate::error::AppError;
 use crate::state::AppState;
 use crate::templates::render;
 
-const MAX_LOGIN_ATTEMPTS: u32 = 10;
-const RATE_LIMIT_WINDOW_SECS: u64 = 900; // 15 minutes
-
 /// Generic error shown for all credential failures.
 const LOGIN_ERROR: &str = "Invalid email or password.";
 
@@ -106,10 +103,10 @@ fn render_login_form(
 fn is_rate_limited(state: &AppState, ip: IpAddr) -> bool {
     if let Some(entry) = state.login_attempts.get(&ip) {
         let (count, window_start) = *entry;
-        if window_start.elapsed().as_secs() > RATE_LIMIT_WINDOW_SECS {
+        if window_start.elapsed().as_secs() > state.rate_limit_window_secs {
             return false;
         }
-        count >= MAX_LOGIN_ATTEMPTS
+        count >= state.max_login_attempts
     } else {
         false
     }
@@ -121,7 +118,7 @@ fn record_login_failure(state: &AppState, ip: IpAddr) {
         .login_attempts
         .entry(ip)
         .and_modify(|(count, window_start)| {
-            if window_start.elapsed().as_secs() > RATE_LIMIT_WINDOW_SECS {
+            if window_start.elapsed().as_secs() > state.rate_limit_window_secs {
                 *count = 1;
                 *window_start = now;
             } else {
@@ -351,6 +348,8 @@ mod tests {
             templates,
             is_production: false,
             login_attempts: Arc::new(dashmap::DashMap::new()),
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
         }
     }
 
@@ -652,7 +651,7 @@ mod tests {
         let csrf = get_csrf_token(&app).await;
 
         // Exhaust rate limit
-        for _ in 0..MAX_LOGIN_ATTEMPTS {
+        for _ in 0..10_u32 {
             let req = login_request(&csrf, "nobody@example.com", "wrong", None);
             let _ = app.clone().oneshot(req).await.unwrap();
         }

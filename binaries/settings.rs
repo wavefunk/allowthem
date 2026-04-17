@@ -431,6 +431,8 @@ mod tests {
             templates,
             is_production: false,
             login_attempts: Arc::new(dashmap::DashMap::new()),
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
         };
         (ath, state, cookie_value)
     }
@@ -971,6 +973,8 @@ mod tests {
             templates,
             is_production: false,
             login_attempts: Arc::new(dashmap::DashMap::new()),
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
         };
 
         let app = test_app(state);

@@ -84,6 +84,8 @@ async fn main() -> Result<()> {
         templates,
         is_production: config.is_production,
         login_attempts: Arc::new(dashmap::DashMap::new()),
+        max_login_attempts: config.max_login_attempts,
+        rate_limit_window_secs: config.rate_limit_window_secs,
     };
 
     // 8. Router
@@ -225,6 +227,8 @@ mod tests {
             templates,
             is_production: false,
             login_attempts: Arc::new(dashmap::DashMap::new()),
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
         };
         let app = Router::new()
             .route("/health", get(health))
@@ -295,6 +299,8 @@ mod tests {
             templates,
             is_production: false,
             login_attempts: Arc::new(dashmap::DashMap::new()),
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
         };
 
         // Verify Arc<dyn AuthClient> FromRef — used by AuthUser, OptionalAuthUser, middleware
@@ -405,6 +411,8 @@ mod tests {
             templates,
             is_production: false,
             login_attempts: Arc::new(dashmap::DashMap::new()),
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
         };
         let static_dir = if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
             std::path::PathBuf::from(dir).join("static")
@@ -453,6 +461,8 @@ mod consent_tests {
             templates,
             is_production: false,
             login_attempts: Arc::new(dashmap::DashMap::new()),
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
         };
         (ath, state)
     }

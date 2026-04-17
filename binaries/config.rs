@@ -17,6 +17,8 @@ pub struct ServerConfig {
     pub mfa_key_hex: Option<String>,
     pub signing_key_hex: Option<String>,
     pub is_production: bool,
+    pub max_login_attempts: u32,
+    pub rate_limit_window_secs: u64,
 }
 
 impl Default for ServerConfig {
@@ -31,6 +33,8 @@ impl Default for ServerConfig {
             mfa_key_hex: None,
             signing_key_hex: None,
             is_production: false,
+            max_login_attempts: 10,
+            rate_limit_window_secs: 900,
         }
     }
 }
