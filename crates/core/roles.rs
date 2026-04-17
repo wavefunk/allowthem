@@ -141,4 +141,186 @@ impl Db {
         .await
         .map_err(AuthError::Database)
     }
+
+    /// Create each named role if it does not already exist.
+    ///
+    /// Returns roles in the same order as `names`. Idempotent: existing roles
+    /// are fetched, not re-created. Duplicates within `names` are allowed; each
+    /// name is resolved independently.
+    pub async fn bootstrap_roles(&self, names: &[&str]) -> Result<Vec<Role>, AuthError> {
+        let mut roles = Vec::with_capacity(names.len());
+        for &name in names {
+            let rn = RoleName::new(name);
+            let role = match self.get_role_by_name(&rn).await? {
+                Some(r) => r,
+                None => self.create_role(&rn, None).await?,
+            };
+            roles.push(role);
+        }
+        Ok(roles)
+    }
+
+    /// Return the name of the first role in `hierarchy` that the user holds.
+    ///
+    /// `hierarchy[0]` is treated as the highest role. Returns `None` if the user
+    /// holds none of the listed roles. An empty `hierarchy` always returns `None`.
+    pub async fn resolve_highest_role(
+        &self,
+        user_id: &UserId,
+        hierarchy: &[&str],
+    ) -> Result<Option<String>, AuthError> {
+        for &name in hierarchy {
+            let rn = RoleName::new(name);
+            if self.has_role(user_id, &rn).await? {
+                return Ok(Some(name.to_owned()));
+            }
+        }
+        Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handle::{AllowThem, AllowThemBuilder};
+    use crate::types::Email;
+
+    async fn setup() -> AllowThem {
+        AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn bootstrap_roles_creates_missing_roles() {
+        let ath = setup().await;
+        let db = ath.db();
+        let roles = db.bootstrap_roles(&["admin", "editor"]).await.unwrap();
+        assert_eq!(roles.len(), 2);
+        assert_eq!(roles[0].name.as_str(), "admin");
+        assert_eq!(roles[1].name.as_str(), "editor");
+    }
+
+    #[tokio::test]
+    async fn bootstrap_roles_idempotent() {
+        let ath = setup().await;
+        let db = ath.db();
+        let first = db.bootstrap_roles(&["admin", "editor"]).await.unwrap();
+        let second = db.bootstrap_roles(&["admin", "editor"]).await.unwrap();
+        assert_eq!(first[0].id, second[0].id);
+        assert_eq!(first[1].id, second[1].id);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_roles_returns_in_input_order() {
+        let ath = setup().await;
+        let db = ath.db();
+        let roles = db
+            .bootstrap_roles(&["viewer", "admin", "editor"])
+            .await
+            .unwrap();
+        assert_eq!(roles[0].name.as_str(), "viewer");
+        assert_eq!(roles[1].name.as_str(), "admin");
+        assert_eq!(roles[2].name.as_str(), "editor");
+    }
+
+    #[tokio::test]
+    async fn bootstrap_roles_mixed_existing_and_new() {
+        let ath = setup().await;
+        let db = ath.db();
+        let rn = RoleName::new("admin");
+        db.create_role(&rn, None).await.unwrap();
+        let roles = db.bootstrap_roles(&["admin", "viewer"]).await.unwrap();
+        assert_eq!(roles.len(), 2);
+        assert_eq!(roles[0].name.as_str(), "admin");
+        assert_eq!(roles[1].name.as_str(), "viewer");
+    }
+
+    #[tokio::test]
+    async fn bootstrap_roles_empty_slice_returns_empty_vec() {
+        let ath = setup().await;
+        let db = ath.db();
+        let roles = db.bootstrap_roles(&[]).await.unwrap();
+        assert!(roles.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resolve_highest_role_returns_first_match() {
+        let ath = setup().await;
+        let db = ath.db();
+        let email = Email::new("user@example.com".into()).unwrap();
+        let user = db.create_user(email, "password123", None).await.unwrap();
+        let roles = db
+            .bootstrap_roles(&["admin", "editor", "viewer"])
+            .await
+            .unwrap();
+        db.assign_role(&user.id, &roles[1].id).await.unwrap(); // editor
+        db.assign_role(&user.id, &roles[2].id).await.unwrap(); // viewer
+        let result = db
+            .resolve_highest_role(&user.id, &["admin", "editor", "viewer"])
+            .await
+            .unwrap();
+        assert_eq!(result, Some("editor".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn resolve_highest_role_returns_none_when_no_roles() {
+        let ath = setup().await;
+        let db = ath.db();
+        let email = Email::new("noroles@example.com".into()).unwrap();
+        let user = db.create_user(email, "password123", None).await.unwrap();
+        let result = db
+            .resolve_highest_role(&user.id, &["admin", "editor"])
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_highest_role_returns_none_for_empty_hierarchy() {
+        let ath = setup().await;
+        let db = ath.db();
+        let email = Email::new("emptyhier@example.com".into()).unwrap();
+        let user = db.create_user(email, "password123", None).await.unwrap();
+        let result = db.resolve_highest_role(&user.id, &[]).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_highest_role_returns_highest_when_user_has_all() {
+        let ath = setup().await;
+        let db = ath.db();
+        let email = Email::new("allroles@example.com".into()).unwrap();
+        let user = db.create_user(email, "password123", None).await.unwrap();
+        let roles = db
+            .bootstrap_roles(&["admin", "editor", "viewer"])
+            .await
+            .unwrap();
+        for role in &roles {
+            db.assign_role(&user.id, &role.id).await.unwrap();
+        }
+        let result = db
+            .resolve_highest_role(&user.id, &["admin", "editor", "viewer"])
+            .await
+            .unwrap();
+        assert_eq!(result, Some("admin".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn resolve_highest_role_only_considers_listed_roles() {
+        let ath = setup().await;
+        let db = ath.db();
+        let email = Email::new("unlisted@example.com".into()).unwrap();
+        let user = db.create_user(email, "password123", None).await.unwrap();
+        let rn = RoleName::new("superuser");
+        let role = db.create_role(&rn, None).await.unwrap();
+        db.assign_role(&user.id, &role.id).await.unwrap();
+        let result = db
+            .resolve_highest_role(&user.id, &["admin", "editor"])
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
 }
