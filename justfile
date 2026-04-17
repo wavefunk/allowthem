@@ -49,3 +49,7 @@ build-css:
 sqlx-reset:
     rm -f data/allowthem.db data/allowthem.db-wal data/allowthem.db-shm
     just migrate
+
+# Run Playwright e2e tests
+test-e2e:
+    cd tests/e2e && npx playwright test
