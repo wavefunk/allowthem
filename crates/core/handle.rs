@@ -548,4 +548,137 @@ mod tests {
         let result = ath.base_url();
         assert!(matches!(result, Ok("https://auth.example.com")));
     }
+
+    #[tokio::test]
+    async fn login_success() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("login@example.com".into()).unwrap();
+        ath.db().create_user(email, "secret", None).await.unwrap();
+
+        let outcome = ath.login("login@example.com", "secret").await.unwrap();
+        assert_eq!(outcome.user.email.as_str(), "login@example.com");
+        assert!(!outcome.token.as_str().is_empty());
+        assert!(outcome.set_cookie.contains("allowthem_session="));
+    }
+
+    #[tokio::test]
+    async fn login_wrong_password() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("wp@example.com".into()).unwrap();
+        ath.db().create_user(email, "correct", None).await.unwrap();
+
+        let result = ath.login("wp@example.com", "wrong").await;
+        assert!(matches!(result, Err(AuthError::InvalidCredentials)));
+    }
+
+    #[tokio::test]
+    async fn login_unknown_identifier() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+
+        let result = ath.login("nobody@example.com", "any").await;
+        assert!(matches!(result, Err(AuthError::InvalidCredentials)));
+    }
+
+    #[tokio::test]
+    async fn login_inactive_user() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("inactive@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "secret", None)
+            .await
+            .unwrap();
+        ath.db()
+            .update_user_active(user.id, false)
+            .await
+            .unwrap();
+
+        let result = ath.login("inactive@example.com", "secret").await;
+        assert!(matches!(result, Err(AuthError::InvalidCredentials)));
+    }
+
+    #[tokio::test]
+    async fn login_no_password_hash() {
+        use crate::types::UserId;
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+
+        // Insert a user directly with password_hash = NULL (SSO-only account).
+        // UserId uses UUID v7; bind it properly so SQLx can round-trip it.
+        let id = UserId::new();
+        let now = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
+        sqlx::query(
+            "INSERT INTO allowthem_users \
+             (id, email, username, password_hash, email_verified, is_active, created_at, updated_at) \
+             VALUES (?, 'sso@example.com', NULL, NULL, 1, 1, ?, ?)",
+        )
+        .bind(id)
+        .bind(&now)
+        .bind(&now)
+        .execute(ath.db().pool())
+        .await
+        .unwrap();
+
+        let result = ath.login("sso@example.com", "any").await;
+        assert!(matches!(result, Err(AuthError::InvalidCredentials)));
+    }
+
+    #[tokio::test]
+    async fn create_session_cookie_success() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("sess@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "secret", None)
+            .await
+            .unwrap();
+
+        let outcome = ath.create_session_cookie(user.id).await.unwrap();
+        assert_eq!(outcome.user.id, user.id);
+        assert!(!outcome.token.as_str().is_empty());
+        assert!(outcome.set_cookie.contains("allowthem_session="));
+
+        // Session must exist in DB
+        let session = ath.db().lookup_session(&outcome.token).await.unwrap();
+        assert!(session.is_some());
+    }
+
+    #[tokio::test]
+    async fn create_session_cookie_unknown_user() {
+        use crate::types::UserId;
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+
+        let result = ath.create_session_cookie(UserId::new()).await;
+        assert!(matches!(result, Err(AuthError::NotFound)));
+    }
 }
