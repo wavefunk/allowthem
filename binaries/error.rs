@@ -29,6 +29,10 @@ impl IntoResponse for AppError {
             AppError::Auth(allowthem_core::AuthError::NotFound) => {
                 StatusCode::NOT_FOUND.into_response()
             }
+            AppError::Auth(allowthem_core::AuthError::Validation(msg)) => {
+                tracing::warn!(error = %msg, "validation error");
+                (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response()
+            }
             AppError::Auth(e) => {
                 tracing::error!(error = %e, "auth error");
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()

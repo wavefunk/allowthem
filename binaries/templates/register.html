@@ -1,12 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}Register — allowthem{% endblock %}
+{% block title %}Register{% if app_name %} for {{ app_name }}{% endif %} — allowthem{% endblock %}
 
 {% block body %}
 <div class="flex min-h-screen items-center justify-center px-4">
     <div class="w-full max-w-md">
+        {% if logo_url and logo_url is startingwith("https://") %}
+        <img src="{{ logo_url }}" alt="{{ app_name }}"
+             class="mx-auto h-16 w-16 rounded-lg object-contain mb-4">
+        {% endif %}
+
         <h1 class="text-2xl font-bold text-center text-gray-900 mb-8">
-            Create an account
+            Create an account{% if app_name %} for {{ app_name }}{% endif %}
         </h1>
 
         {% if error %}
@@ -26,7 +31,7 @@
                        value="{{ email }}"
                        required autocomplete="email"
                        class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                              text-gray-900 at-input-focus">
             </div>
 
             <div>
@@ -37,7 +42,7 @@
                        value="{{ username }}"
                        autocomplete="username"
                        class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                              text-gray-900 at-input-focus">
             </div>
 
             <div>
@@ -47,7 +52,7 @@
                 <input type="password" id="password" name="password"
                        required minlength="8" autocomplete="new-password"
                        class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                              text-gray-900 at-input-focus">
             </div>
 
             <div>
@@ -57,20 +62,19 @@
                 <input type="password" id="password_confirm" name="password_confirm"
                        required minlength="8" autocomplete="new-password"
                        class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                              text-gray-900 at-input-focus">
             </div>
 
             <button type="submit"
-                    class="w-full rounded bg-blue-600 px-4 py-2 text-white font-medium
-                           hover:bg-blue-700 focus:outline-none focus:ring-2
-                           focus:ring-blue-500 focus:ring-offset-2">
+                    class="at-btn-primary w-full rounded px-4 py-2 text-white font-medium
+                           focus:outline-none focus:ring-2 focus:ring-offset-2">
                 Register
             </button>
         </form>
 
         <p class="mt-6 text-center text-sm text-gray-600">
             Already have an account?
-            <a href="/login" class="text-blue-600 hover:text-blue-500">Sign in</a>
+            <a href="/login{% if client_id %}?client_id={{ client_id }}{% endif %}" class="at-link">Sign in</a>
         </p>
     </div>
 </div>

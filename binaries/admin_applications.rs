@@ -150,6 +150,10 @@ pub async fn create(
         return Ok(html.into_response());
     }
 
+    // Save display strings before logo_url/primary_color are moved into create_application.
+    let logo_url_display = logo_url.as_deref().unwrap_or("").to_string();
+    let primary_color_display = primary_color.as_deref().unwrap_or("").to_string();
+
     match state
         .ath
         .db()
@@ -186,8 +190,21 @@ pub async fn create(
                 &name,
                 &[],
                 is_trusted,
-                "",
-                "",
+                &logo_url_display,
+                &primary_color_display,
+            )?;
+            Ok(html.into_response())
+        }
+        Err(AuthError::Validation(msg)) => {
+            let html = render_new_form(
+                &state,
+                csrf.as_str(),
+                &msg,
+                &name,
+                &[],
+                is_trusted,
+                &logo_url_display,
+                &primary_color_display,
             )?;
             Ok(html.into_response())
         }
@@ -275,6 +292,22 @@ pub async fn update(
                     app => &app,
                     redirect_uris => &uris,
                     error => format!("Invalid redirect URI: {msg}"),
+                    csrf_token => csrf.as_str(),
+                },
+                state.is_production,
+            )?;
+            Ok(html.into_response())
+        }
+        Err(AuthError::Validation(msg)) => {
+            let app = state.ath.db().get_application(id).await?;
+            let uris = app.redirect_uri_list()?;
+            let html = crate::templates::render(
+                &state.templates,
+                "admin/application_edit.html",
+                context! {
+                    app => &app,
+                    redirect_uris => &uris,
+                    error => msg,
                     csrf_token => csrf.as_str(),
                 },
                 state.is_production,
@@ -928,5 +961,109 @@ mod tests {
             "absent checkbox must set is_trusted to false"
         );
         assert!(updated.is_active, "is_active=on must set is_active to true");
+    }
+
+    #[tokio::test]
+    async fn create_rejects_invalid_logo_url() {
+        let (_ath, state, cookie) = setup().await;
+        let app = test_app(state);
+
+        let req = Request::builder()
+            .uri("/admin/applications/new")
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let body = read_body_string(resp).await;
+        let csrf = get_csrf_token(&body);
+
+        let form_body = format!(
+            "name=Bad+Logo&redirect_uris=https%3A%2F%2Fexample.com%2Fcb\
+             &logo_url=http%3A%2F%2Fevil.com%2Flogo.png&csrf_token={}",
+            csrf
+        );
+        let req = Request::builder()
+            .method("POST")
+            .uri("/admin/applications")
+            .header(COOKIE, &format!("{cookie}; csrf_token={csrf}"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(form_body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(body.contains("HTTPS"), "should show HTTPS error");
+    }
+
+    #[tokio::test]
+    async fn create_rejects_invalid_primary_color() {
+        let (_ath, state, cookie) = setup().await;
+        let app = test_app(state);
+
+        let req = Request::builder()
+            .uri("/admin/applications/new")
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let body = read_body_string(resp).await;
+        let csrf = get_csrf_token(&body);
+
+        let form_body = format!(
+            "name=Bad+Color&redirect_uris=https%3A%2F%2Fexample.com%2Fcb\
+             &primary_color=red&csrf_token={}",
+            csrf
+        );
+        let req = Request::builder()
+            .method("POST")
+            .uri("/admin/applications")
+            .header(COOKIE, &format!("{cookie}; csrf_token={csrf}"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(form_body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(body.contains("#RRGGBB"), "should show hex format error");
+    }
+
+    #[tokio::test]
+    async fn create_accepts_valid_branding() {
+        let (_ath, state, cookie) = setup().await;
+        let app = test_app(state);
+
+        let req = Request::builder()
+            .uri("/admin/applications/new")
+            .header(COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let body = read_body_string(resp).await;
+        let csrf = get_csrf_token(&body);
+
+        let form_body = format!(
+            "name=Branded+App&redirect_uris=https%3A%2F%2Fexample.com%2Fcb\
+             &logo_url=https%3A%2F%2Fexample.com%2Flogo.png\
+             &primary_color=%233B82F6&csrf_token={}",
+            csrf
+        );
+        let req = Request::builder()
+            .method("POST")
+            .uri("/admin/applications")
+            .header(COOKIE, &format!("{cookie}; csrf_token={csrf}"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(form_body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(
+            body.contains("will not be shown again"),
+            "should show secret"
+        );
+        assert!(body.contains("Branded App"), "should show app name");
     }
 }

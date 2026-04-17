@@ -1,6 +1,7 @@
 mod admin_applications;
 mod admin_audit;
 mod admin_sessions;
+mod branding;
 mod config;
 mod consent;
 mod error;
@@ -591,14 +592,17 @@ mod consent_tests {
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
         let loc = resp.headers().get("location").unwrap().to_str().unwrap();
-        assert!(loc.starts_with("/login?next="));
+        assert!(loc.starts_with("/login?next="), "should redirect to login");
+        assert!(
+            loc.contains(&format!("client_id={}", app.client_id)),
+            "redirect should include client_id for branding"
+        );
     }
 
     #[tokio::test]
-    async fn consent_screen_no_logo_for_http_url() {
-        let (ath, state) = consent_test_state().await;
-        let cookie = create_test_session(&ath, "httplogo@test.com").await;
-        let (app, _) = ath
+    async fn create_application_rejects_http_logo_url() {
+        let (ath, _state) = consent_test_state().await;
+        let result = ath
             .db()
             .create_application(
                 "HttpLogo".into(),
@@ -608,18 +612,8 @@ mod consent_tests {
                 Some("http://example.com/logo.png".into()),
                 None,
             )
-            .await
-            .unwrap();
-        let router = consent_router(state);
-        let req = Request::builder()
-            .method("GET")
-            .uri(&authorize_query(&app))
-            .header("cookie", &cookie)
-            .body(Body::empty())
-            .unwrap();
-        let resp = router.oneshot(req).await.unwrap();
-        let body = read_body(resp).await;
-        assert!(!body.contains("<img"), "no img for http logo");
+            .await;
+        assert!(result.is_err(), "HTTP logo URL should be rejected");
     }
 
     #[tokio::test]
@@ -681,7 +675,8 @@ mod consent_tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
-        assert!(body.contains("background-color: #ff6600"), "custom color");
+        assert!(body.contains("at-btn-primary"), "themed button class");
+        assert!(body.contains("#ff6600"), "accent color in theme");
     }
 
     #[tokio::test]
@@ -709,6 +704,7 @@ mod consent_tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
-        assert!(body.contains("background-color: #2563eb"), "default blue");
+        assert!(body.contains("at-btn-primary"), "themed button class");
+        assert!(body.contains("#2563eb"), "default blue accent");
     }
 }

@@ -10,11 +10,14 @@ use chrono::Utc;
 use minijinja::context;
 use serde::Deserialize;
 
+use allowthem_core::applications::BrandingConfig;
 use allowthem_core::password::verify_password;
 use allowthem_core::sessions;
+use allowthem_core::types::ClientId;
 use allowthem_core::{AuditEvent, PasswordHash, SessionToken};
 use allowthem_server::CsrfToken;
 
+use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::templates::render;
@@ -33,6 +36,7 @@ const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$ldQz3PJVzDn06G+Bzin5Ew$
 #[derive(Deserialize)]
 pub struct LoginQuery {
     next: Option<String>,
+    client_id: Option<ClientId>,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +44,7 @@ pub struct LoginForm {
     identifier: String,
     password: String,
     next: Option<String>,
+    client_id: Option<ClientId>,
     #[allow(dead_code)]
     csrf_token: String,
 }
@@ -70,8 +75,15 @@ fn render_login_form(
     identifier: &str,
     next: Option<&str>,
     error: &str,
+    client_id: Option<&ClientId>,
+    branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, AppError> {
     let next_val = next.map(validate_next).unwrap_or("");
+    let (accent, accent_hover, accent_ring) = branding
+        .and_then(|b| b.primary_color.as_deref())
+        .map(compute_accent_variants)
+        .unwrap_or_else(default_accents);
+
     render(
         &state.templates,
         "login.html",
@@ -80,6 +92,12 @@ fn render_login_form(
             next => next_val,
             error,
             identifier,
+            client_id => client_id.map(|c| c.as_str()),
+            app_name => branding.map(|b| b.application_name.as_str()),
+            logo_url => branding.and_then(|b| b.logo_url.as_deref()),
+            accent,
+            accent_hover,
+            accent_ring,
         },
         state.is_production,
     )
@@ -136,7 +154,11 @@ pub async fn get_login(
             .into_response());
     }
 
-    let html = render_login_form(&state, csrf.as_str(), "", query.next.as_deref(), "")?;
+    let branding = lookup_branding(&state, query.client_id.as_ref()).await;
+    let html = render_login_form(
+        &state, csrf.as_str(), "", query.next.as_deref(), "",
+        query.client_id.as_ref(), branding.as_ref(),
+    )?;
     Ok(html.into_response())
 }
 
@@ -151,6 +173,7 @@ pub async fn post_login(
     let ip = addr.ip();
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
     let ip_str = ip.to_string();
+    let branding = lookup_branding(&state, form.client_id.as_ref()).await;
 
     // 1. Rate limit check
     if is_rate_limited(&state, ip) {
@@ -160,13 +183,17 @@ pub async fn post_login(
             &form.identifier,
             form.next.as_deref(),
             "Too many login attempts. Please try again later.",
+            form.client_id.as_ref(), branding.as_ref(),
         )?;
         return Ok((StatusCode::TOO_MANY_REQUESTS, html).into_response());
     }
 
     let identifier = form.identifier.trim();
     if identifier.is_empty() {
-        let html = render_login_form(&state, csrf.as_str(), "", form.next.as_deref(), LOGIN_ERROR)?;
+        let html = render_login_form(
+            &state, csrf.as_str(), "", form.next.as_deref(), LOGIN_ERROR,
+            form.client_id.as_ref(), branding.as_ref(),
+        )?;
         return Ok(html.into_response());
     }
 
@@ -238,6 +265,7 @@ pub async fn post_login(
                     identifier,
                     form.next.as_deref(),
                     LOGIN_ERROR,
+                    form.client_id.as_ref(), branding.as_ref(),
                 )?;
                 Ok(html.into_response())
             }
@@ -266,6 +294,7 @@ pub async fn post_login(
                 identifier,
                 form.next.as_deref(),
                 LOGIN_ERROR,
+                form.client_id.as_ref(), branding.as_ref(),
             )?;
             Ok(html.into_response())
         }
@@ -641,5 +670,151 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
 
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn login_with_client_id_shows_branding() {
+        let state = setup().await;
+        let (app, _) = state
+            .ath
+            .db()
+            .create_application(
+                "BrandedApp".into(),
+                vec!["https://example.com/cb".into()],
+                false,
+                None,
+                Some("https://cdn.example.com/logo.png".into()),
+                Some("#ff6600".into()),
+            )
+            .await
+            .unwrap();
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri(&format!("/login?client_id={}", app.client_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("BrandedApp"), "should show app name");
+        assert!(html.contains("<img"), "should show logo");
+        assert!(html.contains("#ff6600"), "should have accent color");
+    }
+
+    #[tokio::test]
+    async fn login_without_client_id_shows_default() {
+        let state = setup().await;
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri("/login")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(!html.contains("<img"), "no logo without client_id");
+        assert!(html.contains("#2563eb"), "should have default blue");
+    }
+
+    #[tokio::test]
+    async fn login_with_invalid_client_id_shows_default() {
+        let state = setup().await;
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri("/login?client_id=ath_nonexistent")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(!html.contains("<img"), "no logo for invalid client_id");
+        assert!(html.contains("#2563eb"), "should fall back to default blue");
+    }
+
+    #[tokio::test]
+    async fn branded_login_post_failure_preserves_branding() {
+        let state = setup().await;
+        create_user(&state, "branded@example.com", "correcthorse").await;
+        let (app, _) = state
+            .ath
+            .db()
+            .create_application(
+                "BrandedPost".into(),
+                vec!["https://example.com/cb".into()],
+                false,
+                None,
+                None,
+                Some("#ff6600".into()),
+            )
+            .await
+            .unwrap();
+        let router = test_app(state);
+
+        let csrf = get_csrf_token(&router).await;
+        let body_str = format!(
+            "identifier=branded%40example.com&password=wrong&csrf_token={}&client_id={}",
+            csrf,
+            app.client_id,
+        );
+        let req = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::COOKIE, format!("csrf_token={}", csrf))
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("BrandedPost"), "app name preserved after error");
+        assert!(html.contains("#ff6600"), "accent color preserved after error");
+    }
+
+    #[tokio::test]
+    async fn login_register_link_carries_client_id() {
+        let state = setup().await;
+        let (app, _) = state
+            .ath
+            .db()
+            .create_application(
+                "LinkApp".into(),
+                vec!["https://example.com/cb".into()],
+                false,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let router = test_app(state);
+
+        let req = Request::builder()
+            .uri(&format!("/login?client_id={}", app.client_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            html.contains(&format!("/register?client_id={}", app.client_id)),
+            "register link should carry client_id"
+        );
     }
 }

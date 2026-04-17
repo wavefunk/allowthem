@@ -12,6 +12,36 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     {% endif %}
 
+    {% block theme %}
+    <style>
+        :root {
+            --at-accent: {{ accent | default("#2563eb") }};
+            --at-accent-hover: {{ accent_hover | default("#1d4ed8") }};
+            --at-accent-ring: {{ accent_ring | default("#3b82f6") }};
+        }
+        .at-btn-primary {
+            background-color: var(--at-accent);
+        }
+        .at-btn-primary:hover {
+            background-color: var(--at-accent-hover);
+        }
+        .at-btn-primary:focus-visible {
+            outline: 2px solid var(--at-accent-ring);
+            outline-offset: 2px;
+        }
+        .at-input-focus:focus {
+            border-color: var(--at-accent);
+            box-shadow: 0 0 0 1px var(--at-accent-ring);
+        }
+        .at-link {
+            color: var(--at-accent);
+        }
+        .at-link:hover {
+            color: var(--at-accent-hover);
+        }
+    </style>
+    {% endblock %}
+
     {% block head %}{% endblock %}
 </head>
 <body class="bg-gray-50 min-h-screen">

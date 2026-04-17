@@ -30,6 +30,21 @@ pub struct Application {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Branding configuration for an application's hosted auth pages.
+///
+/// Extracted from `Application` — contains only the fields needed to
+/// theme login, register, consent, and other OIDC-flow pages.
+///
+/// Derives `sqlx::FromRow` for use with `query_as` in
+/// `get_branding_by_client_id`. The SQL query aliases `name` to
+/// `application_name` to match the struct field.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct BrandingConfig {
+    pub application_name: String,
+    pub logo_url: Option<String>,
+    pub primary_color: Option<String>,
+}
+
 /// Generate a new `client_id`: `ath_` + 24 random bytes base64url-encoded.
 ///
 /// Produces a 36-character string (`ath_` + 32 base64url chars). 192 bits of
@@ -68,6 +83,15 @@ impl Application {
     pub fn redirect_uri_list(&self) -> Result<Vec<String>, AuthError> {
         serde_json::from_str(&self.redirect_uris)
             .map_err(|e| AuthError::Database(sqlx::Error::Decode(Box::new(e))))
+    }
+
+    /// Extract the branding configuration for use in themed auth pages.
+    pub fn branding(&self) -> BrandingConfig {
+        BrandingConfig {
+            application_name: self.name.clone(),
+            logo_url: self.logo_url.clone(),
+            primary_color: self.primary_color.clone(),
+        }
     }
 }
 
@@ -144,6 +168,48 @@ pub fn validate_redirect_uri(redirect_uri: &str, registered: &[String]) -> Resul
     }
 }
 
+/// Validate a logo URL for branding.
+///
+/// Must be an absolute URL with HTTPS scheme. HTTP is permitted for
+/// localhost and 127.0.0.1 (development loopback exception, matching
+/// redirect URI validation).
+pub fn validate_logo_url(url: &str) -> Result<(), AuthError> {
+    let parsed = Url::parse(url).map_err(|_| {
+        AuthError::Validation("logo_url must be a valid absolute URL".into())
+    })?;
+    let scheme = parsed.scheme();
+    if scheme == "https" {
+        return Ok(());
+    }
+    if scheme == "http" {
+        let host = parsed.host_str().unwrap_or("");
+        if host == "localhost" || host == "127.0.0.1" {
+            return Ok(());
+        }
+    }
+    Err(AuthError::Validation("logo_url must be an HTTPS URL".into()))
+}
+
+/// Validate a primary color for branding.
+///
+/// Must be a 7-character CSS hex color: `#` followed by exactly 6 hex
+/// digits (e.g., `#3B82F6`). This format is safe for injection into
+/// HTML `style` attributes without escaping.
+pub fn validate_primary_color(color: &str) -> Result<(), AuthError> {
+    let bytes = color.as_bytes();
+    if bytes.len() != 7 || bytes[0] != b'#' {
+        return Err(AuthError::Validation(
+            "primary_color must be a hex color (#RRGGBB)".into(),
+        ));
+    }
+    if !bytes[1..].iter().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AuthError::Validation(
+            "primary_color must be a hex color (#RRGGBB)".into(),
+        ));
+    }
+    Ok(())
+}
+
 impl Db {
     /// Register a new OIDC application.
     ///
@@ -164,6 +230,12 @@ impl Db {
         primary_color: Option<String>,
     ) -> Result<(Application, ClientSecret), AuthError> {
         validate_redirect_uris(&redirect_uris)?;
+        if let Some(ref url) = logo_url {
+            validate_logo_url(url)?;
+        }
+        if let Some(ref color) = primary_color {
+            validate_primary_color(color)?;
+        }
         let id = ApplicationId::new();
         let client_id = generate_client_id();
         let (raw_secret, hash) = generate_client_secret()?;
@@ -228,6 +300,26 @@ impl Db {
         .ok_or(AuthError::NotFound)
     }
 
+    /// Get branding configuration for an application by client_id.
+    ///
+    /// Returns `None` if no application with the given `client_id` exists
+    /// or if the application is inactive. Branded pages fall back to
+    /// default allowthem styling when this returns `None`.
+    pub async fn get_branding_by_client_id(
+        &self,
+        client_id: &ClientId,
+    ) -> Result<Option<BrandingConfig>, AuthError> {
+        sqlx::query_as::<_, BrandingConfig>(
+            "SELECT name AS application_name, logo_url, primary_color \
+             FROM allowthem_applications \
+             WHERE client_id = ? AND is_active = 1",
+        )
+        .bind(client_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
+
     /// List all applications ordered by `created_at ASC`.
     pub async fn list_applications(&self) -> Result<Vec<Application>, AuthError> {
         sqlx::query_as::<_, Application>(
@@ -255,6 +347,12 @@ impl Db {
         params: UpdateApplication,
     ) -> Result<(), AuthError> {
         validate_redirect_uris(&params.redirect_uris)?;
+        if let Some(ref url) = params.logo_url {
+            validate_logo_url(url)?;
+        }
+        if let Some(ref color) = params.primary_color {
+            validate_primary_color(color)?;
+        }
         let redirect_uris_json =
             serde_json::to_string(&params.redirect_uris).expect("Vec<String> serializes to JSON");
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
@@ -513,6 +611,108 @@ mod tests {
             app.redirect_uri_list(),
             Err(AuthError::Database(_))
         ));
+    }
+
+    // validate_logo_url tests
+
+    #[test]
+    fn logo_url_https_is_valid() {
+        assert!(validate_logo_url("https://example.com/logo.png").is_ok());
+    }
+
+    #[test]
+    fn logo_url_http_localhost_is_valid() {
+        assert!(validate_logo_url("http://localhost:3000/logo.png").is_ok());
+    }
+
+    #[test]
+    fn logo_url_http_127_is_valid() {
+        assert!(validate_logo_url("http://127.0.0.1:8080/logo.png").is_ok());
+    }
+
+    #[test]
+    fn logo_url_http_non_localhost_is_rejected() {
+        let err = validate_logo_url("http://example.com/logo.png").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn logo_url_relative_is_rejected() {
+        let err = validate_logo_url("/logo.png").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn logo_url_not_a_url_is_rejected() {
+        let err = validate_logo_url("not a url").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    // validate_primary_color tests
+
+    #[test]
+    fn primary_color_valid_hex() {
+        assert!(validate_primary_color("#3B82F6").is_ok());
+    }
+
+    #[test]
+    fn primary_color_lowercase_hex() {
+        assert!(validate_primary_color("#3b82f6").is_ok());
+    }
+
+    #[test]
+    fn primary_color_missing_hash() {
+        let err = validate_primary_color("3B82F6").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn primary_color_too_short() {
+        let err = validate_primary_color("#FFF").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn primary_color_too_long() {
+        let err = validate_primary_color("#3B82F6FF").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn primary_color_non_hex_chars() {
+        let err = validate_primary_color("#ZZZZZZ").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn primary_color_named_color_rejected() {
+        let err = validate_primary_color("red").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    // BrandingConfig extraction test
+
+    #[test]
+    fn branding_extracts_correct_fields() {
+        let (_, hash) = generate_client_secret().expect("generate");
+        let app = Application {
+            id: ApplicationId::new(),
+            name: "My App".to_string(),
+            client_id: generate_client_id(),
+            client_secret_hash: hash,
+            redirect_uris: r#"["https://example.com/cb"]"#.to_string(),
+            logo_url: Some("https://example.com/logo.png".to_string()),
+            primary_color: Some("#3B82F6".to_string()),
+            is_trusted: false,
+            created_by: None,
+            is_active: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let b = app.branding();
+        assert_eq!(b.application_name, "My App");
+        assert_eq!(b.logo_url.as_deref(), Some("https://example.com/logo.png"));
+        assert_eq!(b.primary_color.as_deref(), Some("#3B82F6"));
     }
 
     #[test]
