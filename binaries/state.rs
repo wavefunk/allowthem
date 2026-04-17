@@ -6,7 +6,7 @@ use axum::extract::FromRef;
 use dashmap::DashMap;
 use minijinja::Environment;
 
-use allowthem_core::{AllowThem, AuthClient};
+use allowthem_core::{AllowThem, AuthClient, EmailSender};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -18,6 +18,7 @@ pub struct AppState {
     pub login_attempts: Arc<DashMap<IpAddr, (u32, Instant)>>,
     pub max_login_attempts: u32,
     pub rate_limit_window_secs: u64,
+    pub email_sender: Arc<dyn EmailSender>,
 }
 
 impl FromRef<AppState> for Arc<dyn AuthClient> {

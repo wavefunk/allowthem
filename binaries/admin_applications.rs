@@ -391,8 +391,8 @@ mod tests {
     use tower::ServiceExt;
 
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, RoleName,
-        generate_token, hash_token,
+        AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, LogEmailSender,
+        RoleName, generate_token, hash_token,
     };
     use allowthem_server::csrf_middleware;
 
@@ -441,6 +441,7 @@ mod tests {
             login_attempts: Arc::new(dashmap::DashMap::new()),
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
+            email_sender: Arc::new(LogEmailSender),
         };
 
         (ath, state, cookie_value)
@@ -863,6 +864,7 @@ mod tests {
             login_attempts: Arc::new(dashmap::DashMap::new()),
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
+            email_sender: Arc::new(LogEmailSender),
         };
         let app = test_app(state);
 

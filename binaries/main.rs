@@ -7,6 +7,7 @@ mod consent;
 mod error;
 mod login;
 mod logout;
+mod password_reset;
 mod register;
 mod settings;
 mod state;
@@ -20,7 +21,7 @@ use eyre::Result;
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
-use allowthem_core::{AllowThemBuilder, AuthClient, EmbeddedAuthClient};
+use allowthem_core::{AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender};
 use allowthem_server::{
     authorize_post, csrf_middleware, token_route, userinfo_route, well_known_routes,
 };
@@ -86,6 +87,7 @@ async fn main() -> Result<()> {
         login_attempts: Arc::new(dashmap::DashMap::new()),
         max_login_attempts: config.max_login_attempts,
         rate_limit_window_secs: config.rate_limit_window_secs,
+        email_sender: Arc::new(LogEmailSender),
     };
 
     // 8. Router
@@ -97,6 +99,14 @@ async fn main() -> Result<()> {
         )
         .route("/login", get(login::get_login).post(login::post_login))
         .route("/logout", get(logout::handler).post(logout::handler))
+        .route(
+            "/forgot-password",
+            get(password_reset::get_forgot_password).post(password_reset::post_forgot_password),
+        )
+        .route(
+            "/auth/reset-password",
+            get(password_reset::get_reset_password).post(password_reset::post_reset_password),
+        )
         .route(
             "/settings",
             get(settings::get_settings).post(settings::post_settings),
@@ -229,6 +239,7 @@ mod tests {
             login_attempts: Arc::new(dashmap::DashMap::new()),
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
+            email_sender: Arc::new(LogEmailSender),
         };
         let app = Router::new()
             .route("/health", get(health))
@@ -301,6 +312,7 @@ mod tests {
             login_attempts: Arc::new(dashmap::DashMap::new()),
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
+            email_sender: Arc::new(LogEmailSender),
         };
 
         // Verify Arc<dyn AuthClient> FromRef — used by AuthUser, OptionalAuthUser, middleware
@@ -413,6 +425,7 @@ mod tests {
             login_attempts: Arc::new(dashmap::DashMap::new()),
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
+            email_sender: Arc::new(LogEmailSender),
         };
         let static_dir = if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
             std::path::PathBuf::from(dir).join("static")
@@ -463,6 +476,7 @@ mod consent_tests {
             login_attempts: Arc::new(dashmap::DashMap::new()),
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
+            email_sender: Arc::new(LogEmailSender),
         };
         (ath, state)
     }
