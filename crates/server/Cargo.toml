@@ -29,6 +29,7 @@ hmac.workspace = true
 minijinja.workspace = true
 dashmap.workspace = true
 subtle.workspace = true
+jsonschema.workspace = true
 
 [dev-dependencies]
 jsonwebtoken.workspace = true
