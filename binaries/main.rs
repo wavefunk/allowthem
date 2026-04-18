@@ -20,11 +20,7 @@ use tracing_subscriber::EnvFilter;
 use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
-use allowthem_server::{
-    consent_routes, csrf_middleware, login_routes, logout_routes, mfa_challenge_routes,
-    mfa_setup_routes, oauth_routes, password_reset_page_routes, register_routes, settings_routes,
-    token_route, userinfo_route, well_known_routes,
-};
+use allowthem_server::{AllRoutesBuilder, csrf_middleware};
 
 use crate::state::AppState;
 
@@ -84,15 +80,10 @@ async fn main() -> Result<()> {
     // 4d. Bootstrap OIDC application (dev/test only — no-op when env vars are unset)
     seed_oidc_app(&ath, &config).await?;
 
-    // 5. Well-known router and UserInfo router (resolved before ath is moved into AppState)
-    let wk_router = well_known_routes(config.base_url.clone()).with_state(ath.clone());
-    let ui_router = userinfo_route().with_state(ath.clone());
-    let tk_router = token_route().with_state(ath.clone());
-
-    // 6. Templates
+    // 5. Templates
     let templates = templates::build_template_env()?;
 
-    // 6b. OAuth providers
+    // 5b. OAuth providers
     let mut providers: HashMap<String, Box<dyn OAuthProvider>> = HashMap::new();
 
     if config.oauth_mock {
@@ -127,14 +118,22 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Collect provider names BEFORE moving providers into oauth_routes.
-    // Box<dyn OAuthProvider> is not Clone, so the map cannot be cloned.
-    let mut oauth_provider_names: Vec<String> = providers.keys().cloned().collect();
-    oauth_provider_names.sort();
+    // 6. Build all auth routes via AllRoutesBuilder
+    let routes = AllRoutesBuilder::new()
+        .templates(templates.clone())
+        .is_production(config.is_production)
+        .base_url(&config.base_url)
+        .email_sender(Arc::new(LogEmailSender) as Arc<dyn allowthem_core::EmailSender>)
+        .max_login_attempts(config.max_login_attempts)
+        .rate_limit_window_secs(config.rate_limit_window_secs)
+        .oauth_providers(providers)
+        .mfa_issuer(&config.base_url)
+        .all_routes()
+        .build(&ath)
+        .map_err(|e| eyre::eyre!("{e}"))?
+        .with_state(ath.clone());
 
-    let oauth_router = oauth_routes(providers, config.base_url.clone()).with_state(ath.clone());
-
-    // 7. App state
+    // 7. App state (admin routes need AuthClient + templates)
     let auth_client: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
     let state = AppState {
         ath: ath.clone(),
@@ -146,35 +145,22 @@ async fn main() -> Result<()> {
         max_login_attempts: config.max_login_attempts,
         rate_limit_window_secs: config.rate_limit_window_secs,
         email_sender: Arc::new(LogEmailSender),
-        oauth_providers: oauth_provider_names,
+        oauth_providers: Vec::new(),
     };
 
     // 8. Router
+    //
+    // Admin routes are nested with CSRF protection via an outer layer.
+    // The builder already applies CSRF to its browser route subset
+    // internally, so `routes` (merged after the layer) is unaffected.
     let app = Router::new()
         .route("/health", get(health))
-        .merge(register_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
-        .merge(login_routes(
-            state.templates.clone(),
-            state.is_production,
-            state.max_login_attempts,
-            state.rate_limit_window_secs,
-            state.oauth_providers.clone(),
-        ).with_state(ath.clone()))
-        .merge(logout_routes().with_state(ath.clone()))
-        .merge(password_reset_page_routes(state.templates.clone(), state.is_production, state.email_sender.clone(), state.base_url.clone()).with_state(ath.clone()))
-        .merge(settings_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
-        .merge(mfa_setup_routes(state.templates.clone(), state.is_production, state.base_url.clone()).with_state(ath.clone()))
-        .merge(consent_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
         .nest("/admin/applications", admin_applications::routes())
         .nest("/admin/audit", admin_audit::routes())
         .nest("/admin/sessions", admin_sessions::routes())
-        .merge(wk_router)
         .nest_service("/static", ServeDir::new("binaries/static"))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
-        .merge(mfa_challenge_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
-        .merge(ui_router) // after CSRF layer — Bearer auth, not browser sessions
-        .merge(tk_router) // after CSRF layer — client_secret auth, not browser sessions
-        .merge(oauth_router) // after CSRF layer — OAuth GET routes are external-initiated
+        .layer(axum::middleware::from_fn_with_state(ath.clone(), csrf_middleware))
+        .merge(routes)
         .with_state(state);
 
     // Conditionally mount mock test routes
@@ -637,6 +623,7 @@ mod tests {
 #[cfg(test)]
 mod consent_tests {
     use super::*;
+    use allowthem_server::consent_routes;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
