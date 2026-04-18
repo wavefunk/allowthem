@@ -197,6 +197,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn verify_email_fails_with_expired_token() {
+        let db = test_db().await;
+        let (user_id, _) = make_user(&db).await;
+        let token = db
+            .create_email_verification(user_id)
+            .await
+            .expect("create");
+
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1))
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
+        sqlx::query(
+            "UPDATE allowthem_email_verification_tokens SET expires_at = ? WHERE user_id = ?",
+        )
+        .bind(&past)
+        .bind(user_id)
+        .execute(db.pool())
+        .await
+        .expect("backdate token");
+
+        let result = db.verify_email(&token).await.expect("verify");
+        assert!(!result, "expired token must fail");
+    }
+
+    #[tokio::test]
     async fn send_verification_email_succeeds() {
         let db = test_db().await;
         let (user_id, email) = make_user(&db).await;
