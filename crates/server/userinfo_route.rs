@@ -18,6 +18,8 @@ pub struct UserInfoResponse {
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email_verified: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_data: Option<serde_json::Value>,
 }
 
 async fn userinfo(
@@ -44,10 +46,12 @@ async fn userinfo(
         preferred_username: None,
         email: None,
         email_verified: None,
+        custom_data: None,
     };
 
     if has_scope(scope, "profile") {
         response.preferred_username = user.username.as_ref().map(|u| u.as_str().to_owned());
+        response.custom_data = user.custom_data.clone();
     }
 
     if has_scope(scope, "email") {
@@ -247,5 +251,64 @@ mod tests {
             .to_str()
             .unwrap();
         assert!(www_auth.contains("token expired"));
+    }
+
+    #[tokio::test]
+    async fn userinfo_includes_custom_data_with_profile_scope() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .signing_key(ENC_KEY)
+            .base_url(ISSUER)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("custom@example.com".into()).unwrap();
+        let custom = serde_json::json!({"role": "admin", "plan": "pro"});
+        let user = ath
+            .db()
+            .create_user(email, "password123", None, Some(&custom))
+            .await
+            .unwrap();
+
+        let jwt = sign_jwt(&ath, &user.id, "openid profile", 300).await;
+        let app = userinfo_route().with_state(ath);
+
+        let resp = app.oneshot(bearer_request(&jwt)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = read_json(resp).await;
+        assert!(body.get("sub").is_some());
+        assert_eq!(body["custom_data"]["role"], "admin");
+        assert_eq!(body["custom_data"]["plan"], "pro");
+    }
+
+    #[tokio::test]
+    async fn userinfo_omits_custom_data_without_profile_scope() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .signing_key(ENC_KEY)
+            .base_url(ISSUER)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("custom2@example.com".into()).unwrap();
+        let custom = serde_json::json!({"role": "admin"});
+        let user = ath
+            .db()
+            .create_user(email, "password123", None, Some(&custom))
+            .await
+            .unwrap();
+
+        let jwt = sign_jwt(&ath, &user.id, "openid email", 300).await;
+        let app = userinfo_route().with_state(ath);
+
+        let resp = app.oneshot(bearer_request(&jwt)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = read_json(resp).await;
+        assert!(body.get("sub").is_some());
+        assert!(body.get("custom_data").is_none());
     }
 }
