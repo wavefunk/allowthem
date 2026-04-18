@@ -138,14 +138,8 @@ async fn main() -> Result<()> {
     let state = AppState {
         ath: ath.clone(),
         auth_client,
-        base_url: config.base_url.clone(),
         templates,
         is_production: config.is_production,
-        login_attempts: Arc::new(dashmap::DashMap::new()),
-        max_login_attempts: config.max_login_attempts,
-        rate_limit_window_secs: config.rate_limit_window_secs,
-        email_sender: Arc::new(LogEmailSender),
-        oauth_providers: Vec::new(),
     };
 
     // 8. Router
@@ -399,14 +393,8 @@ mod tests {
         let state = AppState {
             ath,
             auth_client,
-            base_url: "http://localhost:3000".into(),
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
         };
         let app = Router::new()
             .route("/health", get(health))
@@ -473,14 +461,8 @@ mod tests {
         let state = AppState {
             ath,
             auth_client,
-            base_url: "http://localhost:3000".into(),
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
         };
 
         // Verify Arc<dyn AuthClient> FromRef — used by AuthUser, OptionalAuthUser, middleware
@@ -588,14 +570,8 @@ mod tests {
         let state = AppState {
             ath,
             auth_client,
-            base_url: "http://localhost:3000".into(),
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
         };
         let static_dir = if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
             std::path::PathBuf::from(dir).join("static")
@@ -641,14 +617,8 @@ mod consent_tests {
         let state = AppState {
             ath: ath.clone(),
             auth_client,
-            base_url: "http://localhost:3000".into(),
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
         };
         (ath, state)
     }
@@ -658,8 +628,8 @@ mod consent_tests {
         let templates = state.templates.clone();
         let is_production = state.is_production;
         Router::new()
-            .merge(consent_routes(templates, is_production).with_state(ath))
-            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
+            .merge(consent_routes(templates, is_production).with_state(ath.clone()))
+            .layer(axum::middleware::from_fn_with_state(ath, csrf_middleware))
             .with_state(state)
     }
 

@@ -145,8 +145,8 @@ mod tests {
 
     use allowthem_core::types::{SessionId, UserId};
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, LogEmailSender,
-        RoleName, generate_token, hash_token,
+        AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, RoleName,
+        generate_token, hash_token,
     };
     use allowthem_server::csrf_middleware;
 
@@ -188,14 +188,8 @@ mod tests {
         let state = AppState {
             ath: ath.clone(),
             auth_client,
-            base_url: "http://localhost:3000".to_string(),
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
         };
 
         (ath, state, cookie_value)
@@ -535,14 +529,8 @@ mod tests {
         let state = AppState {
             ath,
             auth_client,
-            base_url: "http://localhost:3000".to_string(),
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
         };
         let app = test_app(state);
 
