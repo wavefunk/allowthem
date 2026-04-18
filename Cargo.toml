@@ -24,7 +24,7 @@ uuid = { version = "1.19.0", features = ["v7", "v4", "serde"] }
 figment = { version = "0.10.19", features = ["toml", "env"] }
 sqlx = { version = "0.9.0-alpha.1", features = [
     "runtime-tokio", "sqlite", "derive", "macros",
-    "migrate", "uuid", "chrono", "sqlx-toml"
+    "migrate", "uuid", "chrono", "sqlx-toml", "json"
 ] }
 axum = { version = "0.8.8", features = ["multipart"] }
 tower = "0.5.3"
