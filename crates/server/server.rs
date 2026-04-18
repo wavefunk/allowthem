@@ -1,5 +1,6 @@
 // allowthem-server: HTTP routes, middleware, and extractors
 
+pub mod all_routes;
 pub mod browser_error;
 pub mod browser_templates;
 pub mod authorize_routes;
@@ -25,6 +26,7 @@ pub mod login_routes;
 pub mod logout_routes;
 pub mod well_known_routes;
 
+pub use all_routes::{AllRoutesBuilder, AllRoutesError};
 pub use browser_error::BrowserError;
 pub use browser_templates::{build_default_browser_env, render as render_template};
 pub use branding::{compute_accent_variants, default_accents, lookup_branding};
