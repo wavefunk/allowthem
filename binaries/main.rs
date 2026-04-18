@@ -3,7 +3,6 @@ mod admin_audit;
 mod admin_sessions;
 mod config;
 mod error;
-mod mfa;
 mod mock_oauth;
 mod state;
 mod templates;
@@ -22,9 +21,9 @@ use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
 use allowthem_server::{
-    consent_routes, csrf_middleware, login_routes, logout_routes, oauth_routes,
-    password_reset_page_routes, register_routes, settings_routes, token_route, userinfo_route,
-    well_known_routes,
+    consent_routes, csrf_middleware, login_routes, logout_routes, mfa_challenge_routes,
+    mfa_setup_routes, oauth_routes, password_reset_page_routes, register_routes, settings_routes,
+    token_route, userinfo_route, well_known_routes,
 };
 
 use crate::state::AppState;
@@ -164,18 +163,7 @@ async fn main() -> Result<()> {
         .merge(logout_routes().with_state(ath.clone()))
         .merge(password_reset_page_routes(state.templates.clone(), state.is_production, state.email_sender.clone(), state.base_url.clone()).with_state(ath.clone()))
         .merge(settings_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
-        .route(
-            "/settings/mfa/setup",
-            get(mfa::get_mfa_setup),
-        )
-        .route(
-            "/settings/mfa/confirm",
-            axum::routing::post(mfa::post_mfa_confirm),
-        )
-        .route(
-            "/settings/mfa/disable",
-            axum::routing::post(mfa::post_mfa_disable),
-        )
+        .merge(mfa_setup_routes(state.templates.clone(), state.is_production, state.base_url.clone()).with_state(ath.clone()))
         .merge(consent_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
         .nest("/admin/applications", admin_applications::routes())
         .nest("/admin/audit", admin_audit::routes())
@@ -183,10 +171,7 @@ async fn main() -> Result<()> {
         .merge(wk_router)
         .nest_service("/static", ServeDir::new("binaries/static"))
         .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
-        .route(
-            "/mfa/challenge",
-            get(mfa::get_mfa_challenge).post(mfa::post_mfa_challenge),
-        )
+        .merge(mfa_challenge_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
         .merge(ui_router) // after CSRF layer — Bearer auth, not browser sessions
         .merge(tk_router) // after CSRF layer — client_secret auth, not browser sessions
         .merge(oauth_router) // after CSRF layer — OAuth GET routes are external-initiated

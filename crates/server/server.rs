@@ -9,6 +9,7 @@ pub mod bearer;
 pub mod csrf;
 pub mod error;
 pub mod extractors;
+pub mod mfa_page_routes;
 pub mod mfa_routes;
 pub mod middleware;
 pub mod oauth_bearer;
@@ -38,6 +39,7 @@ pub use extractors::{AuthUser, BrowserAdminUser, BrowserAuthUser, OptionalAuthUs
 pub use consent_routes::consent_routes;
 pub use login_routes::login_routes;
 pub use logout_routes::logout_routes;
+pub use mfa_page_routes::{mfa_setup_routes, mfa_challenge_routes};
 pub use mfa_routes::mfa_routes;
 pub use middleware::{require_auth, require_permission, require_role};
 pub use oauth_bearer::{OAuthBearerError, OAuthBearerToken};
