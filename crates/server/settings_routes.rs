@@ -1,18 +1,30 @@
+use std::sync::Arc;
+
+use axum::Extension;
 use axum::extract::State;
 use axum::http::HeaderMap;
+use axum::http::Uri;
 use axum::http::header::USER_AGENT;
 use axum::response::{Html, IntoResponse, Response};
-use minijinja::context;
+use axum::routing::{get, post};
+use axum::Router;
+use minijinja::{Environment, context};
 use serde::Deserialize;
 
-use allowthem_core::types::UserId;
-use allowthem_core::{AuditEvent, AuthError, Email, OAuthAccountInfo, Username};
-use allowthem_server::{BrowserAuthUser, CsrfToken};
+use allowthem_core::types::User;
+use allowthem_core::{AllowThem, AuditEvent, AuthError, Email, OAuthAccountInfo, Username};
 
-use crate::error::AppError;
-use crate::state::AppState;
+use crate::browser_error::BrowserError;
+use crate::csrf::CsrfToken;
+use crate::error::BrowserAuthRedirect;
 
 const MIN_PASSWORD_LEN: usize = 8;
+
+#[derive(Clone)]
+struct SettingsConfig {
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+}
 
 #[derive(Deserialize)]
 pub struct ProfileForm {
@@ -45,12 +57,12 @@ struct SettingsContext {
 }
 
 fn render_settings(
-    state: &AppState,
+    config: &SettingsConfig,
     csrf_token: &str,
     ctx: &SettingsContext,
-) -> Result<Html<String>, AppError> {
-    crate::templates::render(
-        &state.templates,
+) -> Result<Html<String>, BrowserError> {
+    crate::browser_templates::render(
+        &config.templates,
         "settings.html",
         context! {
             csrf_token,
@@ -63,19 +75,19 @@ fn render_settings(
             oauth_accounts => &ctx.oauth_accounts,
             mfa_enabled => ctx.mfa_enabled,
             mfa_recovery_remaining => ctx.mfa_recovery_remaining,
+            is_production => config.is_production,
         },
-        state.is_production,
     )
 }
 
 async fn fetch_account_data(
-    state: &AppState,
-    user_id: UserId,
-) -> Result<(Vec<OAuthAccountInfo>, bool, i64), AppError> {
-    let oauth_accounts = state.ath.db().get_user_oauth_accounts(user_id).await?;
-    let mfa_enabled = state.ath.db().has_mfa_enabled(user_id).await?;
+    ath: &AllowThem,
+    user_id: allowthem_core::types::UserId,
+) -> Result<(Vec<OAuthAccountInfo>, bool, i64), BrowserError> {
+    let oauth_accounts = ath.db().get_user_oauth_accounts(user_id).await?;
+    let mfa_enabled = ath.db().has_mfa_enabled(user_id).await?;
     let mfa_recovery_remaining = if mfa_enabled {
-        state.ath.db().remaining_recovery_codes(user_id).await?
+        ath.db().remaining_recovery_codes(user_id).await?
     } else {
         0
     };
@@ -90,14 +102,62 @@ fn client_ip(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
+/// Validate session cookie and return the authenticated user.
+///
+/// On failure, returns a 303 redirect to `/login?next={path}` — matching
+/// `BrowserAuthUser` rejection semantics without requiring `Arc<dyn AuthClient>`
+/// in the router state.
+async fn require_browser_user(
+    ath: &AllowThem,
+    headers: &HeaderMap,
+    path: &str,
+) -> Result<User, Response> {
+    let cookie_header = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| BrowserAuthRedirect::new(path).into_response())?;
+
+    let token = ath
+        .parse_session_cookie(cookie_header)
+        .ok_or_else(|| BrowserAuthRedirect::new(path).into_response())?;
+
+    let ttl = ath.session_config().ttl;
+    let session = ath
+        .db()
+        .validate_session(&token, ttl)
+        .await
+        .map_err(|err| {
+            tracing::error!("session validation error: {err}");
+            BrowserAuthRedirect::new(path).into_response()
+        })?
+        .ok_or_else(|| BrowserAuthRedirect::new(path).into_response())?;
+
+    match ath.db().get_user(session.user_id).await {
+        Ok(user) if user.is_active => Ok(user),
+        Ok(_) => Err(BrowserAuthRedirect::new(path).into_response()),
+        Err(AuthError::NotFound) => Err(BrowserAuthRedirect::new(path).into_response()),
+        Err(err) => {
+            tracing::error!("user lookup error: {err}");
+            Err(BrowserAuthRedirect::new(path).into_response())
+        }
+    }
+}
+
 /// GET /settings — render the settings page for the authenticated user.
-pub async fn get_settings(
-    State(state): State<AppState>,
-    BrowserAuthUser(user): BrowserAuthUser,
+async fn get_settings(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<SettingsConfig>,
+    uri: Uri,
     csrf: CsrfToken,
-) -> Result<Response, AppError> {
+    headers: HeaderMap,
+) -> Result<Response, BrowserError> {
+    let user = match require_browser_user(&ath, &headers, uri.path()).await {
+        Ok(u) => u,
+        Err(redirect) => return Ok(redirect),
+    };
+
     let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
-        fetch_account_data(&state, user.id).await?;
+        fetch_account_data(&ath, user.id).await?;
 
     let ctx = SettingsContext {
         email: user.email.as_str().to_string(),
@@ -113,24 +173,30 @@ pub async fn get_settings(
         mfa_enabled,
         mfa_recovery_remaining,
     };
-    let html = render_settings(&state, csrf.as_str(), &ctx)?;
+    let html = render_settings(&config, csrf.as_str(), &ctx)?;
     Ok(html.into_response())
 }
 
 /// POST /settings — update email and/or username.
-pub async fn post_settings(
-    State(state): State<AppState>,
-    BrowserAuthUser(user): BrowserAuthUser,
+async fn post_settings(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<SettingsConfig>,
+    uri: Uri,
     csrf: CsrfToken,
     headers: HeaderMap,
     axum::Form(form): axum::Form<ProfileForm>,
-) -> Result<Response, AppError> {
+) -> Result<Response, BrowserError> {
+    let user = match require_browser_user(&ath, &headers, uri.path()).await {
+        Ok(u) => u,
+        Err(redirect) => return Ok(redirect),
+    };
+
     // 1. Parse email
     let email = match Email::new(form.email.clone()) {
         Ok(e) => e,
         Err(_) => {
             let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
-                fetch_account_data(&state, user.id).await?;
+                fetch_account_data(&ath, user.id).await?;
             let ctx = SettingsContext {
                 email: form.email,
                 username: form.username,
@@ -142,7 +208,7 @@ pub async fn post_settings(
                 mfa_enabled,
                 mfa_recovery_remaining,
             };
-            return Ok(render_settings(&state, csrf.as_str(), &ctx)?.into_response());
+            return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
         }
     };
 
@@ -156,11 +222,11 @@ pub async fn post_settings(
 
     // 3. Update email if changed
     if email != user.email {
-        match state.ath.db().update_user_email(user.id, email).await {
+        match ath.db().update_user_email(user.id, email).await {
             Ok(()) => {}
             Err(AuthError::Conflict(ref msg)) if msg.contains("email") => {
                 let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
-                    fetch_account_data(&state, user.id).await?;
+                    fetch_account_data(&ath, user.id).await?;
                 let ctx = SettingsContext {
                     email: form.email,
                     username: form.username,
@@ -172,9 +238,9 @@ pub async fn post_settings(
                     mfa_enabled,
                     mfa_recovery_remaining,
                 };
-                return Ok(render_settings(&state, csrf.as_str(), &ctx)?.into_response());
+                return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
             }
-            Err(e) => return Err(AppError::Auth(e)),
+            Err(e) => return Err(BrowserError::Auth(e)),
         }
     }
 
@@ -185,11 +251,11 @@ pub async fn post_settings(
     let current_username = user.username.as_ref().map(|u| u.as_str());
     let new_username = username.as_ref().map(|u| u.as_str());
     if current_username != new_username {
-        match state.ath.db().update_user_username(user.id, username).await {
+        match ath.db().update_user_username(user.id, username).await {
             Ok(()) => {}
             Err(AuthError::Conflict(ref msg)) if msg.contains("username") => {
                 let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
-                    fetch_account_data(&state, user.id).await?;
+                    fetch_account_data(&ath, user.id).await?;
                 let ctx = SettingsContext {
                     email: form.email,
                     username: form.username,
@@ -201,17 +267,16 @@ pub async fn post_settings(
                     mfa_enabled,
                     mfa_recovery_remaining,
                 };
-                return Ok(render_settings(&state, csrf.as_str(), &ctx)?.into_response());
+                return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
             }
-            Err(e) => return Err(AppError::Auth(e)),
+            Err(e) => return Err(BrowserError::Auth(e)),
         }
     }
 
     // 5. Audit log
     let ip = client_ip(&headers);
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
-    let _ = state
-        .ath
+    let _ = ath
         .db()
         .log_audit(
             AuditEvent::UserUpdated,
@@ -225,7 +290,7 @@ pub async fn post_settings(
 
     // 6. Re-render with success — use form values for display (they reflect the new state)
     let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
-        fetch_account_data(&state, user.id).await?;
+        fetch_account_data(&ath, user.id).await?;
     let ctx = SettingsContext {
         email: form.email,
         username: form.username,
@@ -237,24 +302,30 @@ pub async fn post_settings(
         mfa_enabled,
         mfa_recovery_remaining,
     };
-    Ok(render_settings(&state, csrf.as_str(), &ctx)?.into_response())
+    Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response())
 }
 
 /// POST /settings/password — change password with session rotation.
-pub async fn post_change_password(
-    State(state): State<AppState>,
-    BrowserAuthUser(user): BrowserAuthUser,
+async fn post_change_password(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<SettingsConfig>,
+    uri: Uri,
     csrf: CsrfToken,
     headers: HeaderMap,
     axum::Form(form): axum::Form<PasswordForm>,
-) -> Result<Response, AppError> {
+) -> Result<Response, BrowserError> {
+    let user = match require_browser_user(&ath, &headers, uri.path()).await {
+        Ok(u) => u,
+        Err(redirect) => return Ok(redirect),
+    };
+
     let ip = client_ip(&headers);
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
 
     // 1. Validate new password length
     if form.new_password.len() < MIN_PASSWORD_LEN {
         let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
-            fetch_account_data(&state, user.id).await?;
+            fetch_account_data(&ath, user.id).await?;
         let ctx = SettingsContext {
             email: user.email.as_str().to_string(),
             username: user
@@ -269,13 +340,13 @@ pub async fn post_change_password(
             mfa_enabled,
             mfa_recovery_remaining,
         };
-        return Ok(render_settings(&state, csrf.as_str(), &ctx)?.into_response());
+        return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
     }
 
     // 2. Validate passwords match
     if form.new_password != form.new_password_confirm {
         let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
-            fetch_account_data(&state, user.id).await?;
+            fetch_account_data(&ath, user.id).await?;
         let ctx = SettingsContext {
             email: user.email.as_str().to_string(),
             username: user
@@ -290,11 +361,11 @@ pub async fn post_change_password(
             mfa_enabled,
             mfa_recovery_remaining,
         };
-        return Ok(render_settings(&state, csrf.as_str(), &ctx)?.into_response());
+        return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
     }
 
     // 3. Verify current password
-    let fetched_user = state.ath.db().find_for_login(user.email.as_str()).await?;
+    let fetched_user = ath.db().find_for_login(user.email.as_str()).await?;
 
     let password_ok = match fetched_user.password_hash {
         Some(ref h) => {
@@ -305,7 +376,7 @@ pub async fn post_change_password(
 
     if !password_ok {
         let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
-            fetch_account_data(&state, user.id).await?;
+            fetch_account_data(&ath, user.id).await?;
         let ctx = SettingsContext {
             email: user.email.as_str().to_string(),
             username: user
@@ -320,32 +391,27 @@ pub async fn post_change_password(
             mfa_enabled,
             mfa_recovery_remaining,
         };
-        return Ok(render_settings(&state, csrf.as_str(), &ctx)?.into_response());
+        return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
     }
 
     // 4. Update password
-    state
-        .ath
-        .db()
+    ath.db()
         .update_user_password(user.id, &form.new_password)
         .await?;
 
     // 5. Invalidate all sessions + create fresh one
-    state.ath.db().delete_user_sessions(&user.id).await?;
+    ath.db().delete_user_sessions(&user.id).await?;
 
     let token = allowthem_core::generate_token();
     let token_hash = allowthem_core::hash_token(&token);
-    let expires_at = chrono::Utc::now() + state.ath.session_config().ttl;
-    state
-        .ath
-        .db()
+    let expires_at = chrono::Utc::now() + ath.session_config().ttl;
+    ath.db()
         .create_session(user.id, token_hash, ip.as_deref(), ua, expires_at)
         .await?;
-    let cookie = state.ath.session_cookie(&token);
+    let cookie = ath.session_cookie(&token);
 
     // 6. Audit log
-    let _ = state
-        .ath
+    let _ = ath
         .db()
         .log_audit(
             AuditEvent::PasswordChange,
@@ -359,7 +425,7 @@ pub async fn post_change_password(
 
     // 7. Render success page with Set-Cookie header for new session
     let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
-        fetch_account_data(&state, user.id).await?;
+        fetch_account_data(&ath, user.id).await?;
     let ctx = SettingsContext {
         email: user.email.as_str().to_string(),
         username: user
@@ -374,9 +440,23 @@ pub async fn post_change_password(
         mfa_enabled,
         mfa_recovery_remaining,
     };
-    let html = render_settings(&state, csrf.as_str(), &ctx)?;
+    let html = render_settings(&config, csrf.as_str(), &ctx)?;
 
     Ok(([(axum::http::header::SET_COOKIE, cookie)], html).into_response())
+}
+
+pub fn settings_routes(
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+) -> Router<AllowThem> {
+    let cfg = SettingsConfig {
+        templates,
+        is_production,
+    };
+    Router::new()
+        .route("/settings", get(get_settings).post(post_settings))
+        .route("/settings/password", post(post_change_password))
+        .layer(Extension(cfg))
 }
 
 #[cfg(test)]
@@ -386,27 +466,24 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use axum::routing::{get, post};
     use tower::ServiceExt;
 
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuditEvent, AuthClient, Email, EmbeddedAuthClient,
-        LogEmailSender, Username, generate_token, hash_token, parse_session_cookie,
+        AllowThem, AllowThemBuilder, AuditEvent, Email, Username,
+        generate_token, hash_token, parse_session_cookie,
     };
-    use allowthem_server::csrf_middleware;
 
-    use crate::state::AppState;
+    use super::{SettingsConfig, settings_routes};
 
-    async fn setup() -> (AllowThem, AppState, String) {
+    async fn setup() -> (AllowThem, SettingsConfig, String) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
-        let auth_client: Arc<dyn AuthClient> =
-            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = crate::templates::build_template_env().unwrap();
+
+        let templates = crate::browser_templates::build_default_browser_env();
 
         let email = Email::new("user@example.com".into()).unwrap();
         let user = ath
@@ -425,30 +502,21 @@ mod tests {
         let set_cookie = ath.session_cookie(&token);
         let cookie_value = set_cookie.split(';').next().unwrap().to_string();
 
-        let state = AppState {
-            ath: ath.clone(),
-            auth_client,
-            base_url: "http://localhost:3000".into(),
+        let config = SettingsConfig {
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
         };
-        (ath, state, cookie_value)
+
+        (ath, config, cookie_value)
     }
 
-    fn test_app(state: AppState) -> Router {
-        Router::new()
-            .route(
-                "/settings",
-                get(super::get_settings).post(super::post_settings),
-            )
-            .route("/settings/password", post(super::post_change_password))
-            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
-            .with_state(state)
+    fn test_app(ath: AllowThem, config: SettingsConfig) -> Router {
+        settings_routes(config.templates.clone(), config.is_production)
+            .layer(axum::middleware::from_fn_with_state(
+                ath.clone(),
+                crate::csrf::csrf_middleware,
+            ))
+            .with_state(ath)
     }
 
     async fn get_csrf_token(app: &Router, cookie: &str) -> String {
@@ -526,8 +594,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_settings_renders_page() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let req = Request::builder()
             .uri("/settings")
             .header(header::COOKIE, &cookie)
@@ -543,8 +611,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_settings_unauthenticated_redirects() {
-        let (_, state, _) = setup().await;
-        let app = test_app(state);
+        let (ath, config, _) = setup().await;
+        let app = test_app(ath, config);
         let req = Request::builder()
             .uri("/settings")
             .body(Body::empty())
@@ -559,8 +627,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_settings_shows_csrf_token() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let req = Request::builder()
             .uri("/settings")
             .header(header::COOKIE, &cookie)
@@ -573,8 +641,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_settings_shows_oauth_section() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let req = Request::builder()
             .uri("/settings")
             .header(header::COOKIE, &cookie)
@@ -588,8 +656,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_settings_shows_mfa_section() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let req = Request::builder()
             .uri("/settings")
             .header(header::COOKIE, &cookie)
@@ -605,8 +673,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_settings_updates_email() {
-        let (ath, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = profile_request(&csrf, &cookie, "new@example.com", "testuser");
         let resp = app.oneshot(req).await.unwrap();
@@ -621,8 +689,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_settings_updates_username() {
-        let (ath, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = profile_request(&csrf, &cookie, "user@example.com", "newname");
         let resp = app.oneshot(req).await.unwrap();
@@ -635,8 +703,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_settings_clears_username() {
-        let (ath, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = profile_request(&csrf, &cookie, "user@example.com", "");
         let resp = app.oneshot(req).await.unwrap();
@@ -649,14 +717,14 @@ mod tests {
 
     #[tokio::test]
     async fn post_settings_duplicate_email_shows_error() {
-        let (ath, state, cookie) = setup().await;
+        let (ath, config, cookie) = setup().await;
         let other_email = Email::new("other@example.com".into()).unwrap();
         ath.db()
             .create_user(other_email, "password123", None)
             .await
             .unwrap();
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = profile_request(&csrf, &cookie, "other@example.com", "testuser");
         let resp = app.oneshot(req).await.unwrap();
@@ -666,14 +734,14 @@ mod tests {
 
     #[tokio::test]
     async fn post_settings_duplicate_username_shows_error() {
-        let (ath, state, cookie) = setup().await;
+        let (ath, config, cookie) = setup().await;
         let other_email = Email::new("other@example.com".into()).unwrap();
         ath.db()
             .create_user(other_email, "password123", Some(Username::new("taken")))
             .await
             .unwrap();
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = profile_request(&csrf, &cookie, "user@example.com", "taken");
         let resp = app.oneshot(req).await.unwrap();
@@ -683,8 +751,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_settings_invalid_email_shows_error() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = profile_request(&csrf, &cookie, "not-an-email", "testuser");
         let resp = app.oneshot(req).await.unwrap();
@@ -694,8 +762,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_settings_no_changes_succeeds() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = profile_request(&csrf, &cookie, "user@example.com", "testuser");
         let resp = app.oneshot(req).await.unwrap();
@@ -705,8 +773,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_settings_logs_audit() {
-        let (ath, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = profile_request(&csrf, &cookie, "user@example.com", "testuser");
         app.oneshot(req).await.unwrap();
@@ -723,8 +791,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_settings_requires_csrf() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let body = "email=user%40example.com&username=testuser";
         let req = Request::builder()
             .method("POST")
@@ -741,8 +809,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_password_change_success() {
-        let (ath, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = password_request(
             &csrf,
@@ -770,8 +838,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_password_wrong_current() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = password_request(
             &csrf,
@@ -787,8 +855,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_password_too_short() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = password_request(&csrf, &cookie, "password123", "abc", "abc");
         let resp = app.oneshot(req).await.unwrap();
@@ -798,8 +866,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_password_mismatch() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = password_request(
             &csrf,
@@ -815,7 +883,7 @@ mod tests {
 
     #[tokio::test]
     async fn post_password_invalidates_other_sessions() {
-        let (ath, state, cookie) = setup().await;
+        let (ath, config, cookie) = setup().await;
 
         // Create a second session
         let email = Email::new("user@example.com".into()).unwrap();
@@ -828,7 +896,7 @@ mod tests {
             .await
             .unwrap();
 
-        let app = test_app(state);
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = password_request(
             &csrf,
@@ -856,8 +924,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_password_new_cookie_authenticates() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state.clone());
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath.clone(), config.clone());
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = password_request(
             &csrf,
@@ -880,7 +948,7 @@ mod tests {
         let new_cookie = format!("allowthem_session={}", new_token.as_str());
 
         // Use the new cookie to access GET /settings on a fresh router with same state
-        let app2 = test_app(state);
+        let app2 = test_app(ath, config);
         let req = Request::builder()
             .uri("/settings")
             .header(header::COOKIE, &new_cookie)
@@ -894,8 +962,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_password_logs_audit() {
-        let (ath, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = password_request(
             &csrf,
@@ -918,8 +986,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_password_requires_csrf() {
-        let (_, state, cookie) = setup().await;
-        let app = test_app(state);
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
         let body = "current_password=pass&new_password=newpass123&new_password_confirm=newpass123";
         let req = Request::builder()
             .method("POST")
@@ -942,9 +1010,7 @@ mod tests {
             .build()
             .await
             .unwrap();
-        let auth_client: Arc<dyn AuthClient> =
-            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = crate::templates::build_template_env().unwrap();
+        let templates = crate::browser_templates::build_default_browser_env();
 
         let email = Email::new("oauth@example.com".into()).unwrap();
         let user = ath
@@ -963,20 +1029,12 @@ mod tests {
         let set_cookie = ath.session_cookie(&token);
         let cookie = set_cookie.split(';').next().unwrap().to_string();
 
-        let state = AppState {
-            ath: ath.clone(),
-            auth_client,
-            base_url: "http://localhost:3000".into(),
+        let config = SettingsConfig {
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
         };
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &cookie).await;
         let req = password_request(
             &csrf,

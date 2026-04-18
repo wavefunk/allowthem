@@ -6,7 +6,6 @@ mod error;
 mod mfa;
 mod mock_oauth;
 mod password_reset;
-mod settings;
 mod state;
 mod templates;
 mod test_oauth_routes;
@@ -25,7 +24,7 @@ use allowthem_core::{
 };
 use allowthem_server::{
     consent_routes, csrf_middleware, login_routes, logout_routes, oauth_routes, register_routes,
-    token_route, userinfo_route, well_known_routes,
+    settings_routes, token_route, userinfo_route, well_known_routes,
 };
 
 use crate::state::AppState;
@@ -171,14 +170,7 @@ async fn main() -> Result<()> {
             "/auth/reset-password",
             get(password_reset::get_reset_password).post(password_reset::post_reset_password),
         )
-        .route(
-            "/settings",
-            get(settings::get_settings).post(settings::post_settings),
-        )
-        .route(
-            "/settings/password",
-            axum::routing::post(settings::post_change_password),
-        )
+        .merge(settings_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
         .route(
             "/settings/mfa/setup",
             get(mfa::get_mfa_setup),
