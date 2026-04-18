@@ -1,15 +1,27 @@
+use std::sync::Arc;
+
+use axum::Extension;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use minijinja::context;
+use axum::routing::get;
+use axum::Router;
+use minijinja::{Environment, context};
 use serde::Serialize;
 
-use allowthem_server::{AuthorizeOutcome, AuthorizeParams, CsrfToken, check_authorization};
+use allowthem_core::AllowThem;
 
+use crate::authorize_routes::{AuthorizeOutcome, AuthorizeParams, check_authorization};
 use crate::branding::{compute_accent_variants, default_accents};
-use crate::error::AppError;
-use crate::state::AppState;
-use crate::templates::render;
+use crate::browser_error::BrowserError;
+use crate::browser_templates::render;
+use crate::csrf::CsrfToken;
+
+#[derive(Clone)]
+struct ConsentConfig {
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+}
 
 #[derive(Serialize)]
 struct ScopeItem {
@@ -34,13 +46,14 @@ fn build_scope_items(scopes: &[String]) -> Vec<ScopeItem> {
 }
 
 /// GET /oauth/authorize — render consent screen or delegate to redirect.
-pub async fn get_authorize(
-    State(state): State<AppState>,
+async fn get_authorize(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<ConsentConfig>,
     csrf: CsrfToken,
     headers: HeaderMap,
     Query(params): Query<AuthorizeParams>,
-) -> Result<Response, AppError> {
-    match check_authorization(&state.ath, &headers, &params).await {
+) -> Result<Response, BrowserError> {
+    match check_authorization(&ath, &headers, &params).await {
         AuthorizeOutcome::Redirect(resp) => Ok(resp),
         AuthorizeOutcome::ConsentNeeded(data) => {
             let scope_items = build_scope_items(&data.context.scopes);
@@ -53,7 +66,7 @@ pub async fn get_authorize(
                 .unwrap_or_else(default_accents);
 
             let html = render(
-                &state.templates,
+                &config.templates,
                 "consent.html",
                 context! {
                     application_name => branding.application_name.clone(),
@@ -71,10 +84,26 @@ pub async fn get_authorize(
                     code_challenge_method => data.params.code_challenge_method,
                     nonce => data.params.nonce,
                     csrf_token => csrf.as_str(),
+                    is_production => config.is_production,
                 },
-                state.is_production,
             )?;
             Ok(html.into_response())
         }
     }
+}
+
+pub fn consent_routes(
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+) -> Router<AllowThem> {
+    let cfg = ConsentConfig {
+        templates,
+        is_production,
+    };
+    Router::new()
+        .route(
+            "/oauth/authorize",
+            get(get_authorize).post(crate::authorize_routes::authorize_post),
+        )
+        .layer(Extension(cfg))
 }

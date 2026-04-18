@@ -139,6 +139,7 @@ dependencies = [
  "governor",
  "hmac",
  "jsonwebtoken",
+ "minijinja",
  "serde",
  "serde_json",
  "sha2",

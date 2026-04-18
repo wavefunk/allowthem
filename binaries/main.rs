@@ -3,7 +3,6 @@ mod admin_audit;
 mod admin_sessions;
 mod branding;
 mod config;
-mod consent;
 mod error;
 mod login;
 mod mfa;
@@ -28,7 +27,7 @@ use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
 use allowthem_server::{
-    authorize_post, csrf_middleware, logout_routes, oauth_routes, token_route, userinfo_route,
+    consent_routes, csrf_middleware, logout_routes, oauth_routes, token_route, userinfo_route,
     well_known_routes,
 };
 
@@ -192,10 +191,7 @@ async fn main() -> Result<()> {
             "/settings/mfa/disable",
             axum::routing::post(mfa::post_mfa_disable),
         )
-        .route(
-            "/oauth/authorize",
-            get(consent::get_authorize).post(authorize_post),
-        )
+        .merge(consent_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
         .nest("/admin/applications", admin_applications::routes())
         .nest("/admin/audit", admin_audit::routes())
         .nest("/admin/sessions", admin_sessions::routes())
@@ -671,7 +667,6 @@ mod tests {
 #[cfg(test)]
 mod consent_tests {
     use super::*;
-    use allowthem_server::authorize_post;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
@@ -702,12 +697,11 @@ mod consent_tests {
     }
 
     fn consent_router(state: AppState) -> Router {
-        use allowthem_server::csrf_middleware;
+        let ath = state.ath.clone();
+        let templates = state.templates.clone();
+        let is_production = state.is_production;
         Router::new()
-            .route(
-                "/oauth/authorize",
-                axum::routing::get(consent::get_authorize).post(authorize_post),
-            )
+            .merge(consent_routes(templates, is_production).with_state(ath))
             .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
             .with_state(state)
     }
