@@ -6,7 +6,6 @@ mod config;
 mod consent;
 mod error;
 mod login;
-mod logout;
 mod mfa;
 mod mock_oauth;
 mod password_reset;
@@ -29,7 +28,8 @@ use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
 use allowthem_server::{
-    authorize_post, csrf_middleware, oauth_routes, token_route, userinfo_route, well_known_routes,
+    authorize_post, csrf_middleware, logout_routes, oauth_routes, token_route, userinfo_route,
+    well_known_routes,
 };
 
 use crate::state::AppState;
@@ -163,7 +163,7 @@ async fn main() -> Result<()> {
             get(register::get_register).post(register::post_register),
         )
         .route("/login", get(login::get_login).post(login::post_login))
-        .route("/logout", get(logout::handler).post(logout::handler))
+        .merge(logout_routes().with_state(ath.clone()))
         .route(
             "/forgot-password",
             get(password_reset::get_forgot_password).post(password_reset::post_forgot_password),

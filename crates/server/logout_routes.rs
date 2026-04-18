@@ -2,16 +2,16 @@ use axum::extract::State;
 use axum::http::header::{COOKIE, SET_COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use axum::routing::get;
+use axum::Router;
 
 use allowthem_core::{AllowThem, AuditEvent};
 
-/// GET and POST /logout
-///
-/// Extracts the session token from the cookie, deletes it, clears the cookie,
-/// logs an audit event, and redirects to /login. If the user is already
-/// unauthenticated (no cookie or unknown token), the handler still redirects
-/// gracefully.
-pub async fn handler(State(ath): State<AllowThem>, headers: HeaderMap) -> Response {
+pub fn logout_routes() -> Router<AllowThem> {
+    Router::new().route("/logout", get(handler).post(handler))
+}
+
+async fn handler(State(ath): State<AllowThem>, headers: HeaderMap) -> Response {
     let cookie_name = ath.session_config().cookie_name;
     let secure = ath.session_config().secure;
 
@@ -86,11 +86,12 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use axum::routing::get;
     use chrono::{Duration, Utc};
     use tower::ServiceExt;
 
     use allowthem_core::{AllowThemBuilder, AuditEvent, Email, generate_token, hash_token};
+
+    use super::*;
 
     async fn setup() -> (
         allowthem_core::AllowThem,
@@ -124,9 +125,7 @@ mod tests {
     }
 
     fn test_app(ath: allowthem_core::AllowThem) -> Router {
-        Router::new()
-            .route("/logout", get(super::handler).post(super::handler))
-            .with_state(ath)
+        logout_routes().with_state(ath)
     }
 
     #[tokio::test]
