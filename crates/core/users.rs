@@ -381,4 +381,58 @@ impl Db {
         }
         Ok(())
     }
+
+    /// Get a user's custom data.
+    ///
+    /// Returns `Err(NotFound)` if no user with `id` exists.
+    /// Returns `Ok(None)` if the user exists but has no custom data.
+    pub async fn get_custom_data(&self, id: &UserId) -> Result<Option<Value>, AuthError> {
+        let row: Option<(Option<Value>,)> = sqlx::query_as(
+            "SELECT custom_data FROM allowthem_users WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(self.pool())
+        .await?;
+
+        match row {
+            None => Err(AuthError::NotFound),
+            Some((data,)) => Ok(data),
+        }
+    }
+
+    /// Set a user's custom data. Also updates `updated_at`.
+    ///
+    /// Returns `Err(NotFound)` if no user with `id` exists.
+    pub async fn set_custom_data(&self, id: &UserId, data: &Value) -> Result<(), AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let result = sqlx::query(
+            "UPDATE allowthem_users SET custom_data = ?1, updated_at = ?2 WHERE id = ?3",
+        )
+        .bind(sqlx::types::Json(data))
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Delete (clear) a user's custom data by setting it to NULL. Also updates `updated_at`.
+    ///
+    /// Idempotent -- succeeds even if custom data is already NULL.
+    pub async fn delete_custom_data(&self, id: &UserId) -> Result<(), AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        sqlx::query(
+            "UPDATE allowthem_users SET custom_data = NULL, updated_at = ?1 WHERE id = ?2",
+        )
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+
+        Ok(())
+    }
 }

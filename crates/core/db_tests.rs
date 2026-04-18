@@ -2941,3 +2941,77 @@ async fn get_branding_returns_none_for_missing_app() {
     let branding = db.get_branding_by_client_id(&fake_id).await.unwrap();
     assert!(branding.is_none());
 }
+
+// --- Custom data CRUD tests ---
+
+#[tokio::test]
+async fn custom_data_lifecycle() {
+    let db = test_db().await;
+    let email = Email::new("lifecycle@example.com".into()).expect("valid email");
+    let user = db
+        .create_user(email, "password", None, None)
+        .await
+        .expect("create_user");
+
+    // Initially None
+    let data = db.get_custom_data(&user.id).await.expect("get_custom_data");
+    assert!(data.is_none());
+
+    // Set
+    let v1 = serde_json::json!({"tier": "free"});
+    db.set_custom_data(&user.id, &v1).await.expect("set_custom_data");
+    let data = db.get_custom_data(&user.id).await.expect("get after set");
+    assert_eq!(data, Some(serde_json::json!({"tier": "free"})));
+
+    // Overwrite
+    let v2 = serde_json::json!({"tier": "pro", "seats": 5});
+    db.set_custom_data(&user.id, &v2).await.expect("overwrite");
+    let data = db.get_custom_data(&user.id).await.expect("get after overwrite");
+    assert_eq!(data, Some(serde_json::json!({"tier": "pro", "seats": 5})));
+
+    // Delete
+    db.delete_custom_data(&user.id).await.expect("delete");
+    let data = db.get_custom_data(&user.id).await.expect("get after delete");
+    assert!(data.is_none());
+}
+
+#[tokio::test]
+async fn set_custom_data_nonexistent_user_returns_not_found() {
+    let db = test_db().await;
+    let fake_id = UserId::new();
+    let data = serde_json::json!({"key": "value"});
+    let result = db.set_custom_data(&fake_id, &data).await;
+    assert!(
+        matches!(result, Err(AuthError::NotFound)),
+        "set_custom_data on nonexistent user must return NotFound"
+    );
+}
+
+#[tokio::test]
+async fn delete_custom_data_is_idempotent() {
+    let db = test_db().await;
+    let email = Email::new("idempotent@example.com".into()).expect("valid email");
+    let user = db
+        .create_user(email, "password", None, None)
+        .await
+        .expect("create_user");
+
+    // Delete when already NULL -- both should succeed
+    db.delete_custom_data(&user.id).await.expect("first delete");
+    db.delete_custom_data(&user.id).await.expect("second delete");
+}
+
+#[tokio::test]
+async fn get_user_includes_custom_data() {
+    let db = test_db().await;
+    let email = Email::new("includes@example.com".into()).expect("valid email");
+    let data = serde_json::json!({"org": "wavefunk"});
+
+    let user = db
+        .create_user(email, "password", None, Some(&data))
+        .await
+        .expect("create_user with data");
+
+    let fetched = db.get_user(user.id).await.expect("get_user");
+    assert_eq!(fetched.custom_data, Some(serde_json::json!({"org": "wavefunk"})));
+}
