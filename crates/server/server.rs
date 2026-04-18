@@ -18,6 +18,7 @@ pub mod rate_limit;
 pub mod register_routes;
 pub mod token_route;
 pub mod userinfo_route;
+pub mod login_routes;
 pub mod logout_routes;
 pub mod well_known_routes;
 
@@ -33,6 +34,7 @@ pub use csrf::{CsrfToken, csrf_middleware};
 pub use error::AuthExtractError;
 pub use extractors::{AuthUser, BrowserAdminUser, BrowserAuthUser, OptionalAuthUser};
 pub use consent_routes::consent_routes;
+pub use login_routes::login_routes;
 pub use logout_routes::logout_routes;
 pub use mfa_routes::mfa_routes;
 pub use middleware::{require_auth, require_permission, require_role};

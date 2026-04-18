@@ -27,6 +27,7 @@ uuid.workspace = true
 governor.workspace = true
 hmac.workspace = true
 minijinja.workspace = true
+dashmap.workspace = true
 subtle.workspace = true
 
 [dev-dependencies]

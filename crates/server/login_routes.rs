@@ -1,26 +1,29 @@
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::Instant;
 
+use axum::Extension;
 use axum::Form;
 use axum::extract::{ConnectInfo, Query, State};
-use axum::http::StatusCode;
 use axum::http::header::{COOKIE, SET_COOKIE, USER_AGENT};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
+use axum::routing::get;
+use axum::Router;
 use chrono::Utc;
-use minijinja::context;
+use dashmap::DashMap;
+use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::password::verify_password;
 use allowthem_core::sessions;
 use allowthem_core::types::ClientId;
-use allowthem_core::{AuditEvent, PasswordHash, SessionToken};
-use allowthem_server::CsrfToken;
+use allowthem_core::{AllowThem, AuditEvent, PasswordHash, SessionToken};
 
 use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
-use crate::error::AppError;
-use crate::state::AppState;
-use crate::templates::render;
+use crate::browser_error::BrowserError;
+use crate::csrf::CsrfToken;
 
 /// Generic error shown for all credential failures.
 const LOGIN_ERROR: &str = "Invalid email or password.";
@@ -30,14 +33,24 @@ const LOGIN_ERROR: &str = "Invalid email or password.";
 /// full Argon2id computation so the response time is consistent.
 const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$ldQz3PJVzDn06G+Bzin5Ew$IaOeOaTQjgM1uJpHDULCxq8r6pj2OqvY/lcKo6Fv3IM";
 
+#[derive(Clone)]
+struct LoginConfig {
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+    login_attempts: Arc<DashMap<IpAddr, (u32, Instant)>>,
+    max_login_attempts: u32,
+    rate_limit_window_secs: u64,
+    oauth_providers: Vec<String>,
+}
+
 #[derive(Deserialize)]
-pub struct LoginQuery {
+struct LoginQuery {
     next: Option<String>,
     client_id: Option<ClientId>,
 }
 
 #[derive(Deserialize)]
-pub struct LoginForm {
+struct LoginForm {
     identifier: String,
     password: String,
     next: Option<String>,
@@ -56,10 +69,7 @@ fn validate_next(next: &str) -> &str {
     }
 }
 
-fn extract_session_token(
-    ath: &allowthem_core::AllowThem,
-    headers: &axum::http::HeaderMap,
-) -> Option<SessionToken> {
+fn extract_session_token(ath: &AllowThem, headers: &HeaderMap) -> Option<SessionToken> {
     headers
         .get(COOKIE)
         .and_then(|v| v.to_str().ok())
@@ -67,22 +77,22 @@ fn extract_session_token(
 }
 
 fn render_login_form(
-    state: &AppState,
+    config: &LoginConfig,
     csrf_token: &str,
     identifier: &str,
     next: Option<&str>,
     error: &str,
     client_id: Option<&ClientId>,
     branding: Option<&BrandingConfig>,
-) -> Result<Html<String>, AppError> {
+) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
     let (accent, accent_hover, accent_ring) = branding
         .and_then(|b| b.primary_color.as_deref())
         .map(compute_accent_variants)
         .unwrap_or_else(default_accents);
 
-    render(
-        &state.templates,
+    crate::browser_templates::render(
+        &config.templates,
         "login.html",
         context! {
             csrf_token,
@@ -95,31 +105,31 @@ fn render_login_form(
             accent,
             accent_hover,
             accent_ring,
-            oauth_providers => &state.oauth_providers,
+            oauth_providers => &config.oauth_providers,
+            is_production => config.is_production,
         },
-        state.is_production,
     )
 }
 
-fn is_rate_limited(state: &AppState, ip: IpAddr) -> bool {
-    if let Some(entry) = state.login_attempts.get(&ip) {
+fn is_rate_limited(config: &LoginConfig, ip: IpAddr) -> bool {
+    if let Some(entry) = config.login_attempts.get(&ip) {
         let (count, window_start) = *entry;
-        if window_start.elapsed().as_secs() > state.rate_limit_window_secs {
+        if window_start.elapsed().as_secs() > config.rate_limit_window_secs {
             return false;
         }
-        count >= state.max_login_attempts
+        count >= config.max_login_attempts
     } else {
         false
     }
 }
 
-fn record_login_failure(state: &AppState, ip: IpAddr) {
+fn record_login_failure(config: &LoginConfig, ip: IpAddr) {
     let now = Instant::now();
-    state
+    config
         .login_attempts
         .entry(ip)
         .and_modify(|(count, window_start)| {
-            if window_start.elapsed().as_secs() > state.rate_limit_window_secs {
+            if window_start.elapsed().as_secs() > config.rate_limit_window_secs {
                 *count = 1;
                 *window_start = now;
             } else {
@@ -129,20 +139,21 @@ fn record_login_failure(state: &AppState, ip: IpAddr) {
         .or_insert((1, now));
 }
 
-fn record_login_success(state: &AppState, ip: IpAddr) {
-    state.login_attempts.remove(&ip);
+fn record_login_success(config: &LoginConfig, ip: IpAddr) {
+    config.login_attempts.remove(&ip);
 }
 
 /// GET /login — render the login form, or redirect if already authenticated.
-pub async fn get_login(
-    State(state): State<AppState>,
+async fn get_login(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<LoginConfig>,
     csrf: CsrfToken,
     Query(query): Query<LoginQuery>,
-    headers: axum::http::HeaderMap,
-) -> Result<Response, AppError> {
+    headers: HeaderMap,
+) -> Result<Response, BrowserError> {
     // If already authenticated, redirect
-    if let Some(token) = extract_session_token(&state.ath, &headers)
-        && state.ath.db().lookup_session(&token).await?.is_some()
+    if let Some(token) = extract_session_token(&ath, &headers)
+        && ath.db().lookup_session(&token).await?.is_some()
     {
         let dest = query.next.as_deref().map(validate_next).unwrap_or("/");
         return Ok((
@@ -152,9 +163,9 @@ pub async fn get_login(
             .into_response());
     }
 
-    let branding = lookup_branding(&state, query.client_id.as_ref()).await;
+    let branding = lookup_branding(&ath, query.client_id.as_ref()).await;
     let html = render_login_form(
-        &state,
+        &config,
         csrf.as_str(),
         "",
         query.next.as_deref(),
@@ -166,22 +177,23 @@ pub async fn get_login(
 }
 
 /// POST /login — validate credentials, create session on success.
-pub async fn post_login(
-    State(state): State<AppState>,
+async fn post_login(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<LoginConfig>,
     csrf: CsrfToken,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    headers: axum::http::HeaderMap,
+    headers: HeaderMap,
     Form(form): Form<LoginForm>,
-) -> Result<Response, AppError> {
+) -> Result<Response, BrowserError> {
     let ip = addr.ip();
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
     let ip_str = ip.to_string();
-    let branding = lookup_branding(&state, form.client_id.as_ref()).await;
+    let branding = lookup_branding(&ath, form.client_id.as_ref()).await;
 
     // 1. Rate limit check
-    if is_rate_limited(&state, ip) {
+    if is_rate_limited(&config, ip) {
         let html = render_login_form(
-            &state,
+            &config,
             csrf.as_str(),
             &form.identifier,
             form.next.as_deref(),
@@ -195,7 +207,7 @@ pub async fn post_login(
     let identifier = form.identifier.trim();
     if identifier.is_empty() {
         let html = render_login_form(
-            &state,
+            &config,
             csrf.as_str(),
             "",
             form.next.as_deref(),
@@ -208,7 +220,7 @@ pub async fn post_login(
 
     // 2. Look up user
     let dummy = PasswordHash::new_unchecked(DUMMY_HASH.to_string());
-    let user = state.ath.db().find_for_login(identifier).await;
+    let user = ath.db().find_for_login(identifier).await;
 
     match user {
         Ok(user) => {
@@ -217,11 +229,11 @@ pub async fn post_login(
 
             if password_ok && user.is_active {
                 // Success
-                record_login_success(&state, ip);
+                record_login_success(&config, ip);
 
                 // MFA gate: if user has MFA enabled, redirect to challenge page
-                if state.ath.has_mfa_enabled(user.id).await? {
-                    let mfa_token = state.ath.db().create_mfa_challenge(user.id).await?;
+                if ath.has_mfa_enabled(user.id).await? {
+                    let mfa_token = ath.db().create_mfa_challenge(user.id).await?;
                     let dest = format!("/mfa/challenge?token={mfa_token}");
                     return Ok((
                         StatusCode::SEE_OTHER,
@@ -232,17 +244,14 @@ pub async fn post_login(
 
                 let token = sessions::generate_token();
                 let token_hash = sessions::hash_token(&token);
-                let ttl = state.ath.session_config().ttl;
+                let ttl = ath.session_config().ttl;
                 let expires_at = Utc::now() + ttl;
-                state
-                    .ath
-                    .db()
+                ath.db()
                     .create_session(user.id, token_hash, Some(&ip_str), ua, expires_at)
                     .await?;
 
-                let cookie = state.ath.session_cookie(&token);
-                let _ = state
-                    .ath
+                let cookie = ath.session_cookie(&token);
+                let _ = ath
                     .db()
                     .log_audit(
                         AuditEvent::Login,
@@ -265,8 +274,7 @@ pub async fn post_login(
                     .into_response())
             } else {
                 // Wrong password or inactive user
-                let _ = state
-                    .ath
+                let _ = ath
                     .db()
                     .log_audit(
                         AuditEvent::LoginFailed,
@@ -277,10 +285,10 @@ pub async fn post_login(
                         Some(identifier),
                     )
                     .await;
-                record_login_failure(&state, ip);
+                record_login_failure(&config, ip);
 
                 let html = render_login_form(
-                    &state,
+                    &config,
                     csrf.as_str(),
                     identifier,
                     form.next.as_deref(),
@@ -295,8 +303,7 @@ pub async fn post_login(
             // Timing equalization: run verify against dummy hash
             let _ = verify_password(&form.password, &dummy);
 
-            let _ = state
-                .ath
+            let _ = ath
                 .db()
                 .log_audit(
                     AuditEvent::LoginFailed,
@@ -307,10 +314,10 @@ pub async fn post_login(
                     Some(identifier),
                 )
                 .await;
-            record_login_failure(&state, ip);
+            record_login_failure(&config, ip);
 
             let html = render_login_form(
-                &state,
+                &config,
                 csrf.as_str(),
                 identifier,
                 form.next.as_deref(),
@@ -320,61 +327,78 @@ pub async fn post_login(
             )?;
             Ok(html.into_response())
         }
-        Err(e) => Err(AppError::Auth(e)),
+        Err(e) => Err(BrowserError::Auth(e)),
     }
+}
+
+pub fn login_routes(
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+    max_login_attempts: u32,
+    rate_limit_window_secs: u64,
+    oauth_providers: Vec<String>,
+) -> Router<AllowThem> {
+    let cfg = LoginConfig {
+        templates,
+        is_production,
+        login_attempts: Arc::new(DashMap::new()),
+        max_login_attempts,
+        rate_limit_window_secs,
+        oauth_providers,
+    };
+    Router::new()
+        .route("/login", get(get_login).post(post_login))
+        .layer(Extension(cfg))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
     use axum::Router;
     use axum::body::Body;
     use axum::extract::connect_info::MockConnectInfo;
     use axum::http::{Request, StatusCode, header};
-    use axum::routing::get;
     use chrono::Duration;
     use tower::ServiceExt;
 
     use allowthem_core::{
-        AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, LogEmailSender, generate_token,
-        hash_token,
+        AllowThemBuilder, Email, generate_token, hash_token,
     };
-    use allowthem_server::csrf_middleware;
 
-    use crate::state::AppState;
-
-    async fn setup() -> AppState {
+    async fn setup() -> (AllowThem, LoginConfig) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
-        let auth_client: Arc<dyn AuthClient> =
-            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = crate::templates::build_template_env().unwrap();
-        AppState {
-            ath,
-            auth_client,
-            base_url: "http://localhost:3000".into(),
+        let templates = crate::browser_templates::build_default_browser_env();
+        let config = LoginConfig {
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
+            login_attempts: Arc::new(DashMap::new()),
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
             oauth_providers: Vec::new(),
-        }
+        };
+        (ath, config)
     }
 
-    fn test_app(state: AppState) -> Router {
-        Router::new()
-            .route("/login", get(super::get_login).post(super::post_login))
-            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
-            .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))))
-            .with_state(state)
+    fn test_app(ath: AllowThem, config: LoginConfig) -> Router {
+        login_routes(
+            config.templates.clone(),
+            config.is_production,
+            config.max_login_attempts,
+            config.rate_limit_window_secs,
+            config.oauth_providers.clone(),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::csrf::csrf_middleware,
+        ))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))))
+        .with_state(ath)
     }
 
     async fn get_csrf_token(app: &Router) -> String {
@@ -422,11 +446,9 @@ mod tests {
             .unwrap()
     }
 
-    async fn create_user(state: &AppState, email: &str, password: &str) {
+    async fn create_user(ath: &AllowThem, email: &str, password: &str) {
         let email = Email::new(email.into()).unwrap();
-        state
-            .ath
-            .db()
+        ath.db()
             .create_user(email, password, None)
             .await
             .unwrap();
@@ -455,8 +477,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_login_renders_form() {
-        let state = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
 
         let resp = app
             .oneshot(
@@ -483,11 +505,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_login_redirects_when_authenticated() {
-        let state = setup().await;
+        let (ath, config) = setup().await;
 
         let email = Email::new("auth@example.com".into()).unwrap();
-        let user = state
-            .ath
+        let user = ath
             .db()
             .create_user(email, "pass123", None)
             .await
@@ -495,16 +516,14 @@ mod tests {
         let token = generate_token();
         let token_hash = hash_token(&token);
         let expires = Utc::now() + Duration::hours(24);
-        state
-            .ath
-            .db()
+        ath.db()
             .create_session(user.id, token_hash, None, None, expires)
             .await
             .unwrap();
-        let cookie = state.ath.session_cookie(&token);
+        let cookie = ath.session_cookie(&token);
         let cookie_val = cookie.split(';').next().unwrap();
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let req = Request::builder()
             .uri("/login")
             .header(header::COOKIE, cookie_val)
@@ -518,8 +537,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_login_preserves_next_param() {
-        let state = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
 
         let resp = app
             .oneshot(
@@ -549,9 +568,9 @@ mod tests {
 
     #[tokio::test]
     async fn post_login_success_redirects() {
-        let state = setup().await;
-        create_user(&state, "login@example.com", "correcthorse").await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        create_user(&ath, "login@example.com", "correcthorse").await;
+        let app = test_app(ath, config);
 
         let csrf = get_csrf_token(&app).await;
         let req = login_request(&csrf, "login@example.com", "correcthorse", None);
@@ -567,9 +586,9 @@ mod tests {
 
     #[tokio::test]
     async fn post_login_success_redirects_to_next() {
-        let state = setup().await;
-        create_user(&state, "next@example.com", "correcthorse").await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        create_user(&ath, "next@example.com", "correcthorse").await;
+        let app = test_app(ath, config);
 
         let csrf = get_csrf_token(&app).await;
         let req = login_request(
@@ -586,9 +605,9 @@ mod tests {
 
     #[tokio::test]
     async fn post_login_wrong_password_shows_error() {
-        let state = setup().await;
-        create_user(&state, "wrong@example.com", "correcthorse").await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        create_user(&ath, "wrong@example.com", "correcthorse").await;
+        let app = test_app(ath, config);
 
         let csrf = get_csrf_token(&app).await;
         let req = login_request(&csrf, "wrong@example.com", "wrongpassword", None);
@@ -608,8 +627,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_login_nonexistent_user_shows_error() {
-        let state = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
 
         let csrf = get_csrf_token(&app).await;
         let req = login_request(&csrf, "nobody@example.com", "anypassword", None);
@@ -628,22 +647,19 @@ mod tests {
 
     #[tokio::test]
     async fn post_login_inactive_user_shows_error() {
-        let state = setup().await;
+        let (ath, config) = setup().await;
         let email = Email::new("inactive@example.com".into()).unwrap();
-        let user = state
-            .ath
+        let user = ath
             .db()
             .create_user(email, "correcthorse", None)
             .await
             .unwrap();
-        state
-            .ath
-            .db()
+        ath.db()
             .update_user_active(user.id, false)
             .await
             .unwrap();
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app).await;
         let req = login_request(&csrf, "inactive@example.com", "correcthorse", None);
         let resp = app.oneshot(req).await.unwrap();
@@ -661,8 +677,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_login_rate_limit() {
-        let state = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
 
         let csrf = get_csrf_token(&app).await;
 
@@ -686,8 +702,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_login_csrf_required() {
-        let state = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
 
         let req = Request::builder()
             .method("POST")
@@ -702,9 +718,8 @@ mod tests {
 
     #[tokio::test]
     async fn login_with_client_id_shows_branding() {
-        let state = setup().await;
-        let (app, _) = state
-            .ath
+        let (ath, config) = setup().await;
+        let (app, _) = ath
             .db()
             .create_application(
                 "BrandedApp".into(),
@@ -716,7 +731,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let router = test_app(state);
+        let router = test_app(ath, config);
 
         let req = Request::builder()
             .uri(&format!("/login?client_id={}", app.client_id))
@@ -735,8 +750,8 @@ mod tests {
 
     #[tokio::test]
     async fn login_without_client_id_shows_default() {
-        let state = setup().await;
-        let router = test_app(state);
+        let (ath, config) = setup().await;
+        let router = test_app(ath, config);
 
         let req = Request::builder()
             .uri("/login")
@@ -754,8 +769,8 @@ mod tests {
 
     #[tokio::test]
     async fn login_with_invalid_client_id_shows_default() {
-        let state = setup().await;
-        let router = test_app(state);
+        let (ath, config) = setup().await;
+        let router = test_app(ath, config);
 
         let req = Request::builder()
             .uri("/login?client_id=ath_nonexistent")
@@ -773,10 +788,9 @@ mod tests {
 
     #[tokio::test]
     async fn branded_login_post_failure_preserves_branding() {
-        let state = setup().await;
-        create_user(&state, "branded@example.com", "correcthorse").await;
-        let (app, _) = state
-            .ath
+        let (ath, config) = setup().await;
+        create_user(&ath, "branded@example.com", "correcthorse").await;
+        let (app, _) = ath
             .db()
             .create_application(
                 "BrandedPost".into(),
@@ -788,7 +802,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let router = test_app(state);
+        let router = test_app(ath, config);
 
         let csrf = get_csrf_token(&router).await;
         let body_str = format!(
@@ -830,31 +844,23 @@ mod tests {
             .build()
             .await
             .unwrap();
-        let auth_client: Arc<dyn AuthClient> =
-            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = crate::templates::build_template_env().unwrap();
-        let state = AppState {
-            ath,
-            auth_client,
-            base_url: "http://localhost:3000".into(),
-            templates,
+        let config = LoginConfig {
+            templates: crate::browser_templates::build_default_browser_env(),
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
+            login_attempts: Arc::new(DashMap::new()),
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
             oauth_providers: Vec::new(),
         };
 
         // Create user and enable MFA
-        create_user(&state, "mfa-gate@example.com", "correcthorse").await;
-        let user = state
-            .ath
+        create_user(&ath, "mfa-gate@example.com", "correcthorse").await;
+        let user = ath
             .db()
             .find_for_login("mfa-gate@example.com")
             .await
             .unwrap();
-        let secret = state.ath.create_mfa_secret(user.id).await.unwrap();
+        let secret = ath.create_mfa_secret(user.id).await.unwrap();
         use totp_rs::{Algorithm, Secret, TOTP};
         let totp = TOTP::new(
             Algorithm::SHA1,
@@ -867,9 +873,9 @@ mod tests {
         )
         .unwrap();
         let code = totp.generate_current().unwrap();
-        state.ath.enable_mfa(user.id, &code).await.unwrap();
+        ath.enable_mfa(user.id, &code).await.unwrap();
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app).await;
         let req = login_request(&csrf, "mfa-gate@example.com", "correcthorse", None);
         let resp = app.oneshot(req).await.unwrap();
@@ -890,9 +896,8 @@ mod tests {
 
     #[tokio::test]
     async fn login_register_link_carries_client_id() {
-        let state = setup().await;
-        let (app, _) = state
-            .ath
+        let (ath, config) = setup().await;
+        let (app, _) = ath
             .db()
             .create_application(
                 "LinkApp".into(),
@@ -904,7 +909,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let router = test_app(state);
+        let router = test_app(ath, config);
 
         let req = Request::builder()
             .uri(&format!("/login?client_id={}", app.client_id))

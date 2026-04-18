@@ -1,10 +1,8 @@
 mod admin_applications;
 mod admin_audit;
 mod admin_sessions;
-mod branding;
 mod config;
 mod error;
-mod login;
 mod mfa;
 mod mock_oauth;
 mod password_reset;
@@ -26,8 +24,8 @@ use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
 use allowthem_server::{
-    consent_routes, csrf_middleware, logout_routes, oauth_routes, register_routes, token_route,
-    userinfo_route, well_known_routes,
+    consent_routes, csrf_middleware, login_routes, logout_routes, oauth_routes, register_routes,
+    token_route, userinfo_route, well_known_routes,
 };
 
 use crate::state::AppState;
@@ -157,7 +155,13 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .merge(register_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
-        .route("/login", get(login::get_login).post(login::post_login))
+        .merge(login_routes(
+            state.templates.clone(),
+            state.is_production,
+            state.max_login_attempts,
+            state.rate_limit_window_secs,
+            state.oauth_providers.clone(),
+        ).with_state(ath.clone()))
         .merge(logout_routes().with_state(ath.clone()))
         .route(
             "/forgot-password",
