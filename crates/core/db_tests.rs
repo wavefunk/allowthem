@@ -721,6 +721,7 @@ async fn test_migrations_create_all_tables() {
             "allowthem_audit_log",
             "allowthem_authorization_codes",
             "allowthem_consents",
+            "allowthem_email_verification_tokens",
             "allowthem_invitations",
             "allowthem_mfa_challenges",
             "allowthem_mfa_recovery_codes",
