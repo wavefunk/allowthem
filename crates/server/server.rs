@@ -1,6 +1,7 @@
 // allowthem-server: HTTP routes, middleware, and extractors
 
 pub mod browser_error;
+pub mod browser_templates;
 pub mod authorize_routes;
 pub mod branding;
 pub mod bearer;
@@ -18,6 +19,7 @@ pub mod userinfo_route;
 pub mod well_known_routes;
 
 pub use browser_error::BrowserError;
+pub use browser_templates::{build_default_browser_env, render as render_template};
 pub use branding::{compute_accent_variants, default_accents, lookup_branding};
 pub use authorize_routes::{
     AuthorizeOutcome, AuthorizeParams, ConsentContext, ConsentNeededData, ValidatedAuthorize,
