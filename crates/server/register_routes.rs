@@ -1,31 +1,41 @@
+use std::sync::Arc;
+
+use axum::Extension;
 use axum::Form;
 use axum::extract::{Query, State};
-use axum::http::header::USER_AGENT;
+use axum::http::header::{COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use axum::routing::get;
+use axum::Router;
 use chrono::Utc;
-use minijinja::context;
+use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::types::ClientId;
-use allowthem_core::{AuditEvent, AuthError, Email, Username, generate_token, hash_token};
-use allowthem_server::CsrfToken;
+use allowthem_core::{AllowThem, AuditEvent, AuthError, Email, Username, generate_token, hash_token};
 
 use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
-use crate::error::AppError;
-use crate::state::AppState;
+use crate::browser_error::BrowserError;
+use crate::csrf::CsrfToken;
 
 const MIN_PASSWORD_LEN: usize = 8;
 
+#[derive(Clone)]
+struct RegisterConfig {
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+}
+
 #[derive(Deserialize)]
-pub struct RegisterQuery {
+struct RegisterQuery {
     #[serde(default)]
     client_id: Option<ClientId>,
 }
 
 #[derive(Deserialize)]
-pub struct RegisterForm {
+struct RegisterForm {
     email: String,
     password: String,
     password_confirm: String,
@@ -36,50 +46,54 @@ pub struct RegisterForm {
 /// GET /register — render the registration form.
 ///
 /// If the user already has a valid session, redirects to `/`.
-pub async fn get_register(
-    State(state): State<AppState>,
-    user: allowthem_server::OptionalAuthUser,
+async fn get_register(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<RegisterConfig>,
+    headers: HeaderMap,
     csrf: CsrfToken,
     Query(query): Query<RegisterQuery>,
-) -> Result<Response, AppError> {
-    if user.0.is_some() {
+) -> Result<Response, BrowserError> {
+    if is_authenticated(&ath, &headers).await {
         return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
     }
 
-    let branding = lookup_branding(&state, query.client_id.as_ref()).await;
+    let branding = lookup_branding(&ath, query.client_id.as_ref()).await;
     let html = render_register_form(
-        &state,
-        csrf.as_str(),
-        "",
-        "",
-        "",
-        query.client_id.as_ref(),
-        branding.as_ref(),
+        &config,
+        RegisterFormParams {
+            csrf_token: csrf.as_str(),
+            email: "",
+            username: "",
+            error: "",
+            client_id: query.client_id.as_ref(),
+            branding: branding.as_ref(),
+        },
     )?;
     Ok(html.into_response())
 }
 
 /// POST /register — validate input, create user, start session, redirect.
-pub async fn post_register(
-    State(state): State<AppState>,
+async fn post_register(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<RegisterConfig>,
     csrf: CsrfToken,
     Query(query): Query<RegisterQuery>,
     headers: HeaderMap,
     Form(form): Form<RegisterForm>,
-) -> Result<Response, AppError> {
-    let branding = lookup_branding(&state, query.client_id.as_ref()).await;
+) -> Result<Response, BrowserError> {
+    let branding = lookup_branding(&ath, query.client_id.as_ref()).await;
     let cid = query.client_id.as_ref();
     let br = branding.as_ref();
 
     // 1. Validate passwords match
     if form.password != form.password_confirm {
-        return render_form_error(&state, &csrf, &form, "Passwords do not match", cid, br);
+        return render_form_error(&config, &csrf, &form, "Passwords do not match", cid, br);
     }
 
     // 2. Validate password length
     if form.password.len() < MIN_PASSWORD_LEN {
         return render_form_error(
-            &state,
+            &config,
             &csrf,
             &form,
             "Password must be at least 8 characters",
@@ -92,7 +106,7 @@ pub async fn post_register(
     let email = match Email::new(form.email.clone()) {
         Ok(e) => e,
         Err(_) => {
-            return render_form_error(&state, &csrf, &form, "Invalid email address", cid, br);
+            return render_form_error(&config, &csrf, &form, "Invalid email address", cid, br);
         }
     };
 
@@ -105,16 +119,11 @@ pub async fn post_register(
     };
 
     // 5. Create user
-    let user = match state
-        .ath
-        .db()
-        .create_user(email, &form.password, username)
-        .await
-    {
+    let user = match ath.db().create_user(email, &form.password, username).await {
         Ok(u) => u,
         Err(AuthError::Conflict(ref msg)) if msg.contains("email") => {
             return render_form_error(
-                &state,
+                &config,
                 &csrf,
                 &form,
                 "An account with this email already exists",
@@ -124,7 +133,7 @@ pub async fn post_register(
         }
         Err(AuthError::Conflict(ref msg)) if msg.contains("username") => {
             return render_form_error(
-                &state,
+                &config,
                 &csrf,
                 &form,
                 "This username is already taken",
@@ -132,25 +141,22 @@ pub async fn post_register(
                 br,
             );
         }
-        Err(e) => return Err(AppError::Auth(e)),
+        Err(e) => return Err(BrowserError::Auth(e)),
     };
 
     // 6. Create session
     let token = generate_token();
     let token_hash = hash_token(&token);
-    let expires_at = Utc::now() + state.ath.session_config().ttl;
+    let expires_at = Utc::now() + ath.session_config().ttl;
     let ip = client_ip(&headers);
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
 
-    state
-        .ath
-        .db()
+    ath.db()
         .create_session(user.id, token_hash, ip.as_deref(), ua, expires_at)
         .await?;
 
     // 7. Log audit event
-    if let Err(e) = state
-        .ath
+    if let Err(e) = ath
         .db()
         .log_audit(
             AuditEvent::Register,
@@ -166,7 +172,7 @@ pub async fn post_register(
     }
 
     // 8. Set session cookie and redirect
-    let cookie = state.ath.session_cookie(&token);
+    let cookie = ath.session_cookie(&token);
     Ok((
         StatusCode::SEE_OTHER,
         [
@@ -177,22 +183,28 @@ pub async fn post_register(
         .into_response())
 }
 
+struct RegisterFormParams<'a> {
+    csrf_token: &'a str,
+    email: &'a str,
+    username: &'a str,
+    error: &'a str,
+    client_id: Option<&'a ClientId>,
+    branding: Option<&'a BrandingConfig>,
+}
+
 fn render_register_form(
-    state: &AppState,
-    csrf_token: &str,
-    email: &str,
-    username: &str,
-    error: &str,
-    client_id: Option<&ClientId>,
-    branding: Option<&BrandingConfig>,
-) -> Result<axum::response::Html<String>, AppError> {
-    let (accent, accent_hover, accent_ring) = branding
+    config: &RegisterConfig,
+    params: RegisterFormParams<'_>,
+) -> Result<axum::response::Html<String>, BrowserError> {
+    let (accent, accent_hover, accent_ring) = params
+        .branding
         .and_then(|b| b.primary_color.as_deref())
         .map(compute_accent_variants)
         .unwrap_or_else(default_accents);
 
-    crate::templates::render(
-        &state.templates,
+    let RegisterFormParams { csrf_token, error, email, username, client_id, branding } = params;
+    crate::browser_templates::render(
+        &config.templates,
         "register.html",
         context! {
             csrf_token,
@@ -205,30 +217,48 @@ fn render_register_form(
             accent,
             accent_hover,
             accent_ring,
+            is_production => config.is_production,
         },
-        state.is_production,
     )
 }
 
 /// Re-render the registration form with an error message and preserved input.
 fn render_form_error(
-    state: &AppState,
+    config: &RegisterConfig,
     csrf: &CsrfToken,
     form: &RegisterForm,
     error: &str,
     client_id: Option<&ClientId>,
     branding: Option<&BrandingConfig>,
-) -> Result<Response, AppError> {
+) -> Result<Response, BrowserError> {
     let html = render_register_form(
-        state,
-        csrf.as_str(),
-        &form.email,
-        &form.username,
-        error,
-        client_id,
-        branding,
+        config,
+        RegisterFormParams {
+            csrf_token: csrf.as_str(),
+            email: &form.email,
+            username: &form.username,
+            error,
+            client_id,
+            branding,
+        },
     )?;
     Ok(html.into_response())
+}
+
+/// Returns true if the request carries a valid session cookie.
+async fn is_authenticated(ath: &AllowThem, headers: &HeaderMap) -> bool {
+    let Some(cookie_header) = headers.get(COOKIE).and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    let Some(token) = ath.parse_session_cookie(cookie_header) else {
+        return false;
+    };
+    let ttl = ath.session_config().ttl;
+    ath.db()
+        .validate_session(&token, ttl)
+        .await
+        .unwrap_or(None)
+        .is_some()
 }
 
 fn client_ip(headers: &HeaderMap) -> Option<String> {
@@ -239,57 +269,54 @@ fn client_ip(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
+pub fn register_routes(
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+) -> Router<AllowThem> {
+    let cfg = RegisterConfig {
+        templates,
+        is_production,
+    };
+    Router::new()
+        .route("/register", get(get_register).post(post_register))
+        .layer(Extension(cfg))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use axum::routing::get;
     use tower::ServiceExt;
 
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuditEvent, AuthClient, Email, EmbeddedAuthClient,
-        LogEmailSender, Username, parse_session_cookie,
+        AllowThem, AllowThemBuilder, AuditEvent, Email, Username, parse_session_cookie,
     };
-    use allowthem_server::csrf_middleware;
 
-    use crate::state::AppState;
+    use super::{RegisterConfig, register_routes};
 
-    async fn setup() -> (AllowThem, AppState) {
+    async fn setup() -> (AllowThem, RegisterConfig) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
-        let auth_client: Arc<dyn AuthClient> =
-            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = crate::templates::build_template_env().unwrap();
-        let state = AppState {
-            ath: ath.clone(),
-            auth_client,
-            base_url: "http://localhost:3000".into(),
+        let templates = crate::browser_templates::build_default_browser_env();
+        let config = RegisterConfig {
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
-            email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
         };
-        (ath, state)
+        (ath, config)
     }
 
-    fn test_app(state: AppState) -> Router {
-        Router::new()
-            .route(
-                "/register",
-                get(super::get_register).post(super::post_register),
-            )
-            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
-            .with_state(state)
+    fn test_app(ath: AllowThem, config: RegisterConfig) -> Router {
+        register_routes(config.templates.clone(), config.is_production)
+            .layer(axum::middleware::from_fn_with_state(
+                ath.clone(),
+                crate::csrf::csrf_middleware,
+            ))
+            .with_state(ath)
     }
 
     /// Send GET /register, extract the csrf_token cookie value from Set-Cookie.
@@ -353,8 +380,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_register_renders_form() {
-        let (_, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
         let req = Request::builder()
             .uri("/register")
             .body(Body::empty())
@@ -371,8 +398,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_success_redirects() {
-        let (_, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(&csrf, "test@example.com", "password123", "password123", "");
         let resp = app.oneshot(req).await.unwrap();
@@ -389,8 +416,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_creates_user() {
-        let (ath, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(
             &csrf,
@@ -409,8 +436,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_creates_session() {
-        let (ath, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(&csrf, "sess@example.com", "password123", "password123", "");
         let resp = app.oneshot(req).await.unwrap();
@@ -430,8 +457,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_logs_audit() {
-        let (ath, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(&csrf, "audit@example.com", "password123", "password123", "");
         app.oneshot(req).await.unwrap();
@@ -448,8 +475,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_password_mismatch() {
-        let (_, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(
             &csrf,
@@ -467,8 +494,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_password_too_short() {
-        let (_, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(&csrf, "short@example.com", "abc", "abc", "");
         let resp = app.oneshot(req).await.unwrap();
@@ -479,8 +506,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_invalid_email() {
-        let (_, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(&csrf, "not-an-email", "password123", "password123", "");
         let resp = app.oneshot(req).await.unwrap();
@@ -491,7 +518,7 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_duplicate_email() {
-        let (ath, state) = setup().await;
+        let (ath, config) = setup().await;
         // Pre-create user with this email
         let email = Email::new("dupe@example.com".into()).unwrap();
         ath.db()
@@ -499,7 +526,7 @@ mod tests {
             .await
             .unwrap();
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(&csrf, "dupe@example.com", "password123", "password123", "");
         let resp = app.oneshot(req).await.unwrap();
@@ -510,14 +537,14 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_duplicate_username() {
-        let (ath, state) = setup().await;
+        let (ath, config) = setup().await;
         let email = Email::new("first@example.com".into()).unwrap();
         ath.db()
             .create_user(email, "existing123", Some(Username::new("taken")))
             .await
             .unwrap();
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(
             &csrf,
@@ -536,8 +563,8 @@ mod tests {
     async fn post_register_session_cookie_authenticates() {
         // Verify the session cookie issued on registration is usable for auth —
         // not just that a session row exists in the DB.
-        let (ath, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath.clone(), config);
         let csrf = get_csrf_token(&app).await;
         let req = register_request(&csrf, "auth@example.com", "password123", "password123", "");
         let resp = app.oneshot(req).await.unwrap();
@@ -567,7 +594,7 @@ mod tests {
         use allowthem_core::{generate_token, hash_token};
         use chrono::{Duration, Utc};
 
-        let (ath, state) = setup().await;
+        let (ath, config) = setup().await;
 
         // Create a user and an active session.
         let email = Email::new("loggedin@example.com".into()).unwrap();
@@ -591,7 +618,7 @@ mod tests {
         let set_cookie = ath.session_cookie(&token);
         let cookie_value = set_cookie.split(';').next().unwrap().to_string();
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let req = Request::builder()
             .uri("/register")
             .header(header::COOKIE, cookie_value)
@@ -605,8 +632,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_register_without_csrf_returns_403() {
-        let (_, state) = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
         let body = "email=test%40example.com&password=password123&password_confirm=password123";
         let req = Request::builder()
             .method("POST")
@@ -620,7 +647,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_with_client_id_shows_branding() {
-        let (ath, state) = setup().await;
+        let (ath, config) = setup().await;
         let (app, _) = ath
             .db()
             .create_application(
@@ -633,7 +660,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let router = test_app(state);
+        let router = test_app(ath, config);
 
         let req = Request::builder()
             .uri(&format!("/register?client_id={}", app.client_id))
@@ -652,8 +679,8 @@ mod tests {
 
     #[tokio::test]
     async fn register_without_client_id_shows_default() {
-        let (_, state) = setup().await;
-        let router = test_app(state);
+        let (ath, config) = setup().await;
+        let router = test_app(ath, config);
 
         let req = Request::builder()
             .uri("/register")
@@ -671,7 +698,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_sign_in_link_carries_client_id() {
-        let (ath, state) = setup().await;
+        let (ath, config) = setup().await;
         let (app, _) = ath
             .db()
             .create_application(
@@ -684,7 +711,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let router = test_app(state);
+        let router = test_app(ath, config);
 
         let req = Request::builder()
             .uri(&format!("/register?client_id={}", app.client_id))
@@ -700,4 +727,5 @@ mod tests {
             "sign-in link should carry client_id"
         );
     }
+
 }
