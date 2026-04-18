@@ -7,6 +7,7 @@ pub mod auth_client;
 pub mod authorization;
 pub mod db;
 pub mod email;
+pub mod email_verification;
 pub mod error;
 pub mod handle;
 pub mod invitations;
