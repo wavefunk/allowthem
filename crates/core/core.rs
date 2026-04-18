@@ -22,6 +22,7 @@ pub mod permissions;
 pub mod roles;
 pub mod sessions;
 pub mod signing_keys;
+pub mod token_cleanup;
 pub mod token_issuance;
 pub mod totp;
 pub mod types;
