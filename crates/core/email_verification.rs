@@ -142,7 +142,7 @@ mod tests {
     async fn make_user(db: &Db) -> (crate::types::UserId, Email) {
         let email = Email::new("verify@example.com".to_string()).unwrap();
         let user = db
-            .create_user(email.clone(), "test-password", None)
+            .create_user(email.clone(), "test-password", None, None)
             .await
             .expect("create user");
         (user.id, email)

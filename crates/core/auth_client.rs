@@ -158,7 +158,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -184,7 +184,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -217,7 +217,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -249,7 +249,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -276,7 +276,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -300,7 +300,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -316,7 +316,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -340,7 +340,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -374,7 +374,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -390,7 +390,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -463,7 +463,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
         let roles = client
@@ -492,7 +492,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
         let result = client
@@ -509,7 +509,7 @@ mod tests {
         let user = client
             .ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
         let roles = client

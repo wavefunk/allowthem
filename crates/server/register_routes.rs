@@ -119,7 +119,7 @@ async fn post_register(
     };
 
     // 5. Create user
-    let user = match ath.db().create_user(email, &form.password, username).await {
+    let user = match ath.db().create_user(email, &form.password, username, None).await {
         Ok(u) => u,
         Err(AuthError::Conflict(ref msg)) if msg.contains("email") => {
             return render_form_error(
@@ -522,7 +522,7 @@ mod tests {
         // Pre-create user with this email
         let email = Email::new("dupe@example.com".into()).unwrap();
         ath.db()
-            .create_user(email, "existing123", None)
+            .create_user(email, "existing123", None, None)
             .await
             .unwrap();
 
@@ -540,7 +540,7 @@ mod tests {
         let (ath, config) = setup().await;
         let email = Email::new("first@example.com".into()).unwrap();
         ath.db()
-            .create_user(email, "existing123", Some(Username::new("taken")))
+            .create_user(email, "existing123", Some(Username::new("taken")), None)
             .await
             .unwrap();
 
@@ -600,7 +600,7 @@ mod tests {
         let email = Email::new("loggedin@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
         let token = generate_token();

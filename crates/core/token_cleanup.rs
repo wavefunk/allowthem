@@ -43,7 +43,7 @@ mod tests {
     async fn make_user(db: &Db) -> UserId {
         let email = Email::new("cleanup@example.com".to_string()).unwrap();
         let user = db
-            .create_user(email, "test-password", None)
+            .create_user(email, "test-password", None, None)
             .await
             .expect("create user");
         user.id

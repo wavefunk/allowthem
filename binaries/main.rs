@@ -203,7 +203,7 @@ async fn seed_admin_user(
         Err(allowthem_core::AuthError::NotFound) => {
             tracing::info!(email = email_str, "seeding bootstrap admin user");
             ath.db()
-                .create_user(email, password, None)
+                .create_user(email, password, None, None)
                 .await
                 .map_err(|e| eyre::eyre!("bootstrap admin create failed: {e}"))?
         }
@@ -637,7 +637,7 @@ mod consent_tests {
         let email = allowthem_core::types::Email::new(email.into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
         let token = allowthem_core::generate_token();

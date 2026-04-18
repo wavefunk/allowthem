@@ -357,7 +357,7 @@ mod tests {
 
     async fn make_session_cookie(ath: &AllowThem) -> (String, String) {
         let email = Email::new("user@example.com".into()).unwrap();
-        let user = ath.db().create_user(email, "password", None).await.unwrap();
+        let user = ath.db().create_user(email, "password", None, None).await.unwrap();
         let token = generate_token();
         let hash = hash_token(&token);
         let expires = Utc::now() + Duration::hours(24);

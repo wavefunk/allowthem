@@ -486,7 +486,7 @@ mod tests {
     async fn create_oauth_user_conflict_on_duplicate_email() {
         let db = test_db().await;
         let email = Email::new("dup@example.com".into()).unwrap();
-        db.create_user(email.clone(), "password123", None)
+        db.create_user(email.clone(), "password123", None, None)
             .await
             .expect("create password user");
         let result = db.create_oauth_user(email, "google", "gid-789").await;
@@ -498,7 +498,7 @@ mod tests {
         let db = test_db().await;
         let email = Email::new("link@example.com".into()).unwrap();
         let user = db
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .expect("create user");
         db.link_oauth_account(user.id, "github", "gh-111", "link@example.com")
@@ -517,7 +517,7 @@ mod tests {
         let db = test_db().await;
         let email = Email::new("duplink@example.com".into()).unwrap();
         let user = db
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .expect("create");
         db.link_oauth_account(user.id, "github", "gh-dup", "duplink@example.com")
@@ -594,7 +594,7 @@ mod tests {
         let db = test_db().await;
         let email = Email::new("accts@example.com".into()).unwrap();
         let user = db
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .expect("create");
         db.link_oauth_account(user.id, "google", "g-1", "accts@example.com")
@@ -619,7 +619,7 @@ mod tests {
         let db = test_db().await;
         let email = Email::new("nolinks@example.com".into()).unwrap();
         let user = db
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .expect("create");
 
@@ -637,7 +637,7 @@ mod tests {
         let db = test_db().await;
         let email = Email::new("unlink@example.com".into()).unwrap();
         let user = db
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .expect("create");
         db.link_oauth_account(user.id, "google", "g-unlink", "unlink@example.com")
@@ -662,7 +662,7 @@ mod tests {
         let db = test_db().await;
         let email = Email::new("notlinked@example.com".into()).unwrap();
         let user = db
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .expect("create");
 

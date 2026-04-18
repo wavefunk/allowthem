@@ -340,7 +340,7 @@ mod tests {
         let email = Email::new("token_test@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -954,7 +954,7 @@ mod tests {
         let email_b = allowthem_core::types::Email::new("other_http@example.com".into()).unwrap();
         let user_b = ath
             .db()
-            .create_user(email_b, "password123", None)
+            .create_user(email_b, "password123", None, None)
             .await
             .unwrap();
         let (app_b, secret_b) = ath

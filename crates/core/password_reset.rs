@@ -213,7 +213,7 @@ mod tests {
 
     async fn make_user(db: &Db) -> Email {
         let email = Email::new("reset@example.com".to_string()).unwrap();
-        db.create_user(email.clone(), "initial-password", None)
+        db.create_user(email.clone(), "initial-password", None, None)
             .await
             .expect("create user");
         email

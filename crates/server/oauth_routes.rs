@@ -770,7 +770,7 @@ mod tests {
         let email = Email::new("oauth@example.com".into()).unwrap();
         let pw_user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -849,7 +849,7 @@ mod tests {
         let email = Email::new("linked-user@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -1070,7 +1070,7 @@ mod tests {
         let email1 = Email::new("first@example.com".into()).unwrap();
         let linking_user = ath
             .db()
-            .create_user(email1, "password123", None)
+            .create_user(email1, "password123", None, None)
             .await
             .unwrap();
         let _ = other_user;

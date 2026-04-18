@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::db::Db;
 use crate::error::AuthError;
@@ -53,7 +54,7 @@ pub struct SearchUsersResult {
 }
 
 impl Db {
-    /// Create a user with email, plaintext password, and optional username.
+    /// Create a user with email, plaintext password, optional username, and optional custom data.
     ///
     /// Hashes the password with Argon2id (via `password::hash_password`).
     /// Returns the created User (without password_hash in the returned struct).
@@ -62,6 +63,7 @@ impl Db {
         email: Email,
         password: &str,
         username: Option<Username>,
+        custom_data: Option<&Value>,
     ) -> Result<User, AuthError> {
         let id = UserId::new();
         let pw_hash = hash_password(password)?;
@@ -69,14 +71,15 @@ impl Db {
 
         sqlx::query(
             "INSERT INTO allowthem_users \
-             (id, email, username, password_hash, email_verified, is_active, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?5)",
+             (id, email, username, password_hash, email_verified, is_active, created_at, updated_at, custom_data) \
+             VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?5, ?6)",
         )
         .bind(id)
         .bind(&email)
         .bind(&username)
         .bind(&pw_hash)
         .bind(&now)
+        .bind(custom_data.map(sqlx::types::Json))
         .execute(self.pool())
         .await
         .map_err(map_unique_violation)?;
@@ -91,19 +94,21 @@ impl Db {
         email: Email,
         password_hash: &str,
         username: Option<Username>,
+        custom_data: Option<&Value>,
     ) -> Result<User, AuthError> {
         let id = UserId::new();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
         sqlx::query(
-            "INSERT INTO allowthem_users (id, email, username, password_hash, email_verified, is_active, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?5)",
+            "INSERT INTO allowthem_users (id, email, username, password_hash, email_verified, is_active, created_at, updated_at, custom_data)
+             VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?5, ?6)",
         )
         .bind(id)
         .bind(&email)
         .bind(&username)
         .bind(password_hash)
         .bind(&now)
+        .bind(custom_data.map(sqlx::types::Json))
         .execute(self.pool())
         .await
         .map_err(map_unique_violation)?;

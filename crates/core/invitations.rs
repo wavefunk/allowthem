@@ -344,7 +344,7 @@ mod tests {
         let db = test_db().await;
         let email = Email::new("creator@example.com".to_string()).unwrap();
         let user = db
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .expect("create user");
         let expires = Utc::now() + Duration::hours(24);

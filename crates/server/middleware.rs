@@ -257,7 +257,7 @@ mod tests {
         let email = Email::new("user@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 

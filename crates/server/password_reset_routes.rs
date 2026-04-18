@@ -175,7 +175,7 @@ mod tests {
     async fn create_user(ath: &AllowThem, email_str: &str) {
         let email = Email::new(email_str.into()).unwrap();
         ath.db()
-            .create_user(email, "initial-password", None)
+            .create_user(email, "initial-password", None, None)
             .await
             .unwrap();
     }

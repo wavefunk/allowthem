@@ -402,7 +402,7 @@ mod tests {
         let ath = AllowThemBuilder::with_pool(pool).build().await.unwrap();
 
         let email = Email::new("test@example.com".into()).unwrap();
-        let user = ath.db().create_user(email, "password123", None).await;
+        let user = ath.db().create_user(email, "password123", None, None).await;
         assert!(user.is_ok());
     }
 
@@ -525,7 +525,7 @@ mod tests {
         let email = Email::new("shared@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -580,7 +580,7 @@ mod tests {
             .unwrap();
 
         let email = Email::new("login@example.com".into()).unwrap();
-        ath.db().create_user(email, "secret", None).await.unwrap();
+        ath.db().create_user(email, "secret", None, None).await.unwrap();
 
         let outcome = ath.login("login@example.com", "secret").await.unwrap();
         assert_eq!(outcome.user.email.as_str(), "login@example.com");
@@ -596,7 +596,7 @@ mod tests {
             .unwrap();
 
         let email = Email::new("wp@example.com".into()).unwrap();
-        ath.db().create_user(email, "correct", None).await.unwrap();
+        ath.db().create_user(email, "correct", None, None).await.unwrap();
 
         let result = ath.login("wp@example.com", "wrong").await;
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
@@ -623,7 +623,7 @@ mod tests {
         let email = Email::new("inactive@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "secret", None)
+            .create_user(email, "secret", None, None)
             .await
             .unwrap();
         ath.db()
@@ -677,7 +677,7 @@ mod tests {
         let email = Email::new("sess@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "secret", None)
+            .create_user(email, "secret", None, None)
             .await
             .unwrap();
 

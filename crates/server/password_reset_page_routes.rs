@@ -366,7 +366,7 @@ mod tests {
     async fn create_user_and_token(ath: &AllowThem, email_str: &str) -> String {
         let email = Email::new(email_str.into()).unwrap();
         ath.db()
-            .create_user(email.clone(), "OldPass123!", None)
+            .create_user(email.clone(), "OldPass123!", None, None)
             .await
             .unwrap();
         ath.db()
@@ -400,7 +400,7 @@ mod tests {
         let (ath, config) = setup().await;
         let email = Email::new("reset@example.com".into()).unwrap();
         ath.db()
-            .create_user(email, "Pass123!", None)
+            .create_user(email, "Pass123!", None, None)
             .await
             .unwrap();
         let app = test_app(ath, config);
@@ -607,7 +607,7 @@ mod tests {
         let email = Email::new("loggedin@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
         let token = generate_token();

@@ -163,7 +163,7 @@ mod tests {
         let email = Email::new("admin@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -220,7 +220,7 @@ mod tests {
         let email = Email::new(email_str.into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
         let token = generate_token();
@@ -509,7 +509,7 @@ mod tests {
         let email = Email::new("nonadmin@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 

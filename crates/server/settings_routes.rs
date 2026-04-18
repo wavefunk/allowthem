@@ -488,7 +488,7 @@ mod tests {
         let email = Email::new("user@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", Some(Username::new("testuser")))
+            .create_user(email, "password123", Some(Username::new("testuser")), None)
             .await
             .unwrap();
 
@@ -720,7 +720,7 @@ mod tests {
         let (ath, config, cookie) = setup().await;
         let other_email = Email::new("other@example.com".into()).unwrap();
         ath.db()
-            .create_user(other_email, "password123", None)
+            .create_user(other_email, "password123", None, None)
             .await
             .unwrap();
 
@@ -737,7 +737,7 @@ mod tests {
         let (ath, config, cookie) = setup().await;
         let other_email = Email::new("other@example.com".into()).unwrap();
         ath.db()
-            .create_user(other_email, "password123", Some(Username::new("taken")))
+            .create_user(other_email, "password123", Some(Username::new("taken")), None)
             .await
             .unwrap();
 

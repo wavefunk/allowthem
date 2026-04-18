@@ -523,7 +523,7 @@ mod tests {
 
     async fn create_session(ath: &AllowThem) -> (allowthem_core::types::UserId, String) {
         let email = Email::new("mfa-test@example.com".into()).unwrap();
-        let user = ath.db().create_user(email, "pass", None).await.unwrap();
+        let user = ath.db().create_user(email, "pass", None, None).await.unwrap();
         let token = generate_token();
         let token_hash = hash_token(&token);
         let expires = Utc::now() + Duration::hours(24);

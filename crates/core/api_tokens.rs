@@ -131,7 +131,7 @@ mod tests {
 
     async fn create_test_user(db: &Db) -> UserId {
         let email = Email::new(format!("user_{}@example.com", uuid::Uuid::now_v7())).unwrap();
-        let user = db.create_user(email, "password123", None).await.unwrap();
+        let user = db.create_user(email, "password123", None, None).await.unwrap();
         user.id
     }
 

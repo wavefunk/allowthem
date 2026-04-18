@@ -1170,7 +1170,7 @@ async fn test_create_user() {
     let username = Username::new_unchecked("alice".into());
 
     let user = db
-        .create_user(email.clone(), "strong-password-123", Some(username.clone()))
+        .create_user(email.clone(), "strong-password-123", Some(username.clone()), None)
         .await
         .expect("create_user");
 
@@ -1190,11 +1190,38 @@ async fn test_create_user_without_username() {
     let email = Email::new("noname@example.com".into()).expect("valid email");
 
     let user = db
-        .create_user(email, "password", None)
+        .create_user(email, "password", None, None)
         .await
         .expect("create_user");
 
     assert!(user.username.is_none());
+}
+
+#[tokio::test]
+async fn create_user_with_custom_data() {
+    let db = test_db().await;
+    let email = Email::new("custom-data@example.com".into()).expect("valid email");
+    let data = serde_json::json!({"display_name": "Alice"});
+
+    let user = db
+        .create_user(email, "password123", None, Some(&data))
+        .await
+        .expect("create_user with custom_data");
+
+    assert_eq!(user.custom_data, Some(serde_json::json!({"display_name": "Alice"})));
+}
+
+#[tokio::test]
+async fn create_user_without_custom_data() {
+    let db = test_db().await;
+    let email = Email::new("no-custom-data@example.com".into()).expect("valid email");
+
+    let user = db
+        .create_user(email, "password123", None, None)
+        .await
+        .expect("create_user without custom_data");
+
+    assert!(user.custom_data.is_none());
 }
 
 #[tokio::test]
@@ -1203,7 +1230,7 @@ async fn test_get_user() {
     let email = Email::new("getme@example.com".into()).expect("valid email");
 
     let created = db
-        .create_user(email.clone(), "password", None)
+        .create_user(email.clone(), "password", None, None)
         .await
         .expect("create_user");
 
@@ -1223,7 +1250,7 @@ async fn test_get_user_by_email() {
     let email = Email::new("byemail@example.com".into()).expect("valid email");
 
     let created = db
-        .create_user(email.clone(), "password", None)
+        .create_user(email.clone(), "password", None, None)
         .await
         .expect("create_user");
 
@@ -1242,7 +1269,7 @@ async fn test_get_user_by_username() {
     let username = Username::new_unchecked("lookmeup".into());
 
     let created = db
-        .create_user(email, "password", Some(username.clone()))
+        .create_user(email, "password", Some(username.clone()), None)
         .await
         .expect("create_user");
 
@@ -1269,7 +1296,7 @@ async fn test_find_for_login_by_email() {
     let db = test_db().await;
     let email = Email::new("login_email@example.com".into()).expect("valid email");
 
-    db.create_user(email, "mypassword", None)
+    db.create_user(email, "mypassword", None, None)
         .await
         .expect("create_user");
 
@@ -1290,7 +1317,7 @@ async fn test_find_for_login_by_username() {
     let email = Email::new("login_uname@example.com".into()).expect("valid email");
     let username = Username::new_unchecked("loginuser".into());
 
-    db.create_user(email, "mypassword", Some(username))
+    db.create_user(email, "mypassword", Some(username), None)
         .await
         .expect("create_user");
 
@@ -1310,7 +1337,7 @@ async fn test_find_for_login_verify_password() {
     let db = test_db().await;
     let email = Email::new("verify@example.com".into()).expect("valid email");
 
-    db.create_user(email, "correct-horse", None)
+    db.create_user(email, "correct-horse", None, None)
         .await
         .expect("create_user");
 
@@ -1345,11 +1372,11 @@ async fn test_duplicate_email_returns_conflict() {
     let db = test_db().await;
     let email = Email::new("dupe@example.com".into()).expect("valid email");
 
-    db.create_user(email.clone(), "pass1", None)
+    db.create_user(email.clone(), "pass1", None, None)
         .await
         .expect("first create_user");
 
-    let result = db.create_user(email, "pass2", None).await;
+    let result = db.create_user(email, "pass2", None, None).await;
 
     assert!(
         matches!(result, Err(AuthError::Conflict(ref msg)) if msg.contains("email")),
@@ -1366,6 +1393,7 @@ async fn test_duplicate_username_returns_conflict() {
         Email::new("user1@example.com".into()).expect("valid"),
         "pass1",
         Some(username.clone()),
+        None,
     )
     .await
     .expect("first create_user");
@@ -1375,6 +1403,7 @@ async fn test_duplicate_username_returns_conflict() {
             Email::new("user2@example.com".into()).expect("valid"),
             "pass2",
             Some(username),
+            None,
         )
         .await;
 
@@ -1391,7 +1420,7 @@ async fn test_update_user_email() {
     let new_email = Email::new("new@example.com".into()).expect("valid email");
 
     let user = db
-        .create_user(old_email.clone(), "password", None)
+        .create_user(old_email.clone(), "password", None, None)
         .await
         .expect("create_user");
 
@@ -1420,7 +1449,7 @@ async fn test_update_user_username() {
     let new_username = Username::new_unchecked("updated".into());
 
     let user = db
-        .create_user(email, "password", Some(username))
+        .create_user(email, "password", Some(username), None)
         .await
         .expect("create_user");
 
@@ -1450,7 +1479,7 @@ async fn test_update_user_active() {
     let email = Email::new("active@example.com".into()).expect("valid email");
 
     let user = db
-        .create_user(email, "password", None)
+        .create_user(email, "password", None, None)
         .await
         .expect("create_user");
 
@@ -1481,7 +1510,7 @@ async fn test_delete_user_crud() {
     let email = Email::new("deleteme@example.com".into()).expect("valid email");
 
     let user = db
-        .create_user(email, "password", None)
+        .create_user(email, "password", None, None)
         .await
         .expect("create_user");
 

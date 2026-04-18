@@ -449,7 +449,7 @@ mod tests {
     async fn create_user(ath: &AllowThem, email: &str, password: &str) {
         let email = Email::new(email.into()).unwrap();
         ath.db()
-            .create_user(email, password, None)
+            .create_user(email, password, None, None)
             .await
             .unwrap();
     }
@@ -510,7 +510,7 @@ mod tests {
         let email = Email::new("auth@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "pass123", None)
+            .create_user(email, "pass123", None, None)
             .await
             .unwrap();
         let token = generate_token();
@@ -651,7 +651,7 @@ mod tests {
         let email = Email::new("inactive@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "correcthorse", None)
+            .create_user(email, "correcthorse", None, None)
             .await
             .unwrap();
         ath.db()

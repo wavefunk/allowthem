@@ -340,7 +340,7 @@ mod tests {
         let email = Email::new("admin@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -414,6 +414,7 @@ mod tests {
                 Email::new("user@example.com".into()).unwrap(),
                 "password123",
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -453,6 +454,7 @@ mod tests {
                 Email::new("filter-event@example.com".into()).unwrap(),
                 "password123",
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -489,6 +491,7 @@ mod tests {
             .create_user(
                 Email::new("filter-outcome@example.com".into()).unwrap(),
                 "password123",
+                None,
                 None,
             )
             .await
@@ -542,6 +545,7 @@ mod tests {
                 Email::new("csv@example.com".into()).unwrap(),
                 "password123",
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -583,6 +587,7 @@ mod tests {
                 Email::new("csv-data@example.com".into()).unwrap(),
                 "password123",
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -614,6 +619,7 @@ mod tests {
             .create_user(
                 Email::new("json@example.com".into()).unwrap(),
                 "password123",
+                None,
                 None,
             )
             .await
@@ -666,7 +672,7 @@ mod tests {
         let email = Email::new("nonadmin@example.com".into()).unwrap();
         let user = ath
             .db()
-            .create_user(email, "password123", None)
+            .create_user(email, "password123", None, None)
             .await
             .unwrap();
 
@@ -711,6 +717,7 @@ mod tests {
                 Email::new("user1-filter@example.com".into()).unwrap(),
                 "password123",
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -719,6 +726,7 @@ mod tests {
             .create_user(
                 Email::new("user2-filter@example.com".into()).unwrap(),
                 "password123",
+                None,
                 None,
             )
             .await
@@ -756,6 +764,7 @@ mod tests {
             .create_user(
                 Email::new("combined-filter@example.com".into()).unwrap(),
                 "password123",
+                None,
                 None,
             )
             .await
@@ -797,6 +806,7 @@ mod tests {
             .create_user(
                 Email::new("export-filter@example.com".into()).unwrap(),
                 "password123",
+                None,
                 None,
             )
             .await
@@ -896,6 +906,7 @@ mod tests {
                 Email::new("date-range@example.com".into()).unwrap(),
                 "password123",
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -932,6 +943,7 @@ mod tests {
                 Email::new("date-exclude@example.com".into()).unwrap(),
                 "password123",
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -964,6 +976,7 @@ mod tests {
             .create_user(
                 Email::new("paginate@example.com".into()).unwrap(),
                 "password123",
+                None,
                 None,
             )
             .await
