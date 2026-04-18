@@ -1,6 +1,7 @@
 // allowthem-server: HTTP routes, middleware, and extractors
 
 pub mod authorize_routes;
+pub mod branding;
 pub mod bearer;
 pub mod csrf;
 pub mod error;
@@ -15,6 +16,7 @@ pub mod token_route;
 pub mod userinfo_route;
 pub mod well_known_routes;
 
+pub use branding::{compute_accent_variants, default_accents, lookup_branding};
 pub use authorize_routes::{
     AuthorizeOutcome, AuthorizeParams, ConsentContext, ConsentNeededData, ValidatedAuthorize,
     authorize_post, check_authorization,
