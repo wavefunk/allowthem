@@ -102,6 +102,7 @@ mod tests {
             is_active: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            custom_data: None,
         }
     }
 

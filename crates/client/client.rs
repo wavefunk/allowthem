@@ -343,6 +343,7 @@ impl AuthClient for ExternalAuthClient {
                 is_active: true,
                 created_at: ts,
                 updated_at: ts,
+                custom_data: None,
             };
 
             // 6. Cache claims for check_role/check_permission

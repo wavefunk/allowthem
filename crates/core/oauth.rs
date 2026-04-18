@@ -264,7 +264,7 @@ impl Db {
     ) -> Result<Option<User>, AuthError> {
         sqlx::query_as::<_, User>(
             "SELECT u.id, u.email, u.username, NULL as password_hash, \
-             u.email_verified, u.is_active, u.created_at, u.updated_at \
+             u.email_verified, u.is_active, u.created_at, u.updated_at, u.custom_data \
              FROM allowthem_users u \
              INNER JOIN allowthem_oauth_accounts oa ON oa.user_id = u.id \
              WHERE oa.provider = ? AND oa.provider_user_id = ?",

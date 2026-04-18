@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 macro_rules! id_newtype {
@@ -249,6 +250,7 @@ pub struct User {
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub custom_data: Option<Value>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

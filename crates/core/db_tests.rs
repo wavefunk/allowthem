@@ -55,7 +55,7 @@ async fn test_user_round_trip() {
     .expect("insert user");
 
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, email, username, password_hash, email_verified, is_active, created_at, updated_at
+        "SELECT id, email, username, password_hash, email_verified, is_active, created_at, updated_at, custom_data
          FROM allowthem_users WHERE id = ?",
     )
     .bind(user_id)
@@ -89,7 +89,7 @@ async fn test_user_round_trip() {
     .expect("insert user with null password");
 
     let user2 = sqlx::query_as::<_, User>(
-        "SELECT id, email, username, password_hash, email_verified, is_active, created_at, updated_at
+        "SELECT id, email, username, password_hash, email_verified, is_active, created_at, updated_at, custom_data
          FROM allowthem_users WHERE id = ?",
     )
     .bind(user_id2)

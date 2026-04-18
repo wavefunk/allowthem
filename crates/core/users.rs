@@ -115,7 +115,7 @@ impl Db {
     pub async fn get_user(&self, id: UserId) -> Result<User, AuthError> {
         sqlx::query_as::<_, User>(
             "SELECT id, email, username, NULL as password_hash, \
-             email_verified, is_active, created_at, updated_at \
+             email_verified, is_active, created_at, updated_at, custom_data \
              FROM allowthem_users WHERE id = ?",
         )
         .bind(id)
@@ -128,7 +128,7 @@ impl Db {
     pub async fn get_user_by_email(&self, email: &Email) -> Result<User, AuthError> {
         sqlx::query_as::<_, User>(
             "SELECT id, email, username, NULL as password_hash, \
-             email_verified, is_active, created_at, updated_at \
+             email_verified, is_active, created_at, updated_at, custom_data \
              FROM allowthem_users WHERE email = ?",
         )
         .bind(email)
@@ -141,7 +141,7 @@ impl Db {
     pub async fn get_user_by_username(&self, username: &Username) -> Result<User, AuthError> {
         sqlx::query_as::<_, User>(
             "SELECT id, email, username, NULL as password_hash, \
-             email_verified, is_active, created_at, updated_at \
+             email_verified, is_active, created_at, updated_at, custom_data \
              FROM allowthem_users WHERE username = ?",
         )
         .bind(username)
@@ -157,7 +157,7 @@ impl Db {
     pub async fn find_for_login(&self, identifier: &str) -> Result<User, AuthError> {
         sqlx::query_as::<_, User>(
             "SELECT id, email, username, password_hash, \
-             email_verified, is_active, created_at, updated_at \
+             email_verified, is_active, created_at, updated_at, custom_data \
              FROM allowthem_users WHERE email = ?1 OR username = ?1",
         )
         .bind(identifier)
@@ -240,7 +240,7 @@ impl Db {
     pub async fn list_users(&self) -> Result<Vec<User>, AuthError> {
         sqlx::query_as::<_, User>(
             "SELECT id, email, username, NULL as password_hash, \
-             email_verified, is_active, created_at, updated_at \
+             email_verified, is_active, created_at, updated_at, custom_data \
              FROM allowthem_users ORDER BY created_at ASC",
         )
         .fetch_all(self.pool())
