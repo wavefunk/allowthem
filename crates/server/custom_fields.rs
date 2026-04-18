@@ -291,7 +291,7 @@ pub fn format_validation_errors(
 
 /// Convert "snake_case" or "kebab-case" field names to title case labels.
 fn title_case(s: &str) -> String {
-    s.split(|c: char| c == '_' || c == '-')
+    s.split(['_', '-'])
         .filter(|w| !w.is_empty())
         .map(|word| {
             let mut chars = word.chars();

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Extension;
@@ -19,6 +20,10 @@ use allowthem_core::{AllowThem, AuditEvent, AuthError, Email, Username, generate
 use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
+use crate::custom_fields::{
+    CustomFieldDescriptor, CustomSchemaConfig, extract_and_coerce_custom_data,
+    format_validation_errors,
+};
 
 const MIN_PASSWORD_LEN: usize = 8;
 
@@ -26,21 +31,13 @@ const MIN_PASSWORD_LEN: usize = 8;
 struct RegisterConfig {
     templates: Arc<Environment<'static>>,
     is_production: bool,
+    custom_schema: Option<Arc<CustomSchemaConfig>>,
 }
 
 #[derive(Deserialize)]
 struct RegisterQuery {
     #[serde(default)]
     client_id: Option<ClientId>,
-}
-
-#[derive(Deserialize)]
-struct RegisterForm {
-    email: String,
-    password: String,
-    password_confirm: String,
-    #[serde(default)]
-    username: String,
 }
 
 /// GET /register — render the registration form.
@@ -58,6 +55,13 @@ async fn get_register(
     }
 
     let branding = lookup_branding(&ath, query.client_id.as_ref()).await;
+    let custom_fields = config
+        .custom_schema
+        .as_ref()
+        .map(|s| s.fields.as_slice())
+        .unwrap_or(&[]);
+    let empty: HashMap<String, String> = HashMap::new();
+
     let html = render_register_form(
         &config,
         RegisterFormParams {
@@ -67,84 +71,174 @@ async fn get_register(
             error: "",
             client_id: query.client_id.as_ref(),
             branding: branding.as_ref(),
+            custom_fields,
+            custom_values: &empty,
         },
     )?;
     Ok(html.into_response())
 }
 
 /// POST /register — validate input, create user, start session, redirect.
+///
+/// Uses a raw `HashMap<String, String>` form extraction to capture both
+/// standard fields and custom_data[*] fields in one pass.
 async fn post_register(
     State(ath): State<AllowThem>,
     Extension(config): Extension<RegisterConfig>,
     csrf: CsrfToken,
     Query(query): Query<RegisterQuery>,
     headers: HeaderMap,
-    Form(form): Form<RegisterForm>,
+    Form(form): Form<HashMap<String, String>>,
 ) -> Result<Response, BrowserError> {
     let branding = lookup_branding(&ath, query.client_id.as_ref()).await;
     let cid = query.client_id.as_ref();
     let br = branding.as_ref();
 
-    // 1. Validate passwords match
-    if form.password != form.password_confirm {
-        return render_form_error(&config, &csrf, &form, "Passwords do not match", cid, br);
-    }
+    let custom_fields = config
+        .custom_schema
+        .as_ref()
+        .map(|s| s.fields.as_slice())
+        .unwrap_or(&[]);
 
-    // 2. Validate password length
-    if form.password.len() < MIN_PASSWORD_LEN {
+    // Extract standard form fields with empty defaults
+    let email_raw = form.get("email").map(String::as_str).unwrap_or("");
+    let password = form.get("password").map(String::as_str).unwrap_or("");
+    let password_confirm = form
+        .get("password_confirm")
+        .map(String::as_str)
+        .unwrap_or("");
+    let username_raw = form.get("username").map(String::as_str).unwrap_or("");
+
+    // 1. Validate passwords match
+    if password != password_confirm {
         return render_form_error(
             &config,
             &csrf,
+            email_raw,
+            username_raw,
+            "Passwords do not match",
+            cid,
+            br,
+            custom_fields,
             &form,
+        );
+    }
+
+    // 2. Validate password length
+    if password.len() < MIN_PASSWORD_LEN {
+        return render_form_error(
+            &config,
+            &csrf,
+            email_raw,
+            username_raw,
             "Password must be at least 8 characters",
             cid,
             br,
+            custom_fields,
+            &form,
         );
     }
 
     // 3. Parse email
-    let email = match Email::new(form.email.clone()) {
+    let email = match Email::new(email_raw.to_string()) {
         Ok(e) => e,
         Err(_) => {
-            return render_form_error(&config, &csrf, &form, "Invalid email address", cid, br);
+            return render_form_error(
+                &config,
+                &csrf,
+                email_raw,
+                username_raw,
+                "Invalid email address",
+                cid,
+                br,
+                custom_fields,
+                &form,
+            );
         }
     };
 
     // 4. Parse username
-    let trimmed = form.username.trim();
+    let trimmed = username_raw.trim();
     let username = if trimmed.is_empty() {
         None
     } else {
         Some(Username::new(trimmed))
     };
 
-    // 5. Create user
-    let user = match ath.db().create_user(email, &form.password, username, None).await {
+    // 5. Handle custom fields if a schema is configured
+    let custom_data = if let Some(schema_config) = &config.custom_schema {
+        let coerced = extract_and_coerce_custom_data(&form, &schema_config.schema);
+
+        // Validate against the compiled schema
+        let errors: Vec<_> = schema_config.validator.iter_errors(&coerced).collect();
+        if !errors.is_empty() {
+            let field_errors = format_validation_errors(&errors);
+            let error_msg = field_errors
+                .iter()
+                .map(|(field, msg)| {
+                    if field.is_empty() {
+                        msg.clone()
+                    } else {
+                        format!("{field}: {msg}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+
+            return render_form_error(
+                &config,
+                &csrf,
+                email_raw,
+                username_raw,
+                &error_msg,
+                cid,
+                br,
+                custom_fields,
+                &form,
+            );
+        }
+        Some(coerced)
+    } else {
+        None
+    };
+
+    // 6. Create user
+    let user = match ath
+        .db()
+        .create_user(email, password, username, custom_data.as_ref())
+        .await
+    {
         Ok(u) => u,
         Err(AuthError::Conflict(ref msg)) if msg.contains("email") => {
             return render_form_error(
                 &config,
                 &csrf,
-                &form,
+                email_raw,
+                username_raw,
                 "An account with this email already exists",
                 cid,
                 br,
+                custom_fields,
+                &form,
             );
         }
         Err(AuthError::Conflict(ref msg)) if msg.contains("username") => {
             return render_form_error(
                 &config,
                 &csrf,
-                &form,
+                email_raw,
+                username_raw,
                 "This username is already taken",
                 cid,
                 br,
+                custom_fields,
+                &form,
             );
         }
         Err(e) => return Err(BrowserError::Auth(e)),
     };
 
-    // 6. Create session
+    // 7. Create session
     let token = generate_token();
     let token_hash = hash_token(&token);
     let expires_at = Utc::now() + ath.session_config().ttl;
@@ -155,7 +249,7 @@ async fn post_register(
         .create_session(user.id, token_hash, ip.as_deref(), ua, expires_at)
         .await?;
 
-    // 7. Log audit event
+    // 8. Log audit event
     if let Err(e) = ath
         .db()
         .log_audit(
@@ -171,7 +265,7 @@ async fn post_register(
         tracing::error!(error = %e, "failed to log registration audit event");
     }
 
-    // 8. Set session cookie and redirect
+    // 9. Set session cookie and redirect
     let cookie = ath.session_cookie(&token);
     Ok((
         StatusCode::SEE_OTHER,
@@ -190,6 +284,8 @@ struct RegisterFormParams<'a> {
     error: &'a str,
     client_id: Option<&'a ClientId>,
     branding: Option<&'a BrandingConfig>,
+    custom_fields: &'a [CustomFieldDescriptor],
+    custom_values: &'a HashMap<String, String>,
 }
 
 fn render_register_form(
@@ -202,7 +298,27 @@ fn render_register_form(
         .map(compute_accent_variants)
         .unwrap_or_else(default_accents);
 
-    let RegisterFormParams { csrf_token, error, email, username, client_id, branding } = params;
+    // Build a custom_values map keyed by field name (stripping custom_data[] prefix)
+    let custom_values_map: HashMap<&str, &str> = params
+        .custom_values
+        .iter()
+        .filter_map(|(k, v)| {
+            k.strip_prefix("custom_data[")
+                .and_then(|s| s.strip_suffix(']'))
+                .map(|name| (name, v.as_str()))
+        })
+        .collect();
+
+    let RegisterFormParams {
+        csrf_token,
+        error,
+        email,
+        username,
+        client_id,
+        branding,
+        custom_fields,
+        ..
+    } = params;
     crate::browser_templates::render(
         &config.templates,
         "register.html",
@@ -218,28 +334,36 @@ fn render_register_form(
             accent_hover,
             accent_ring,
             is_production => config.is_production,
+            custom_fields,
+            custom_values => custom_values_map,
         },
     )
 }
 
 /// Re-render the registration form with an error message and preserved input.
+#[allow(clippy::too_many_arguments)]
 fn render_form_error(
     config: &RegisterConfig,
     csrf: &CsrfToken,
-    form: &RegisterForm,
+    email: &str,
+    username: &str,
     error: &str,
     client_id: Option<&ClientId>,
     branding: Option<&BrandingConfig>,
+    custom_fields: &[CustomFieldDescriptor],
+    form_data: &HashMap<String, String>,
 ) -> Result<Response, BrowserError> {
     let html = render_register_form(
         config,
         RegisterFormParams {
             csrf_token: csrf.as_str(),
-            email: &form.email,
-            username: &form.username,
+            email,
+            username,
             error,
             client_id,
             branding,
+            custom_fields,
+            custom_values: form_data,
         },
     )?;
     Ok(html.into_response())
@@ -272,10 +396,12 @@ fn client_ip(headers: &HeaderMap) -> Option<String> {
 pub fn register_routes(
     templates: Arc<Environment<'static>>,
     is_production: bool,
+    custom_schema: Option<CustomSchemaConfig>,
 ) -> Router<AllowThem> {
     let cfg = RegisterConfig {
         templates,
         is_production,
+        custom_schema: custom_schema.map(Arc::new),
     };
     Router::new()
         .route("/register", get(get_register).post(post_register))
@@ -287,11 +413,14 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
+    use serde_json::json;
     use tower::ServiceExt;
 
     use allowthem_core::{
         AllowThem, AllowThemBuilder, AuditEvent, Email, Username, parse_session_cookie,
     };
+
+    use crate::custom_fields::{CustomSchemaConfig, extract_field_descriptors};
 
     use super::{RegisterConfig, register_routes};
 
@@ -306,12 +435,59 @@ mod tests {
         let config = RegisterConfig {
             templates,
             is_production: false,
+            custom_schema: None,
         };
         (ath, config)
     }
 
     fn test_app(ath: AllowThem, config: RegisterConfig) -> Router {
-        register_routes(config.templates.clone(), config.is_production)
+        register_routes(
+            config.templates.clone(),
+            config.is_production,
+            config
+                .custom_schema
+                .as_ref()
+                .map(|arc| CustomSchemaConfig {
+                    schema: arc.schema.clone(),
+                    validator: arc.validator.clone(),
+                    fields: arc.fields.clone(),
+                }),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::csrf::csrf_middleware,
+        ))
+        .with_state(ath)
+    }
+
+    fn test_app_with_schema(ath: AllowThem, config: RegisterConfig) -> Router {
+        let schema = json!({
+            "type": "object",
+            "required": ["company"],
+            "properties": {
+                "company": {
+                    "type": "string",
+                    "title": "Company Name",
+                    "minLength": 1
+                },
+                "age": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "newsletter": {
+                    "type": "boolean"
+                }
+            }
+        });
+        let validator = jsonschema::validator_for(&schema).expect("valid schema");
+        let fields = extract_field_descriptors(&schema);
+        let schema_config = CustomSchemaConfig {
+            schema,
+            validator,
+            fields,
+        };
+
+        register_routes(config.templates.clone(), config.is_production, Some(schema_config))
             .layer(axum::middleware::from_fn_with_state(
                 ath.clone(),
                 crate::csrf::csrf_middleware,
@@ -362,6 +538,39 @@ mod tests {
             enc(confirm),
             enc(username),
         );
+        Request::builder()
+            .method("POST")
+            .uri("/register")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::COOKIE, format!("csrf_pre={}", csrf))
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    fn register_request_with_custom(
+        csrf: &str,
+        email: &str,
+        password: &str,
+        confirm: &str,
+        username: &str,
+        custom_fields: &[(&str, &str)],
+    ) -> Request<Body> {
+        let enc = |s: &str| s.replace('@', "%40");
+        let mut body = format!(
+            "csrf_token={}&email={}&password={}&password_confirm={}&username={}",
+            csrf,
+            enc(email),
+            enc(password),
+            enc(confirm),
+            enc(username),
+        );
+        for (key, value) in custom_fields {
+            body.push_str(&format!(
+                "&custom_data%5B{}%5D={}",
+                key,
+                enc(value)
+            ));
+        }
         Request::builder()
             .method("POST")
             .uri("/register")
@@ -728,4 +937,139 @@ mod tests {
         );
     }
 
+    // --- Custom fields tests ---
+
+    #[tokio::test]
+    async fn register_without_schema_works_as_before() {
+        // Confirm that register with no schema config works identically
+        let (ath, config) = setup().await;
+        let app = test_app(ath.clone(), config);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(
+            &csrf,
+            "noschema@example.com",
+            "password123",
+            "password123",
+            "",
+        );
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+        let email = Email::new("noschema@example.com".into()).unwrap();
+        let user = ath.db().get_user_by_email(&email).await.unwrap();
+        assert!(user.custom_data.is_none());
+    }
+
+    #[tokio::test]
+    async fn register_with_custom_fields_stores_json() {
+        let (ath, config) = setup().await;
+        let app = test_app_with_schema(ath.clone(), config);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request_with_custom(
+            &csrf,
+            "custom@example.com",
+            "password123",
+            "password123",
+            "",
+            &[("company", "Acme Corp"), ("age", "30"), ("newsletter", "true")],
+        );
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::SEE_OTHER,
+            "should redirect on success"
+        );
+
+        let email = Email::new("custom@example.com".into()).unwrap();
+        let user = ath.db().get_user_by_email(&email).await.unwrap();
+        let data = user
+            .custom_data
+            .as_ref()
+            .expect("custom_data should be stored");
+        assert_eq!(data["company"], "Acme Corp");
+        assert_eq!(data["age"], 30);
+        assert_eq!(data["newsletter"], true);
+    }
+
+    #[tokio::test]
+    async fn register_with_invalid_custom_fields_shows_error() {
+        let (ath, config) = setup().await;
+        let app = test_app_with_schema(ath, config);
+        let csrf = get_csrf_token(&app).await;
+        // Missing required "company" field
+        let req = register_request_with_custom(
+            &csrf,
+            "invalid@example.com",
+            "password123",
+            "password123",
+            "",
+            &[("age", "25")],
+        );
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "should re-render form on validation failure"
+        );
+        let html = body_string(resp).await;
+        // The error message should mention the missing required field
+        assert!(
+            html.contains("company") || html.contains("required"),
+            "should show validation error about missing required field"
+        );
+        // Submitted values should be preserved in the re-rendered form
+        assert!(
+            html.contains("invalid@example.com"),
+            "email should be preserved on error re-render"
+        );
+    }
+
+    #[tokio::test]
+    async fn register_custom_field_type_coercion() {
+        let (ath, config) = setup().await;
+        let app = test_app_with_schema(ath.clone(), config);
+        let csrf = get_csrf_token(&app).await;
+        // Submit age as string "42" — should be coerced to integer
+        let req = register_request_with_custom(
+            &csrf,
+            "coerce@example.com",
+            "password123",
+            "password123",
+            "",
+            &[("company", "Test Co"), ("age", "42")],
+        );
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+        let email = Email::new("coerce@example.com".into()).unwrap();
+        let user = ath.db().get_user_by_email(&email).await.unwrap();
+        let data = user.custom_data.as_ref().expect("custom_data");
+        // age should be stored as a number, not a string
+        assert!(data["age"].is_i64(), "age should be coerced to integer");
+        assert_eq!(data["age"], 42);
+        // newsletter absent = false
+        assert_eq!(data["newsletter"], false);
+    }
+
+    #[tokio::test]
+    async fn get_register_with_schema_renders_custom_fields() {
+        let (ath, config) = setup().await;
+        let app = test_app_with_schema(ath, config);
+        let req = Request::builder()
+            .uri("/register")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        // Custom fields should be rendered
+        assert!(
+            html.contains("custom_data[company]"),
+            "should render company custom field"
+        );
+        assert!(
+            html.contains("Company Name"),
+            "should render field label"
+        );
+    }
 }

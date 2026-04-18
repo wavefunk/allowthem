@@ -45,6 +45,60 @@
                               text-gray-900 at-input-focus">
             </div>
 
+            {% if custom_fields %}
+            {% for field in custom_fields %}
+            <div>
+                <label for="custom_data_{{ field.name }}" class="block text-sm font-medium text-gray-700">
+                    {{ field.label }}{% if not field.required %} <span class="text-gray-400">(optional)</span>{% endif %}
+                </label>
+                {% if field.field_type == "textarea" %}
+                <textarea id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
+                          {% if field.required %}required{% endif %}
+                          {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
+                          {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}
+                          class="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-gray-900 at-input-focus"
+                          >{{ custom_values[field.name] | default("", true) }}</textarea>
+                {% elif field.field_type == "select" %}
+                <select id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
+                        {% if field.required %}required{% endif %}
+                        class="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-gray-900 at-input-focus">
+                    <option value="">Select...</option>
+                    {% for opt in field.enum_values %}
+                    <option value="{{ opt }}" {% if custom_values[field.name] == opt ~ "" %}selected{% endif %}>{{ opt }}</option>
+                    {% endfor %}
+                </select>
+                {% elif field.field_type == "checkbox" %}
+                <div class="mt-1 flex items-center">
+                    <input type="checkbox" id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
+                           value="true"
+                           {% if custom_values[field.name] == "true" %}checked{% endif %}
+                           class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    {% if field.help_text %}
+                    <span class="ml-2 text-sm text-gray-500">{{ field.help_text }}</span>
+                    {% endif %}
+                </div>
+                {% elif field.field_type == "number" %}
+                <input type="number" id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
+                       value="{{ custom_values[field.name] | default(field.default_value | default("", true), true) }}"
+                       {% if field.required %}required{% endif %}
+                       {% if field.minimum is defined and field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
+                       {% if field.maximum is defined and field.maximum is not none %}max="{{ field.maximum }}"{% endif %}
+                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-gray-900 at-input-focus">
+                {% else %}
+                <input type="{{ field.field_type }}" id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
+                       value="{{ custom_values[field.name] | default(field.default_value | default("", true), true) }}"
+                       {% if field.required %}required{% endif %}
+                       {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
+                       {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}
+                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-gray-900 at-input-focus">
+                {% endif %}
+                {% if field.help_text and field.field_type != "checkbox" %}
+                <p class="mt-1 text-sm text-gray-500">{{ field.help_text }}</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+
             <div>
                 <label for="password" class="block text-sm font-medium text-gray-700">
                     Password

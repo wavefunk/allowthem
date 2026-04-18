@@ -286,7 +286,7 @@ impl AllRoutesBuilder {
 
         if self.selected(RouteGroup::Register) {
             csrf_protected = csrf_protected.merge(
-                crate::register_routes::register_routes(templates.clone(), is_production),
+                crate::register_routes::register_routes(templates.clone(), is_production, None),
             );
         }
 
