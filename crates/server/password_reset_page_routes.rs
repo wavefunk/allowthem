@@ -1,18 +1,31 @@
+use std::sync::Arc;
+
+use axum::Extension;
 use axum::Form;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
+use axum::http::header::COOKIE;
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use minijinja::context;
+use axum::routing::get;
+use axum::Router;
+use minijinja::{Environment, context};
 use serde::Deserialize;
 
-use allowthem_core::{Email, EmailSender};
-use allowthem_server::CsrfToken;
+use allowthem_core::{AllowThem, Email, EmailSender};
 
-use crate::error::AppError;
-use crate::state::AppState;
-use crate::templates::render;
+use crate::browser_error::BrowserError;
+use crate::csrf::CsrfToken;
 
 const MIN_PASSWORD_LEN: usize = 8;
+
+#[derive(Clone)]
+struct PasswordResetPageConfig {
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+    email_sender: Arc<dyn EmailSender>,
+    base_url: String,
+}
 
 #[derive(Deserialize)]
 pub struct ResetTokenQuery {
@@ -36,85 +49,87 @@ pub struct ResetPasswordForm {
 }
 
 /// GET /forgot-password — render the email input form.
-pub async fn get_forgot_password(
-    State(state): State<AppState>,
-    user: allowthem_server::OptionalAuthUser,
+async fn get_forgot_password(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<PasswordResetPageConfig>,
+    headers: HeaderMap,
     csrf: CsrfToken,
-) -> Result<Response, AppError> {
-    if user.0.is_some() {
+) -> Result<Response, BrowserError> {
+    if is_authenticated(&ath, &headers).await {
         return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
     }
 
-    let html = render(
-        &state.templates,
+    let html = crate::browser_templates::render(
+        &config.templates,
         "forgot_password.html",
         context! {
             csrf_token => csrf.as_str(),
             success => false,
             error => "",
+            is_production => config.is_production,
         },
-        state.is_production,
     )?;
     Ok(html.into_response())
 }
 
 /// POST /forgot-password — initiate reset; always render success to prevent enumeration.
-pub async fn post_forgot_password(
-    State(state): State<AppState>,
+async fn post_forgot_password(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<PasswordResetPageConfig>,
     csrf: CsrfToken,
     Form(form): Form<ForgotPasswordForm>,
-) -> Result<Response, AppError> {
+) -> Result<Response, BrowserError> {
     let email = match Email::new(form.email.clone()) {
         Ok(e) => e,
         Err(_) => {
-            let html = render(
-                &state.templates,
+            let html = crate::browser_templates::render(
+                &config.templates,
                 "forgot_password.html",
                 context! {
                     csrf_token => csrf.as_str(),
                     success => false,
                     error => "Please enter a valid email address.",
+                    is_production => config.is_production,
                 },
-                state.is_production,
             )?;
             return Ok(html.into_response());
         }
     };
 
-    let sender: &dyn EmailSender = &*state.email_sender;
-    if let Err(err) = state
-        .ath
+    let sender: &dyn EmailSender = &*config.email_sender;
+    if let Err(err) = ath
         .db()
-        .send_password_reset(&email, &state.base_url, sender)
+        .send_password_reset(&email, &config.base_url, sender)
         .await
     {
         tracing::error!("password reset email error: {err}");
     }
 
-    let html = render(
-        &state.templates,
+    let html = crate::browser_templates::render(
+        &config.templates,
         "forgot_password.html",
         context! {
             csrf_token => csrf.as_str(),
             success => true,
             error => "",
+            is_production => config.is_production,
         },
-        state.is_production,
     )?;
     Ok(html.into_response())
 }
 
 /// GET /auth/reset-password?token=... — validate token and render form or error state.
-pub async fn get_reset_password(
-    State(state): State<AppState>,
+async fn get_reset_password(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<PasswordResetPageConfig>,
     csrf: CsrfToken,
     Query(query): Query<ResetTokenQuery>,
-) -> Result<Response, AppError> {
+) -> Result<Response, BrowserError> {
     let token = match query.token {
         Some(ref t) if !t.is_empty() => t.clone(),
         _ => {
-            let html = render(
-                &state.templates,
+            let html = crate::browser_templates::render(
+                &config.templates,
                 "reset_password.html",
                 context! {
                     csrf_token => csrf.as_str(),
@@ -122,18 +137,18 @@ pub async fn get_reset_password(
                     invalid_token => true,
                     success => false,
                     error => "",
+                    is_production => config.is_production,
                 },
-                state.is_production,
             )?;
             return Ok(html.into_response());
         }
     };
 
-    let valid = state.ath.db().validate_reset_token(&token).await?;
+    let valid = ath.db().validate_reset_token(&token).await?;
 
     if valid.is_some() {
-        let html = render(
-            &state.templates,
+        let html = crate::browser_templates::render(
+            &config.templates,
             "reset_password.html",
             context! {
                 csrf_token => csrf.as_str(),
@@ -141,13 +156,13 @@ pub async fn get_reset_password(
                 invalid_token => false,
                 success => false,
                 error => "",
+                is_production => config.is_production,
             },
-            state.is_production,
         )?;
         Ok(html.into_response())
     } else {
-        let html = render(
-            &state.templates,
+        let html = crate::browser_templates::render(
+            &config.templates,
             "reset_password.html",
             context! {
                 csrf_token => csrf.as_str(),
@@ -155,23 +170,24 @@ pub async fn get_reset_password(
                 invalid_token => true,
                 success => false,
                 error => "",
+                is_production => config.is_production,
             },
-            state.is_production,
         )?;
         Ok(html.into_response())
     }
 }
 
 /// POST /auth/reset-password — execute the password reset.
-pub async fn post_reset_password(
-    State(state): State<AppState>,
+async fn post_reset_password(
+    State(ath): State<AllowThem>,
+    Extension(config): Extension<PasswordResetPageConfig>,
     csrf: CsrfToken,
     Form(form): Form<ResetPasswordForm>,
-) -> Result<Response, AppError> {
+) -> Result<Response, BrowserError> {
     // Validate: passwords match
     if form.new_password != form.confirm_password {
-        let html = render(
-            &state.templates,
+        let html = crate::browser_templates::render(
+            &config.templates,
             "reset_password.html",
             context! {
                 csrf_token => csrf.as_str(),
@@ -179,16 +195,16 @@ pub async fn post_reset_password(
                 invalid_token => false,
                 success => false,
                 error => "Passwords do not match",
+                is_production => config.is_production,
             },
-            state.is_production,
         )?;
         return Ok(html.into_response());
     }
 
     // Validate: password length
     if form.new_password.len() < MIN_PASSWORD_LEN {
-        let html = render(
-            &state.templates,
+        let html = crate::browser_templates::render(
+            &config.templates,
             "reset_password.html",
             context! {
                 csrf_token => csrf.as_str(),
@@ -196,21 +212,16 @@ pub async fn post_reset_password(
                 invalid_token => false,
                 success => false,
                 error => "Password must be at least 8 characters",
+                is_production => config.is_production,
             },
-            state.is_production,
         )?;
         return Ok(html.into_response());
     }
 
-    match state
-        .ath
-        .db()
-        .execute_reset(&form.token, &form.new_password)
-        .await?
-    {
+    match ath.db().execute_reset(&form.token, &form.new_password).await? {
         true => {
-            let html = render(
-                &state.templates,
+            let html = crate::browser_templates::render(
+                &config.templates,
                 "reset_password.html",
                 context! {
                     csrf_token => csrf.as_str(),
@@ -218,14 +229,14 @@ pub async fn post_reset_password(
                     invalid_token => false,
                     success => true,
                     error => "",
+                    is_production => config.is_production,
                 },
-                state.is_production,
             )?;
             Ok(html.into_response())
         }
         false => {
-            let html = render(
-                &state.templates,
+            let html = crate::browser_templates::render(
+                &config.templates,
                 "reset_password.html",
                 context! {
                     csrf_token => csrf.as_str(),
@@ -233,12 +244,52 @@ pub async fn post_reset_password(
                     invalid_token => true,
                     success => false,
                     error => "",
+                    is_production => config.is_production,
                 },
-                state.is_production,
             )?;
             Ok(html.into_response())
         }
     }
+}
+
+/// Returns true if the request carries a valid session cookie.
+async fn is_authenticated(ath: &AllowThem, headers: &HeaderMap) -> bool {
+    let Some(cookie_header) = headers.get(COOKIE).and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    let Some(token) = ath.parse_session_cookie(cookie_header) else {
+        return false;
+    };
+    let ttl = ath.session_config().ttl;
+    ath.db()
+        .validate_session(&token, ttl)
+        .await
+        .unwrap_or(None)
+        .is_some()
+}
+
+pub fn password_reset_page_routes(
+    templates: Arc<Environment<'static>>,
+    is_production: bool,
+    email_sender: Arc<dyn EmailSender>,
+    base_url: String,
+) -> Router<AllowThem> {
+    let cfg = PasswordResetPageConfig {
+        templates,
+        is_production,
+        email_sender,
+        base_url,
+    };
+    Router::new()
+        .route(
+            "/forgot-password",
+            get(get_forgot_password).post(post_forgot_password),
+        )
+        .route(
+            "/auth/reset-password",
+            get(get_reset_password).post(post_reset_password),
+        )
+        .layer(Extension(cfg))
 }
 
 #[cfg(test)]
@@ -248,50 +299,41 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use axum::routing::get;
     use tower::ServiceExt;
 
-    use allowthem_core::{AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, LogEmailSender};
-    use allowthem_server::csrf_middleware;
+    use allowthem_core::{AllowThem, AllowThemBuilder, Email, LogEmailSender};
 
-    use crate::state::AppState;
+    use super::{PasswordResetPageConfig, password_reset_page_routes};
 
-    async fn setup() -> AppState {
+    async fn setup() -> (AllowThem, PasswordResetPageConfig) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .csrf_key(*b"test-csrf-key-for-binary-tests!!")
             .build()
             .await
             .unwrap();
-        let auth_client: Arc<dyn AuthClient> =
-            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = crate::templates::build_template_env().unwrap();
-        AppState {
-            ath,
-            auth_client,
-            base_url: "http://localhost:3000".into(),
+        let templates = crate::browser_templates::build_default_browser_env();
+        let config = PasswordResetPageConfig {
             templates,
             is_production: false,
-            login_attempts: Arc::new(dashmap::DashMap::new()),
-            max_login_attempts: 10,
-            rate_limit_window_secs: 900,
             email_sender: Arc::new(LogEmailSender),
-            oauth_providers: Vec::new(),
-        }
+            base_url: "http://localhost:3000".into(),
+        };
+        (ath, config)
     }
 
-    fn test_app(state: AppState) -> Router {
-        Router::new()
-            .route(
-                "/forgot-password",
-                get(super::get_forgot_password).post(super::post_forgot_password),
-            )
-            .route(
-                "/auth/reset-password",
-                get(super::get_reset_password).post(super::post_reset_password),
-            )
-            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
-            .with_state(state)
+    fn test_app(ath: AllowThem, config: PasswordResetPageConfig) -> Router {
+        password_reset_page_routes(
+            config.templates.clone(),
+            config.is_production,
+            config.email_sender.clone(),
+            config.base_url.clone(),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::csrf::csrf_middleware,
+        ))
+        .with_state(ath)
     }
 
     async fn get_csrf_token(app: &Router, path: &str) -> String {
@@ -321,17 +363,13 @@ mod tests {
         String::from_utf8(bytes.to_vec()).unwrap()
     }
 
-    async fn create_user_and_token(state: &AppState, email_str: &str) -> String {
+    async fn create_user_and_token(ath: &AllowThem, email_str: &str) -> String {
         let email = Email::new(email_str.into()).unwrap();
-        state
-            .ath
-            .db()
+        ath.db()
             .create_user(email.clone(), "OldPass123!", None)
             .await
             .unwrap();
-        state
-            .ath
-            .db()
+        ath.db()
             .create_password_reset(&email)
             .await
             .unwrap()
@@ -340,8 +378,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_forgot_password_renders_form() {
-        let state = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -359,15 +397,13 @@ mod tests {
 
     #[tokio::test]
     async fn post_forgot_password_valid_email_shows_success() {
-        let state = setup().await;
+        let (ath, config) = setup().await;
         let email = Email::new("reset@example.com".into()).unwrap();
-        state
-            .ath
-            .db()
+        ath.db()
             .create_user(email, "Pass123!", None)
             .await
             .unwrap();
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, "/forgot-password").await;
 
         let req = Request::builder()
@@ -387,8 +423,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_forgot_password_unknown_email_shows_success() {
-        let state = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, "/forgot-password").await;
 
         let req = Request::builder()
@@ -408,8 +444,8 @@ mod tests {
 
     #[tokio::test]
     async fn post_forgot_password_invalid_email_shows_error() {
-        let state = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, "/forgot-password").await;
 
         let req = Request::builder()
@@ -427,9 +463,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_reset_password_valid_token_renders_form() {
-        let state = setup().await;
-        let token = create_user_and_token(&state, "tok@example.com").await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let token = create_user_and_token(&ath, "tok@example.com").await;
+        let app = test_app(ath, config);
 
         let resp = app
             .oneshot(
@@ -448,8 +484,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_reset_password_invalid_token_shows_error() {
-        let state = setup().await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
 
         let resp = app
             .oneshot(
@@ -468,9 +504,9 @@ mod tests {
 
     #[tokio::test]
     async fn post_reset_password_passwords_mismatch_shows_error() {
-        let state = setup().await;
-        let token = create_user_and_token(&state, "mismatch@example.com").await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let token = create_user_and_token(&ath, "mismatch@example.com").await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &format!("/auth/reset-password?token={token}")).await;
 
         let req = Request::builder()
@@ -490,9 +526,9 @@ mod tests {
 
     #[tokio::test]
     async fn post_reset_password_too_short_shows_error() {
-        let state = setup().await;
-        let token = create_user_and_token(&state, "short@example.com").await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let token = create_user_and_token(&ath, "short@example.com").await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &format!("/auth/reset-password?token={token}")).await;
 
         let req = Request::builder()
@@ -512,9 +548,9 @@ mod tests {
 
     #[tokio::test]
     async fn post_reset_password_success_shows_confirmation() {
-        let state = setup().await;
-        let token = create_user_and_token(&state, "success@example.com").await;
-        let app = test_app(state);
+        let (ath, config) = setup().await;
+        let token = create_user_and_token(&ath, "success@example.com").await;
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, &format!("/auth/reset-password?token={token}")).await;
 
         let req = Request::builder()
@@ -534,17 +570,15 @@ mod tests {
 
     #[tokio::test]
     async fn post_reset_password_used_token_shows_invalid() {
-        let state = setup().await;
-        let token = create_user_and_token(&state, "used@example.com").await;
+        let (ath, config) = setup().await;
+        let token = create_user_and_token(&ath, "used@example.com").await;
         // Consume the token directly via DB
-        state
-            .ath
-            .db()
+        ath.db()
             .execute_reset(&token, "AlreadyUsed1!")
             .await
             .unwrap();
 
-        let app = test_app(state);
+        let app = test_app(ath, config);
         let csrf = get_csrf_token(&app, "/forgot-password").await;
 
         let req = Request::builder()
@@ -560,5 +594,46 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let html = body_string(resp).await;
         assert!(html.contains("invalid or has expired"));
+    }
+
+    #[tokio::test]
+    async fn get_forgot_password_logged_in_redirects_to_root() {
+        use allowthem_core::{generate_token, hash_token};
+        use chrono::{Duration, Utc};
+
+        let (ath, config) = setup().await;
+
+        // Create a user and an active session
+        let email = Email::new("loggedin@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None)
+            .await
+            .unwrap();
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        ath.db()
+            .create_session(
+                user.id,
+                token_hash,
+                None,
+                None,
+                Utc::now() + Duration::hours(24),
+            )
+            .await
+            .unwrap();
+        let session_cookie = ath.session_cookie(&token);
+        let cookie_value = session_cookie.split(';').next().unwrap().to_string();
+
+        let app = test_app(ath, config);
+        let req = Request::builder()
+            .uri("/forgot-password")
+            .header(header::COOKIE, cookie_value)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers().get("location").unwrap(), "/");
     }
 }

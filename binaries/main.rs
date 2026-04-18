@@ -5,7 +5,6 @@ mod config;
 mod error;
 mod mfa;
 mod mock_oauth;
-mod password_reset;
 mod state;
 mod templates;
 mod test_oauth_routes;
@@ -23,8 +22,9 @@ use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
 use allowthem_server::{
-    consent_routes, csrf_middleware, login_routes, logout_routes, oauth_routes, register_routes,
-    settings_routes, token_route, userinfo_route, well_known_routes,
+    consent_routes, csrf_middleware, login_routes, logout_routes, oauth_routes,
+    password_reset_page_routes, register_routes, settings_routes, token_route, userinfo_route,
+    well_known_routes,
 };
 
 use crate::state::AppState;
@@ -162,14 +162,7 @@ async fn main() -> Result<()> {
             state.oauth_providers.clone(),
         ).with_state(ath.clone()))
         .merge(logout_routes().with_state(ath.clone()))
-        .route(
-            "/forgot-password",
-            get(password_reset::get_forgot_password).post(password_reset::post_forgot_password),
-        )
-        .route(
-            "/auth/reset-password",
-            get(password_reset::get_reset_password).post(password_reset::post_reset_password),
-        )
+        .merge(password_reset_page_routes(state.templates.clone(), state.is_production, state.email_sender.clone(), state.base_url.clone()).with_state(ath.clone()))
         .merge(settings_routes(state.templates.clone(), state.is_production).with_state(ath.clone()))
         .route(
             "/settings/mfa/setup",
