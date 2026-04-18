@@ -30,6 +30,7 @@ pub enum RouteGroup {
 pub enum AllRoutesError {
     NoRoutesSelected,
     MissingConfig(String),
+    InvalidSchema(String),
 }
 
 impl fmt::Display for AllRoutesError {
@@ -37,6 +38,7 @@ impl fmt::Display for AllRoutesError {
         match self {
             Self::NoRoutesSelected => f.write_str("no route groups selected"),
             Self::MissingConfig(msg) => write!(f, "missing config: {msg}"),
+            Self::InvalidSchema(msg) => write!(f, "invalid custom fields schema: {msg}"),
         }
     }
 }
@@ -63,6 +65,9 @@ pub struct AllRoutesBuilder {
     // MFA-specific
     mfa_issuer: Option<String>,
 
+    // Register-specific
+    custom_fields_schema: Option<serde_json::Value>,
+
     // Route selection
     routes: HashSet<RouteGroup>,
     all: bool,
@@ -86,6 +91,7 @@ impl AllRoutesBuilder {
             oauth_providers_list: None,
             oauth_provider_impls: None,
             mfa_issuer: None,
+            custom_fields_schema: None,
             routes: HashSet::new(),
             all: false,
         }
@@ -144,6 +150,13 @@ impl AllRoutesBuilder {
 
     pub fn mfa_issuer(mut self, issuer: impl Into<String>) -> Self {
         self.mfa_issuer = Some(issuer.into());
+        self
+    }
+
+    // --- Register config ---
+
+    pub fn custom_fields_schema(mut self, schema: serde_json::Value) -> Self {
+        self.custom_fields_schema = Some(schema);
         self
     }
 
@@ -285,8 +298,22 @@ impl AllRoutesBuilder {
         }
 
         if self.selected(RouteGroup::Register) {
+            let custom_schema = if let Some(schema) = self.custom_fields_schema.take() {
+                crate::custom_fields::validate_custom_schema(&schema)
+                    .map_err(AllRoutesError::InvalidSchema)?;
+                let validator = jsonschema::validator_for(&schema)
+                    .map_err(|e| AllRoutesError::InvalidSchema(e.to_string()))?;
+                let fields = crate::custom_fields::extract_field_descriptors(&schema);
+                Some(crate::custom_fields::CustomSchemaConfig {
+                    schema,
+                    validator,
+                    fields,
+                })
+            } else {
+                None
+            };
             csrf_protected = csrf_protected.merge(
-                crate::register_routes::register_routes(templates.clone(), is_production, None),
+                crate::register_routes::register_routes(templates.clone(), is_production, custom_schema),
             );
         }
 
@@ -446,6 +473,22 @@ mod tests {
             .unwrap();
         let result = AllRoutesBuilder::new().well_known().build(&ath);
         assert!(matches!(result, Err(AllRoutesError::MissingConfig(_))));
+    }
+
+    #[tokio::test]
+    async fn build_with_invalid_schema_returns_error() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .csrf_key(*b"test-csrf-key-for-server-tests!!")
+            .build()
+            .await
+            .unwrap();
+        // A schema with type "array" is not a valid custom fields schema
+        let schema = serde_json::json!({"type": "array"});
+        let result = AllRoutesBuilder::new()
+            .register()
+            .custom_fields_schema(schema)
+            .build(&ath);
+        assert!(matches!(result, Err(AllRoutesError::InvalidSchema(_))));
     }
 
     #[tokio::test]
