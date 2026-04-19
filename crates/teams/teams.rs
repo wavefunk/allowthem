@@ -1,5 +1,6 @@
 pub mod db;
 pub mod handle;
+pub mod invitations;
 pub mod org_members;
 pub mod orgs;
 pub mod team_members;
