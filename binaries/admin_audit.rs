@@ -107,6 +107,23 @@ fn event_label(event: &AuditEvent) -> &'static str {
         AuditEvent::MfaDisabled => "MFA disabled",
         AuditEvent::MfaChallengeSuccess => "MFA challenge success",
         AuditEvent::MfaChallengeFailed => "MFA challenge failed",
+        AuditEvent::OrgCreated => "Org created",
+        AuditEvent::OrgUpdated => "Org updated",
+        AuditEvent::OrgDeleted => "Org deleted",
+        AuditEvent::OrgMemberAdded => "Org member added",
+        AuditEvent::OrgMemberRemoved => "Org member removed",
+        AuditEvent::OrgMemberRoleChanged => "Org member role changed",
+        AuditEvent::OrgOwnershipTransferred => "Org ownership transferred",
+        AuditEvent::TeamCreated => "Team created",
+        AuditEvent::TeamUpdated => "Team updated",
+        AuditEvent::TeamDeleted => "Team deleted",
+        AuditEvent::TeamMemberAdded => "Team member added",
+        AuditEvent::TeamMemberRemoved => "Team member removed",
+        AuditEvent::TeamMemberRoleChanged => "Team member role changed",
+        AuditEvent::OrgInvitationCreated => "Org invitation created",
+        AuditEvent::OrgInvitationAccepted => "Org invitation accepted",
+        AuditEvent::OrgInvitationDeclined => "Org invitation declined",
+        AuditEvent::OrgInvitationRevoked => "Org invitation revoked",
     }
 }
 
