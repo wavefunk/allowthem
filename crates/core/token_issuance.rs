@@ -832,7 +832,10 @@ mod tests {
     /// Helper: create user, application, signing key, authorization code
     async fn setup_exchange(db: &Db) -> (Application, SigningKey, String, String, String, String) {
         let email = Email::new("exchange@example.com".into()).unwrap();
-        let user = db.create_user(email, "password123", None, None).await.unwrap();
+        let user = db
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
 
         let (app, _secret) = db
             .create_application(
@@ -1011,7 +1014,10 @@ mod tests {
     async fn exchange_expired_code() {
         let db = test_db().await;
         let email = Email::new("expired@example.com".into()).unwrap();
-        let user = db.create_user(email, "password123", None, None).await.unwrap();
+        let user = db
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
 
         let (app, _) = db
             .create_application(
@@ -1078,7 +1084,10 @@ mod tests {
         let (_, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
 
         let email_b = Email::new("other@example.com".into()).unwrap();
-        let user_b = db.create_user(email_b, "password123", None, None).await.unwrap();
+        let user_b = db
+            .create_user(email_b, "password123", None, None)
+            .await
+            .unwrap();
         let (app_b, _) = db
             .create_application(
                 "OtherApp".to_string(),
@@ -1457,7 +1466,10 @@ mod tests {
         .unwrap();
 
         let email_b = Email::new("other_refresh@example.com".into()).unwrap();
-        let user_b = db.create_user(email_b, "password123", None, None).await.unwrap();
+        let user_b = db
+            .create_user(email_b, "password123", None, None)
+            .await
+            .unwrap();
         let (app_b, _) = db
             .create_application(
                 "OtherRefreshApp".to_string(),

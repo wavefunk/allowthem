@@ -153,7 +153,10 @@ async fn main() -> Result<()> {
         .nest("/admin/audit", admin_audit::routes())
         .nest("/admin/sessions", admin_sessions::routes())
         .nest_service("/static", ServeDir::new("binaries/static"))
-        .layer(axum::middleware::from_fn_with_state(ath.clone(), csrf_middleware))
+        .layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            csrf_middleware,
+        ))
         .merge(routes)
         .with_state(state);
 

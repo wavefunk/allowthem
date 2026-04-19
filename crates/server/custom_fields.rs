@@ -60,9 +60,9 @@ pub fn validate_custom_schema(schema: &Value) -> Result<(), String> {
     };
 
     for (name, prop) in props {
-        let prop_obj = prop.as_object().ok_or_else(|| {
-            format!("property \"{name}\" must be a JSON object")
-        })?;
+        let prop_obj = prop
+            .as_object()
+            .ok_or_else(|| format!("property \"{name}\" must be a JSON object"))?;
         if let Some(ty) = prop_obj.get("type").and_then(Value::as_str) {
             match ty {
                 "string" | "integer" | "number" | "boolean" => {}
@@ -530,10 +530,7 @@ mod tests {
         });
 
         let mut form = HashMap::new();
-        form.insert(
-            "custom_data[newsletter]".to_string(),
-            "true".to_string(),
-        );
+        form.insert("custom_data[newsletter]".to_string(), "true".to_string());
 
         let result = extract_and_coerce_custom_data(&form, &schema);
         assert_eq!(result["newsletter"], true);
@@ -606,8 +603,7 @@ mod tests {
             }
         });
 
-        let validator = jsonschema::validator_for(&schema)
-            .expect("valid schema");
+        let validator = jsonschema::validator_for(&schema).expect("valid schema");
         let instance = json!({ "age": -1 });
 
         let errors: Vec<_> = validator.iter_errors(&instance).collect();

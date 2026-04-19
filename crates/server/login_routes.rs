@@ -4,12 +4,12 @@ use std::time::Instant;
 
 use axum::Extension;
 use axum::Form;
+use axum::Router;
 use axum::extract::{ConnectInfo, Query, State};
 use axum::http::header::{COOKIE, SET_COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use chrono::Utc;
 use dashmap::DashMap;
 use minijinja::{Environment, context};
@@ -362,9 +362,7 @@ mod tests {
     use chrono::Duration;
     use tower::ServiceExt;
 
-    use allowthem_core::{
-        AllowThemBuilder, Email, generate_token, hash_token,
-    };
+    use allowthem_core::{AllowThemBuilder, Email, generate_token, hash_token};
 
     async fn setup() -> (AllowThem, LoginConfig) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -654,10 +652,7 @@ mod tests {
             .create_user(email, "correcthorse", None, None)
             .await
             .unwrap();
-        ath.db()
-            .update_user_active(user.id, false)
-            .await
-            .unwrap();
+        ath.db().update_user_active(user.id, false).await.unwrap();
 
         let app = test_app(ath, config);
         let csrf = get_csrf_token(&app).await;

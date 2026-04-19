@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use axum::Extension;
 use axum::Form;
+use axum::Router;
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
 use axum::http::HeaderMap;
+use axum::http::StatusCode;
 use axum::http::Uri;
 use axum::http::header::{LOCATION, SET_COOKIE, USER_AGENT};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use chrono::Utc;
 use minijinja::{Environment, context};
 use serde::Deserialize;
@@ -284,9 +284,7 @@ async fn get_mfa_challenge(
     let user_id = ath.db().validate_mfa_challenge(&query.token).await?;
     if user_id.is_none() {
         // Invalid or expired token — redirect to login
-        return Ok(
-            (StatusCode::SEE_OTHER, [(LOCATION, "/login".to_string())]).into_response(),
-        );
+        return Ok((StatusCode::SEE_OTHER, [(LOCATION, "/login".to_string())]).into_response());
     }
 
     let html = crate::browser_templates::render(
@@ -330,9 +328,7 @@ async fn post_mfa_challenge(
     let user_id = match ath.db().validate_mfa_challenge(&form.mfa_token).await? {
         Some(uid) => uid,
         None => {
-            return Ok(
-                (StatusCode::SEE_OTHER, [(LOCATION, "/login".to_string())]).into_response(),
-            );
+            return Ok((StatusCode::SEE_OTHER, [(LOCATION, "/login".to_string())]).into_response());
         }
     };
 
@@ -419,10 +415,7 @@ async fn post_mfa_challenge(
 
     Ok((
         StatusCode::SEE_OTHER,
-        [
-            (SET_COOKIE, cookie),
-            (LOCATION, "/".to_string()),
-        ],
+        [(SET_COOKIE, cookie), (LOCATION, "/".to_string())],
     )
         .into_response())
 }
@@ -469,7 +462,10 @@ pub fn mfa_challenge_routes(
         base_url: String::new(),
     };
     Router::new()
-        .route("/mfa/challenge", get(get_mfa_challenge).post(post_mfa_challenge))
+        .route(
+            "/mfa/challenge",
+            get(get_mfa_challenge).post(post_mfa_challenge),
+        )
         .layer(Extension(cfg))
 }
 
@@ -483,9 +479,7 @@ mod tests {
     use totp_rs::{Algorithm, Secret, TOTP};
     use tower::ServiceExt;
 
-    use allowthem_core::{
-        AllowThemBuilder, Email, generate_token, hash_token,
-    };
+    use allowthem_core::{AllowThemBuilder, Email, generate_token, hash_token};
 
     const TEST_MFA_KEY: [u8; 32] = [0x42; 32];
 
@@ -523,7 +517,11 @@ mod tests {
 
     async fn create_session(ath: &AllowThem) -> (allowthem_core::types::UserId, String) {
         let email = Email::new("mfa-test@example.com".into()).unwrap();
-        let user = ath.db().create_user(email, "pass", None, None).await.unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "pass", None, None)
+            .await
+            .unwrap();
         let token = generate_token();
         let token_hash = hash_token(&token);
         let expires = Utc::now() + Duration::hours(24);
@@ -586,7 +584,10 @@ mod tests {
 
     #[test]
     fn derive_issuer_strips_https_scheme() {
-        assert_eq!(derive_issuer("https://auth.example.com"), "auth.example.com");
+        assert_eq!(
+            derive_issuer("https://auth.example.com"),
+            "auth.example.com"
+        );
     }
 
     #[test]
@@ -626,9 +627,15 @@ mod tests {
             .await
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
-        assert!(html.contains("totp-secret"), "setup page must show secret element");
+        assert!(
+            html.contains("totp-secret"),
+            "setup page must show secret element"
+        );
         // The totp_uri value is HTML-escaped by MiniJinja; check the testid container exists.
-        assert!(html.contains("totp-uri"), "setup page must show QR URI container");
+        assert!(
+            html.contains("totp-uri"),
+            "setup page must show QR URI container"
+        );
     }
 
     #[tokio::test]
@@ -652,11 +659,7 @@ mod tests {
                 .splitn(2, '>')
                 .nth(1)
                 .expect("closing > of totp-secret element not found");
-            after_tag_close
-                .split('<')
-                .next()
-                .unwrap_or("")
-                .to_string()
+            after_tag_close.split('<').next().unwrap_or("").to_string()
         };
 
         let req1 = Request::builder()
@@ -798,12 +801,9 @@ mod tests {
 
         // Derive CSRF token from the session token (HMAC path — no Set-Cookie on GET).
         let session_token_val = cookie.split('=').nth(1).unwrap().to_string();
-        let session_token =
-            allowthem_core::types::SessionToken::from_encoded(session_token_val);
-        let csrf = allowthem_core::derive_csrf_token(
-            &session_token,
-            b"test-csrf-key-for-binary-tests!!",
-        );
+        let session_token = allowthem_core::types::SessionToken::from_encoded(session_token_val);
+        let csrf =
+            allowthem_core::derive_csrf_token(&session_token, b"test-csrf-key-for-binary-tests!!");
 
         let body_str = format!("csrf_token={csrf}");
         let req = Request::builder()
@@ -864,7 +864,10 @@ mod tests {
                 .to_vec(),
         )
         .unwrap();
-        assert!(html.contains("name=\"code\""), "challenge form must have code input");
+        assert!(
+            html.contains("name=\"code\""),
+            "challenge form must have code input"
+        );
         assert!(
             html.contains("mfa_token"),
             "challenge form must embed mfa_token hidden field"
@@ -920,11 +923,17 @@ mod tests {
                 .to_vec(),
         )
         .unwrap();
-        assert!(html.contains(CHALLENGE_INVALID_TOTP), "wrong code must show TOTP error");
+        assert!(
+            html.contains(CHALLENGE_INVALID_TOTP),
+            "wrong code must show TOTP error"
+        );
 
         // Challenge must still be valid (not consumed) so the user can retry
         let still_valid = ath.db().validate_mfa_challenge(&token).await.unwrap();
-        assert!(still_valid.is_some(), "challenge must survive a failed attempt");
+        assert!(
+            still_valid.is_some(),
+            "challenge must survive a failed attempt"
+        );
     }
 
     #[tokio::test]
@@ -955,7 +964,10 @@ mod tests {
 
         // Challenge must be consumed
         let consumed = ath.db().validate_mfa_challenge(&token).await.unwrap();
-        assert!(consumed.is_none(), "challenge must be consumed after success");
+        assert!(
+            consumed.is_none(),
+            "challenge must be consumed after success"
+        );
 
         // Both MfaChallengeSuccess and Login must be in the audit log
         let entries = ath.db().get_audit_log(Some(&user_id), 50, 0).await.unwrap();

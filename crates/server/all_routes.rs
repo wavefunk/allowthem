@@ -138,10 +138,7 @@ impl AllRoutesBuilder {
 
     // --- OAuth config ---
 
-    pub fn oauth_providers(
-        mut self,
-        providers: HashMap<String, Box<dyn OAuthProvider>>,
-    ) -> Self {
+    pub fn oauth_providers(mut self, providers: HashMap<String, Box<dyn OAuthProvider>>) -> Self {
         self.oauth_provider_impls = Some(providers);
         self
     }
@@ -266,22 +263,26 @@ impl AllRoutesBuilder {
 
         // --- Resolve defaults ---
 
-        let templates = self.templates.take().unwrap_or_else(build_default_browser_env);
+        let templates = self
+            .templates
+            .take()
+            .unwrap_or_else(build_default_browser_env);
         let is_production = self.is_production;
 
         // Derive oauth_providers_list from the provider map keys when not
         // explicitly set. This avoids requiring the caller to duplicate the
         // provider names.
-        let oauth_providers_list = self.oauth_providers_list.take().unwrap_or_else(|| {
-            match &self.oauth_provider_impls {
+        let oauth_providers_list = self
+            .oauth_providers_list
+            .take()
+            .unwrap_or_else(|| match &self.oauth_provider_impls {
                 Some(map) => {
                     let mut names: Vec<String> = map.keys().cloned().collect();
                     names.sort();
                     names
                 }
                 None => Vec::new(),
-            }
-        });
+            });
 
         // --- CSRF-protected routes (browser routes) ---
 
@@ -312,49 +313,51 @@ impl AllRoutesBuilder {
             } else {
                 None
             };
-            csrf_protected = csrf_protected.merge(
-                crate::register_routes::register_routes(templates.clone(), is_production, custom_schema),
-            );
+            csrf_protected = csrf_protected.merge(crate::register_routes::register_routes(
+                templates.clone(),
+                is_production,
+                custom_schema,
+            ));
         }
 
         if self.selected(RouteGroup::Logout) {
-            csrf_protected =
-                csrf_protected.merge(crate::logout_routes::logout_routes());
+            csrf_protected = csrf_protected.merge(crate::logout_routes::logout_routes());
         }
 
         if self.selected(RouteGroup::Settings) {
-            csrf_protected = csrf_protected.merge(
-                crate::settings_routes::settings_routes(templates.clone(), is_production),
-            );
+            csrf_protected = csrf_protected.merge(crate::settings_routes::settings_routes(
+                templates.clone(),
+                is_production,
+            ));
         }
 
         if self.selected(RouteGroup::Consent) {
-            csrf_protected = csrf_protected.merge(
-                crate::consent_routes::consent_routes(templates.clone(), is_production),
-            );
+            csrf_protected = csrf_protected.merge(crate::consent_routes::consent_routes(
+                templates.clone(),
+                is_production,
+            ));
         }
 
         if self.selected(RouteGroup::PasswordReset) {
             let email_sender = self.email_sender.clone().expect("validated above");
             let base_url = self.base_url.clone().expect("validated above");
-            csrf_protected =
-                csrf_protected.merge(crate::password_reset_page_routes::password_reset_page_routes(
+            csrf_protected = csrf_protected.merge(
+                crate::password_reset_page_routes::password_reset_page_routes(
                     templates.clone(),
                     is_production,
                     email_sender,
                     base_url,
-                ));
+                ),
+            );
         }
 
         if self.selected(RouteGroup::Mfa) {
             let base_url = self.base_url.clone().expect("validated above");
-            csrf_protected = csrf_protected.merge(
-                crate::mfa_page_routes::mfa_setup_routes(
-                    templates.clone(),
-                    is_production,
-                    base_url,
-                ),
-            );
+            csrf_protected = csrf_protected.merge(crate::mfa_page_routes::mfa_setup_routes(
+                templates.clone(),
+                is_production,
+                base_url,
+            ));
         }
 
         // --- Non-CSRF routes ---
@@ -373,8 +376,7 @@ impl AllRoutesBuilder {
         if self.selected(RouteGroup::OAuth) {
             let providers = self.oauth_provider_impls.take().expect("validated above");
             let base_url = self.base_url.clone().expect("validated above");
-            non_csrf = non_csrf
-                .merge(crate::oauth_routes::oauth_routes(providers, base_url));
+            non_csrf = non_csrf.merge(crate::oauth_routes::oauth_routes(providers, base_url));
         }
 
         if self.selected(RouteGroup::Token) {
@@ -387,16 +389,16 @@ impl AllRoutesBuilder {
 
         if self.selected(RouteGroup::WellKnown) {
             let base_url = self.base_url.clone().expect("validated above");
-            non_csrf =
-                non_csrf.merge(crate::well_known_routes::well_known_routes(base_url));
+            non_csrf = non_csrf.merge(crate::well_known_routes::well_known_routes(base_url));
         }
 
         if self.selected(RouteGroup::PasswordReset) {
             let email_sender = self.email_sender.take().expect("validated above");
             let base_url = self.base_url.expect("validated above");
-            non_csrf = non_csrf.merge(
-                crate::password_reset_routes::password_reset_routes(email_sender, base_url),
-            );
+            non_csrf = non_csrf.merge(crate::password_reset_routes::password_reset_routes(
+                email_sender,
+                base_url,
+            ));
         }
 
         // Apply CSRF middleware to the browser routes, then merge in the

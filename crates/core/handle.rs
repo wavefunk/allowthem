@@ -346,7 +346,10 @@ impl AllowThem {
     /// Does not verify credentials. Intended for use after OAuth, TOTP, or
     /// other non-password authentication flows. The calling flow is responsible
     /// for audit logging.
-    pub async fn create_session_cookie(&self, user_id: crate::types::UserId) -> Result<LoginOutcome, AuthError> {
+    pub async fn create_session_cookie(
+        &self,
+        user_id: crate::types::UserId,
+    ) -> Result<LoginOutcome, AuthError> {
         use chrono::Utc;
 
         let user = self.db().get_user(user_id).await?;
@@ -580,7 +583,10 @@ mod tests {
             .unwrap();
 
         let email = Email::new("login@example.com".into()).unwrap();
-        ath.db().create_user(email, "secret", None, None).await.unwrap();
+        ath.db()
+            .create_user(email, "secret", None, None)
+            .await
+            .unwrap();
 
         let outcome = ath.login("login@example.com", "secret").await.unwrap();
         assert_eq!(outcome.user.email.as_str(), "login@example.com");
@@ -596,7 +602,10 @@ mod tests {
             .unwrap();
 
         let email = Email::new("wp@example.com".into()).unwrap();
-        ath.db().create_user(email, "correct", None, None).await.unwrap();
+        ath.db()
+            .create_user(email, "correct", None, None)
+            .await
+            .unwrap();
 
         let result = ath.login("wp@example.com", "wrong").await;
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
@@ -626,10 +635,7 @@ mod tests {
             .create_user(email, "secret", None, None)
             .await
             .unwrap();
-        ath.db()
-            .update_user_active(user.id, false)
-            .await
-            .unwrap();
+        ath.db().update_user_active(user.id, false).await.unwrap();
 
         let result = ath.login("inactive@example.com", "secret").await;
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));

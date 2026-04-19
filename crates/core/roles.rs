@@ -251,7 +251,10 @@ mod tests {
         let ath = setup().await;
         let db = ath.db();
         let email = Email::new("user@example.com".into()).unwrap();
-        let user = db.create_user(email, "password123", None, None).await.unwrap();
+        let user = db
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
         let roles = db
             .bootstrap_roles(&["admin", "editor", "viewer"])
             .await
@@ -270,7 +273,10 @@ mod tests {
         let ath = setup().await;
         let db = ath.db();
         let email = Email::new("noroles@example.com".into()).unwrap();
-        let user = db.create_user(email, "password123", None, None).await.unwrap();
+        let user = db
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
         let result = db
             .resolve_highest_role(&user.id, &["admin", "editor"])
             .await
@@ -283,7 +289,10 @@ mod tests {
         let ath = setup().await;
         let db = ath.db();
         let email = Email::new("emptyhier@example.com".into()).unwrap();
-        let user = db.create_user(email, "password123", None, None).await.unwrap();
+        let user = db
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
         let result = db.resolve_highest_role(&user.id, &[]).await.unwrap();
         assert!(result.is_none());
     }
@@ -293,7 +302,10 @@ mod tests {
         let ath = setup().await;
         let db = ath.db();
         let email = Email::new("allroles@example.com".into()).unwrap();
-        let user = db.create_user(email, "password123", None, None).await.unwrap();
+        let user = db
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
         let roles = db
             .bootstrap_roles(&["admin", "editor", "viewer"])
             .await
@@ -313,7 +325,10 @@ mod tests {
         let ath = setup().await;
         let db = ath.db();
         let email = Email::new("unlisted@example.com".into()).unwrap();
-        let user = db.create_user(email, "password123", None, None).await.unwrap();
+        let user = db
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
         let rn = RoleName::new("superuser");
         let role = db.create_role(&rn, None).await.unwrap();
         db.assign_role(&user.id, &role.id).await.unwrap();

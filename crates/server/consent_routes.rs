@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use axum::Extension;
+use axum::Router;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use minijinja::{Environment, context};
 use serde::Serialize;
 

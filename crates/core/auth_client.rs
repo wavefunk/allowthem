@@ -110,9 +110,7 @@ impl AuthClient for EmbeddedAuthClient {
         user_id: &'a UserId,
         hierarchy: &'a [&str],
     ) -> AuthFuture<'a, Option<String>> {
-        Box::pin(async move {
-            self.ath.db().resolve_highest_role(user_id, hierarchy).await
-        })
+        Box::pin(async move { self.ath.db().resolve_highest_role(user_id, hierarchy).await })
     }
 
     fn logout<'a>(&'a self, token: &'a SessionToken) -> AuthFuture<'a, ()> {
