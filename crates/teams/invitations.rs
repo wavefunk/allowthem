@@ -97,7 +97,7 @@ impl Teams {
         let (org_id, role_id) = parse_org_metadata(metadata)
             .ok_or_else(|| AuthError::Validation("invitation metadata is malformed".into()))?;
 
-        // Idempotent: consume first, then resolve or create membership.
+        // Idempotent: if already a member, just consume the invitation
         if let Some(existing) = self.get_org_membership(org_id, user_id).await? {
             self.core_db().consume_invitation(invitation.id).await?;
             let _ = self
@@ -114,8 +114,43 @@ impl Teams {
             return Ok(existing);
         }
 
-        self.core_db().consume_invitation(invitation.id).await?;
-        let membership = self.add_org_member(org_id, user_id, role_id).await?;
+        // Consume invitation + create membership in a single transaction
+        // so the invitation is not burned if membership creation fails.
+        let pool = self.teams_db().pool();
+        let mut tx = pool.begin().await.map_err(AuthError::Database)?;
+
+        let now_str = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
+        let consume_result = sqlx::query(
+            "UPDATE allowthem_invitations SET consumed_at = ? \
+             WHERE id = ? AND consumed_at IS NULL",
+        )
+        .bind(&now_str)
+        .bind(invitation.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(AuthError::Database)?;
+
+        if consume_result.rows_affected() == 0 {
+            return Err(AuthError::Gone);
+        }
+
+        let membership_id = crate::types::OrgMembershipId::new();
+        sqlx::query(
+            "INSERT INTO allowthem_org_members (id, org_id, user_id, role_id, created_at) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(membership_id)
+        .bind(org_id)
+        .bind(user_id)
+        .bind(role_id)
+        .bind(&now_str)
+        .execute(&mut *tx)
+        .await
+        .map_err(AuthError::Database)?;
+
+        tx.commit().await.map_err(AuthError::Database)?;
 
         let _ = self
             .core_db()
@@ -129,7 +164,13 @@ impl Teams {
             )
             .await;
 
-        Ok(membership)
+        Ok(OrgMembership {
+            id: membership_id,
+            org_id,
+            user_id,
+            role_id,
+            created_at: chrono::Utc::now(),
+        })
     }
 
     /// Decline an invitation token.

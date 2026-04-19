@@ -210,7 +210,7 @@ Reuses `AuthError` from core. Existing variants cover most cases:
 | Invitation already consumed | `Gone` (from core) |
 | Add to team without org membership | `Forbidden` |
 | Remove owner from org | `Forbidden` |
-| Transfer ownership to non-member | `NotFound` |
+| Transfer ownership to non-member | `Forbidden` |
 | Accept invitation when already member | Idempotent — consume invitation, return existing membership |
 
 **New variant in core:** `AuthError::Forbidden` — for domain-level authorization failures (not HTTP-specific).

@@ -140,6 +140,18 @@ impl Teams {
             return Err(AuthError::NotFound);
         }
 
+        let _ = self
+            .core_db()
+            .log_audit(
+                AuditEvent::TeamUpdated,
+                None,
+                Some(&id.to_string()),
+                None,
+                None,
+                None,
+            )
+            .await;
+
         self.get_team(id).await?.ok_or(AuthError::NotFound)
     }
 

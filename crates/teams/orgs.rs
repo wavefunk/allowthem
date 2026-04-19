@@ -144,6 +144,19 @@ impl Teams {
         if result.rows_affected() == 0 {
             return Err(AuthError::NotFound);
         }
+
+        let _ = self
+            .core_db()
+            .log_audit(
+                AuditEvent::OrgUpdated,
+                None,
+                Some(&id.to_string()),
+                None,
+                None,
+                None,
+            )
+            .await;
+
         self.get_org(id).await?.ok_or(AuthError::NotFound)
     }
 
