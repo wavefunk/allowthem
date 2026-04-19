@@ -1,5 +1,6 @@
 pub mod db;
 pub mod handle;
+pub mod orgs;
 pub mod types;
 
 pub use handle::{Teams, TeamsBuilder};
