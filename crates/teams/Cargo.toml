@@ -1,0 +1,22 @@
+[package]
+name = "allowthem-teams"
+version.workspace = true
+authors.workspace = true
+description = "Organization and team management for allowthem"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+path = "./teams.rs"
+
+[dependencies]
+allowthem-core = { path = "../core" }
+sqlx.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
