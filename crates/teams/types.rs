@@ -6,7 +6,17 @@ use allowthem_core::error::AuthError;
 
 macro_rules! id_newtype {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type)]
+        #[derive(
+            Debug,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+            serde::Serialize,
+            serde::Deserialize,
+            sqlx::Type,
+        )]
         #[sqlx(transparent)]
         pub struct $name(Uuid);
 
@@ -92,15 +102,22 @@ fn validate_slug(s: &str) -> Result<(), AuthError> {
         return Err(AuthError::Validation("slug cannot be empty".into()));
     }
     if s.len() > 128 {
-        return Err(AuthError::Validation("slug too long (max 128 chars)".into()));
+        return Err(AuthError::Validation(
+            "slug too long (max 128 chars)".into(),
+        ));
     }
-    if !s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+    if !s
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
         return Err(AuthError::Validation(
             "slug must contain only lowercase letters, digits, and hyphens".into(),
         ));
     }
     if s.starts_with('-') || s.ends_with('-') {
-        return Err(AuthError::Validation("slug cannot start or end with a hyphen".into()));
+        return Err(AuthError::Validation(
+            "slug cannot start or end with a hyphen".into(),
+        ));
     }
     Ok(())
 }

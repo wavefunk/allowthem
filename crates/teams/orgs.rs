@@ -175,8 +175,8 @@ impl Teams {
 
 #[cfg(test)]
 mod tests {
-    use allowthem_core::types::RoleName;
     use allowthem_core::AllowThemBuilder;
+    use allowthem_core::types::RoleName;
 
     use super::*;
     use crate::Teams;

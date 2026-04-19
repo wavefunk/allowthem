@@ -40,9 +40,7 @@ impl Teams {
     ) -> Result<(String, Invitation), AuthError> {
         // Duplicate-invite guard: check pending invitations for this org.
         let pending = self.list_pending_org_invitations(org_id).await?;
-        let already_invited = pending
-            .iter()
-            .any(|inv| inv.email.as_ref() == Some(email));
+        let already_invited = pending.iter().any(|inv| inv.email.as_ref() == Some(email));
         if already_invited {
             return Err(AuthError::Conflict(
                 "a pending invitation already exists for this email in this org".into(),
@@ -320,10 +318,7 @@ mod tests {
             .unwrap();
 
         // Accept should succeed and return the existing membership.
-        let membership = teams
-            .accept_invitation(&token, member.id)
-            .await
-            .unwrap();
+        let membership = teams.accept_invitation(&token, member.id).await.unwrap();
         assert_eq!(membership.user_id, member.id);
         assert_eq!(membership.org_id, org_id);
 
@@ -463,7 +458,12 @@ mod tests {
         let expires_past = Utc::now() - Duration::hours(1);
         let (token, _inv) = teams
             .core_db()
-            .create_invitation(Some(&invite_email), Some(&metadata), Some(owner_id), expires_past)
+            .create_invitation(
+                Some(&invite_email),
+                Some(&metadata),
+                Some(owner_id),
+                expires_past,
+            )
             .await
             .unwrap();
 

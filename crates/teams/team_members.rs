@@ -13,10 +13,7 @@ impl Teams {
         role_id: RoleId,
     ) -> Result<TeamMembership, AuthError> {
         // Look up team to get org_id for membership check.
-        let team = self
-            .get_team(team_id)
-            .await?
-            .ok_or(AuthError::NotFound)?;
+        let team = self.get_team(team_id).await?.ok_or(AuthError::NotFound)?;
 
         // User must already be an org member.
         let membership = self.get_org_membership(team.org_id, user_id).await?;
@@ -45,9 +42,7 @@ impl Teams {
             if let sqlx::Error::Database(ref db_err) = err {
                 let msg = db_err.message();
                 if msg.contains("UNIQUE constraint failed") {
-                    return AuthError::Conflict(
-                        "user is already a member of this team".into(),
-                    );
+                    return AuthError::Conflict("user is already a member of this team".into());
                 }
             }
             AuthError::Database(err)
@@ -161,12 +156,12 @@ impl Teams {
 
 #[cfg(test)]
 mod tests {
-    use allowthem_core::types::RoleName;
     use allowthem_core::AllowThemBuilder;
+    use allowthem_core::types::RoleName;
 
     use super::*;
-    use crate::types::{OrgId, OrgSlug, TeamSlug};
     use crate::Teams;
+    use crate::types::{OrgId, OrgSlug, TeamSlug};
 
     async fn setup() -> (Teams, OrgId, UserId, RoleId) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -281,10 +276,7 @@ mod tests {
             .await
             .unwrap();
 
-        teams
-            .remove_team_member(team.id, owner_id)
-            .await
-            .unwrap();
+        teams.remove_team_member(team.id, owner_id).await.unwrap();
 
         let members = teams.list_team_members(team.id).await.unwrap();
         assert!(members.is_empty());
@@ -301,10 +293,7 @@ mod tests {
 
         let ghost = add_second_user(&teams, "ghost@example.com").await;
 
-        let err = teams
-            .remove_team_member(team.id, ghost)
-            .await
-            .unwrap_err();
+        let err = teams.remove_team_member(team.id, ghost).await.unwrap_err();
         assert!(matches!(err, AuthError::NotFound));
     }
 
@@ -375,14 +364,8 @@ mod tests {
         let (teams, org_id, owner_id, role_id) = setup().await;
         let slug1 = TeamSlug::new("team-one").unwrap();
         let slug2 = TeamSlug::new("team-two").unwrap();
-        let team1 = teams
-            .create_team(org_id, "Team One", &slug1)
-            .await
-            .unwrap();
-        let team2 = teams
-            .create_team(org_id, "Team Two", &slug2)
-            .await
-            .unwrap();
+        let team1 = teams.create_team(org_id, "Team One", &slug1).await.unwrap();
+        let team2 = teams.create_team(org_id, "Team Two", &slug2).await.unwrap();
 
         teams
             .add_team_member(team1.id, owner_id, role_id)

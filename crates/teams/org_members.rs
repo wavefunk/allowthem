@@ -75,11 +75,7 @@ impl Teams {
         })
     }
 
-    pub async fn remove_org_member(
-        &self,
-        org_id: OrgId,
-        user_id: UserId,
-    ) -> Result<(), AuthError> {
+    pub async fn remove_org_member(&self, org_id: OrgId, user_id: UserId) -> Result<(), AuthError> {
         // Verify the user is actually a member and they aren't the owner.
         let org = sqlx::query_as::<_, crate::types::Org>(
             "SELECT id, name, slug, owner_id, created_at, updated_at \
@@ -110,14 +106,13 @@ impl Teams {
         .await
         .map_err(AuthError::Database)?;
 
-        let result = sqlx::query(
-            "DELETE FROM allowthem_org_members WHERE org_id = ? AND user_id = ?",
-        )
-        .bind(org_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(AuthError::Database)?;
+        let result =
+            sqlx::query("DELETE FROM allowthem_org_members WHERE org_id = ? AND user_id = ?")
+                .bind(org_id)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(AuthError::Database)?;
 
         if result.rows_affected() == 0 {
             return Err(AuthError::NotFound);
@@ -176,10 +171,7 @@ impl Teams {
         Ok(())
     }
 
-    pub async fn list_org_members(
-        &self,
-        org_id: OrgId,
-    ) -> Result<Vec<OrgMembership>, AuthError> {
+    pub async fn list_org_members(&self, org_id: OrgId) -> Result<Vec<OrgMembership>, AuthError> {
         sqlx::query_as::<_, OrgMembership>(
             "SELECT id, org_id, user_id, role_id, created_at \
              FROM allowthem_org_members \
@@ -209,15 +201,14 @@ impl Teams {
             .format("%Y-%m-%dT%H:%M:%S%.3fZ")
             .to_string();
 
-        let result = sqlx::query(
-            "UPDATE allowthem_orgs SET owner_id = ?, updated_at = ? WHERE id = ?",
-        )
-        .bind(new_owner_id)
-        .bind(&now_str)
-        .bind(org_id)
-        .execute(self.teams_db().pool())
-        .await
-        .map_err(AuthError::Database)?;
+        let result =
+            sqlx::query("UPDATE allowthem_orgs SET owner_id = ?, updated_at = ? WHERE id = ?")
+                .bind(new_owner_id)
+                .bind(&now_str)
+                .bind(org_id)
+                .execute(self.teams_db().pool())
+                .await
+                .map_err(AuthError::Database)?;
 
         if result.rows_affected() == 0 {
             return Err(AuthError::NotFound);
@@ -241,12 +232,12 @@ impl Teams {
 
 #[cfg(test)]
 mod tests {
-    use allowthem_core::types::RoleName;
     use allowthem_core::AllowThemBuilder;
+    use allowthem_core::types::RoleName;
 
     use super::*;
-    use crate::types::OrgSlug;
     use crate::Teams;
+    use crate::types::OrgSlug;
 
     async fn setup() -> (Teams, UserId, RoleId) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -274,10 +265,7 @@ mod tests {
     }
 
     // Helper: creates a second user and a member role on the same db as `teams`.
-    async fn add_second_user(
-        teams: &Teams,
-        email_str: &str,
-    ) -> UserId {
+    async fn add_second_user(teams: &Teams, email_str: &str) -> UserId {
         // We can use the core_db on the Teams handle directly.
         let email = allowthem_core::Email::new(email_str.into()).unwrap();
         let user = teams
@@ -377,15 +365,9 @@ mod tests {
             .await
             .unwrap();
 
-        teams
-            .remove_org_member(org.id, member_id)
-            .await
-            .unwrap();
+        teams.remove_org_member(org.id, member_id).await.unwrap();
 
-        let membership = teams
-            .get_org_membership(org.id, member_id)
-            .await
-            .unwrap();
+        let membership = teams.get_org_membership(org.id, member_id).await.unwrap();
         assert!(membership.is_none());
     }
 
@@ -398,10 +380,7 @@ mod tests {
             .await
             .unwrap();
 
-        let err = teams
-            .remove_org_member(org.id, owner_id)
-            .await
-            .unwrap_err();
+        let err = teams.remove_org_member(org.id, owner_id).await.unwrap_err();
         assert!(matches!(err, AuthError::Forbidden(_)));
     }
 

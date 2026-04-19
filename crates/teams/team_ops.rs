@@ -1,6 +1,6 @@
+use allowthem_core::UserId;
 use allowthem_core::audit::AuditEvent;
 use allowthem_core::error::AuthError;
-use allowthem_core::UserId;
 
 use crate::handle::Teams;
 use crate::types::{OrgId, Team, TeamId, TeamSlug};
@@ -172,12 +172,12 @@ impl Teams {
 
 #[cfg(test)]
 mod tests {
-    use allowthem_core::types::RoleName;
     use allowthem_core::AllowThemBuilder;
+    use allowthem_core::types::RoleName;
 
     use super::*;
-    use crate::types::OrgSlug;
     use crate::Teams;
+    use crate::types::OrgSlug;
 
     async fn setup() -> (Teams, OrgId) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -247,12 +247,13 @@ mod tests {
     async fn get_team_by_slug() {
         let (teams, org_id) = setup().await;
         let slug = TeamSlug::new("find-me").unwrap();
-        let team = teams
-            .create_team(org_id, "Find Me", &slug)
-            .await
-            .unwrap();
+        let team = teams.create_team(org_id, "Find Me", &slug).await.unwrap();
 
-        let found = teams.get_team_by_slug(org_id, &slug).await.unwrap().unwrap();
+        let found = teams
+            .get_team_by_slug(org_id, &slug)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(found.id, team.id);
 
         let missing = TeamSlug::new("no-such-team").unwrap();
@@ -278,10 +279,7 @@ mod tests {
     async fn update_team() {
         let (teams, org_id) = setup().await;
         let slug = TeamSlug::new("update-me").unwrap();
-        let team = teams
-            .create_team(org_id, "Original", &slug)
-            .await
-            .unwrap();
+        let team = teams.create_team(org_id, "Original", &slug).await.unwrap();
 
         let new_slug = TeamSlug::new("updated-slug").unwrap();
         let updated = teams
@@ -297,10 +295,7 @@ mod tests {
     async fn delete_team() {
         let (teams, org_id) = setup().await;
         let slug = TeamSlug::new("delete-me").unwrap();
-        let team = teams
-            .create_team(org_id, "To Delete", &slug)
-            .await
-            .unwrap();
+        let team = teams.create_team(org_id, "To Delete", &slug).await.unwrap();
 
         teams.delete_team(team.id).await.unwrap();
 
