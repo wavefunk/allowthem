@@ -34,7 +34,7 @@ mod tests {
     use chrono::{Duration, Utc};
 
     use crate::db::Db;
-    use crate::types::{Email, ResetTokenId, VerificationTokenId, UserId};
+    use crate::types::{Email, ResetTokenId, UserId, VerificationTokenId};
 
     async fn test_db() -> Db {
         Db::connect("sqlite::memory:").await.expect("in-memory db")
@@ -126,7 +126,10 @@ mod tests {
         insert_verification_token(&db, user_id, &future, false).await;
 
         let removed = db.cleanup_expired_tokens().await.expect("cleanup");
-        assert_eq!(removed, 2, "should remove 1 expired reset + 1 expired verification");
+        assert_eq!(
+            removed, 2,
+            "should remove 1 expired reset + 1 expired verification"
+        );
         assert_eq!(count_reset_tokens(&db).await, 1);
         assert_eq!(count_verification_tokens(&db).await, 1);
     }

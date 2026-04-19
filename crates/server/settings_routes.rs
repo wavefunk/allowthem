@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use axum::Extension;
+use axum::Router;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::http::Uri;
 use axum::http::header::USER_AGENT;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use minijinja::{Environment, context};
 use serde::Deserialize;
 
@@ -469,8 +469,8 @@ mod tests {
     use tower::ServiceExt;
 
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuditEvent, Email, Username,
-        generate_token, hash_token, parse_session_cookie,
+        AllowThem, AllowThemBuilder, AuditEvent, Email, Username, generate_token, hash_token,
+        parse_session_cookie,
     };
 
     use super::{SettingsConfig, settings_routes};
@@ -737,7 +737,12 @@ mod tests {
         let (ath, config, cookie) = setup().await;
         let other_email = Email::new("other@example.com".into()).unwrap();
         ath.db()
-            .create_user(other_email, "password123", Some(Username::new("taken")), None)
+            .create_user(
+                other_email,
+                "password123",
+                Some(Username::new("taken")),
+                None,
+            )
             .await
             .unwrap();
 

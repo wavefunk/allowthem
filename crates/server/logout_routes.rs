@@ -1,9 +1,9 @@
+use axum::Router;
 use axum::extract::State;
 use axum::http::header::{COOKIE, SET_COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 
 use allowthem_core::{AllowThem, AuditEvent};
 

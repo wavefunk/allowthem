@@ -4,11 +4,11 @@ use std::sync::Arc;
 use axum::extract::ConnectInfo;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+pub use governor::Quota;
+use governor::RateLimiter;
 use governor::clock::{Clock, DefaultClock, QuantaInstant};
 use governor::middleware::NoOpMiddleware;
 use governor::state::keyed::DashMapStateStore;
-pub use governor::Quota;
-use governor::RateLimiter;
 
 type KeyedLimiter =
     RateLimiter<String, DashMapStateStore<String>, DefaultClock, NoOpMiddleware<QuantaInstant>>;
@@ -56,7 +56,10 @@ pub fn extract_client_ip(extensions: &axum::http::Extensions) -> String {
 fn rate_limit_response(retry_after_secs: u64) -> Response {
     let mut response = (
         StatusCode::TOO_MANY_REQUESTS,
-        format!("Too many requests. Retry after {} seconds.", retry_after_secs),
+        format!(
+            "Too many requests. Retry after {} seconds.",
+            retry_after_secs
+        ),
     )
         .into_response();
     if let Ok(val) = axum::http::HeaderValue::from_str(&retry_after_secs.to_string()) {

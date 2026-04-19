@@ -510,7 +510,10 @@ mod tests {
 
     async fn make_user(db: &Db) -> UserId {
         let email = Email::new("mfa@example.com".to_string()).unwrap();
-        db.create_user(email, "password123", None, None).await.unwrap().id
+        db.create_user(email, "password123", None, None)
+            .await
+            .unwrap()
+            .id
     }
 
     /// Helper: create MFA secret, generate a valid current code from it, enable MFA.

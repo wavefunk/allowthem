@@ -1170,7 +1170,12 @@ async fn test_create_user() {
     let username = Username::new_unchecked("alice".into());
 
     let user = db
-        .create_user(email.clone(), "strong-password-123", Some(username.clone()), None)
+        .create_user(
+            email.clone(),
+            "strong-password-123",
+            Some(username.clone()),
+            None,
+        )
         .await
         .expect("create_user");
 
@@ -1208,7 +1213,10 @@ async fn create_user_with_custom_data() {
         .await
         .expect("create_user with custom_data");
 
-    assert_eq!(user.custom_data, Some(serde_json::json!({"display_name": "Alice"})));
+    assert_eq!(
+        user.custom_data,
+        Some(serde_json::json!({"display_name": "Alice"}))
+    );
 }
 
 #[tokio::test]
@@ -2959,19 +2967,27 @@ async fn custom_data_lifecycle() {
 
     // Set
     let v1 = serde_json::json!({"tier": "free"});
-    db.set_custom_data(&user.id, &v1).await.expect("set_custom_data");
+    db.set_custom_data(&user.id, &v1)
+        .await
+        .expect("set_custom_data");
     let data = db.get_custom_data(&user.id).await.expect("get after set");
     assert_eq!(data, Some(serde_json::json!({"tier": "free"})));
 
     // Overwrite
     let v2 = serde_json::json!({"tier": "pro", "seats": 5});
     db.set_custom_data(&user.id, &v2).await.expect("overwrite");
-    let data = db.get_custom_data(&user.id).await.expect("get after overwrite");
+    let data = db
+        .get_custom_data(&user.id)
+        .await
+        .expect("get after overwrite");
     assert_eq!(data, Some(serde_json::json!({"tier": "pro", "seats": 5})));
 
     // Delete
     db.delete_custom_data(&user.id).await.expect("delete");
-    let data = db.get_custom_data(&user.id).await.expect("get after delete");
+    let data = db
+        .get_custom_data(&user.id)
+        .await
+        .expect("get after delete");
     assert!(data.is_none());
 }
 
@@ -2998,7 +3014,9 @@ async fn delete_custom_data_is_idempotent() {
 
     // Delete when already NULL -- both should succeed
     db.delete_custom_data(&user.id).await.expect("first delete");
-    db.delete_custom_data(&user.id).await.expect("second delete");
+    db.delete_custom_data(&user.id)
+        .await
+        .expect("second delete");
 }
 
 #[tokio::test]
@@ -3013,5 +3031,8 @@ async fn get_user_includes_custom_data() {
         .expect("create_user with data");
 
     let fetched = db.get_user(user.id).await.expect("get_user");
-    assert_eq!(fetched.custom_data, Some(serde_json::json!({"org": "wavefunk"})));
+    assert_eq!(
+        fetched.custom_data,
+        Some(serde_json::json!({"org": "wavefunk"}))
+    );
 }

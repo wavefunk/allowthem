@@ -3,19 +3,21 @@ use std::sync::Arc;
 
 use axum::Extension;
 use axum::Form;
+use axum::Router;
 use axum::extract::{Query, State};
 use axum::http::header::{COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use chrono::Utc;
 use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::types::ClientId;
-use allowthem_core::{AllowThem, AuditEvent, AuthError, Email, Username, generate_token, hash_token};
+use allowthem_core::{
+    AllowThem, AuditEvent, AuthError, Email, Username, generate_token, hash_token,
+};
 
 use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
 use crate::browser_error::BrowserError;
@@ -444,14 +446,11 @@ mod tests {
         register_routes(
             config.templates.clone(),
             config.is_production,
-            config
-                .custom_schema
-                .as_ref()
-                .map(|arc| CustomSchemaConfig {
-                    schema: arc.schema.clone(),
-                    validator: arc.validator.clone(),
-                    fields: arc.fields.clone(),
-                }),
+            config.custom_schema.as_ref().map(|arc| CustomSchemaConfig {
+                schema: arc.schema.clone(),
+                validator: arc.validator.clone(),
+                fields: arc.fields.clone(),
+            }),
         )
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
@@ -487,12 +486,16 @@ mod tests {
             fields,
         };
 
-        register_routes(config.templates.clone(), config.is_production, Some(schema_config))
-            .layer(axum::middleware::from_fn_with_state(
-                ath.clone(),
-                crate::csrf::csrf_middleware,
-            ))
-            .with_state(ath)
+        register_routes(
+            config.templates.clone(),
+            config.is_production,
+            Some(schema_config),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::csrf::csrf_middleware,
+        ))
+        .with_state(ath)
     }
 
     /// Send GET /register, extract the csrf_token cookie value from Set-Cookie.
@@ -565,11 +568,7 @@ mod tests {
             enc(username),
         );
         for (key, value) in custom_fields {
-            body.push_str(&format!(
-                "&custom_data%5B{}%5D={}",
-                key,
-                enc(value)
-            ));
+            body.push_str(&format!("&custom_data%5B{}%5D={}", key, enc(value)));
         }
         Request::builder()
             .method("POST")
@@ -971,7 +970,11 @@ mod tests {
             "password123",
             "password123",
             "",
-            &[("company", "Acme Corp"), ("age", "30"), ("newsletter", "true")],
+            &[
+                ("company", "Acme Corp"),
+                ("age", "30"),
+                ("newsletter", "true"),
+            ],
         );
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(
@@ -1067,9 +1070,6 @@ mod tests {
             html.contains("custom_data[company]"),
             "should render company custom field"
         );
-        assert!(
-            html.contains("Company Name"),
-            "should render field label"
-        );
+        assert!(html.contains("Company Name"), "should render field label");
     }
 }

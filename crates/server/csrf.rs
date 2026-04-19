@@ -56,7 +56,9 @@ pub async fn csrf_middleware(
     mut request: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let csrf_key = ath.csrf_key().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let csrf_key = ath
+        .csrf_key()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let method = request.method().clone();
     let is_safe = matches!(
@@ -79,10 +81,12 @@ pub async fn csrf_middleware(
                 .unwrap_or_else(|| Uuid::new_v4().to_string()),
         };
 
-        let is_new_pre_auth = session_token.is_none()
-            && extract_pre_auth_csrf_cookie(request.headers()).is_none();
+        let is_new_pre_auth =
+            session_token.is_none() && extract_pre_auth_csrf_cookie(request.headers()).is_none();
 
-        request.extensions_mut().insert(CsrfToken(csrf_token.clone()));
+        request
+            .extensions_mut()
+            .insert(CsrfToken(csrf_token.clone()));
 
         let mut response = next.run(request).await;
 
@@ -103,8 +107,8 @@ pub async fn csrf_middleware(
                 request.extensions_mut().insert(CsrfToken(submitted));
             }
             None => {
-                let cookie_val = extract_pre_auth_csrf_cookie(request.headers())
-                    .ok_or(StatusCode::FORBIDDEN)?;
+                let cookie_val =
+                    extract_pre_auth_csrf_cookie(request.headers()).ok_or(StatusCode::FORBIDDEN)?;
                 if cookie_val.len() != submitted.len() {
                     return Err(StatusCode::FORBIDDEN);
                 }
@@ -357,7 +361,11 @@ mod tests {
 
     async fn make_session_cookie(ath: &AllowThem) -> (String, String) {
         let email = Email::new("user@example.com".into()).unwrap();
-        let user = ath.db().create_user(email, "password", None, None).await.unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password", None, None)
+            .await
+            .unwrap();
         let token = generate_token();
         let hash = hash_token(&token);
         let expires = Utc::now() + Duration::hours(24);
@@ -421,7 +429,10 @@ mod tests {
                     .method("POST")
                     .uri("/")
                     .header(header::COOKIE, &session_cookie)
-                    .header("x-csrf-token", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                    .header(
+                        "x-csrf-token",
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    )
                     .body(Body::empty())
                     .unwrap(),
             )

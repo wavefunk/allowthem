@@ -198,7 +198,10 @@ mod tests {
     fn test_app(state: AppState) -> Router {
         Router::new()
             .nest("/admin/sessions", super::routes())
-            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                csrf_middleware,
+            ))
             .with_state(state)
     }
 

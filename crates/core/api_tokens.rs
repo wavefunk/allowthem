@@ -131,7 +131,10 @@ mod tests {
 
     async fn create_test_user(db: &Db) -> UserId {
         let email = Email::new(format!("user_{}@example.com", uuid::Uuid::now_v7())).unwrap();
-        let user = db.create_user(email, "password123", None, None).await.unwrap();
+        let user = db
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
         user.id
     }
 
@@ -192,8 +195,12 @@ mod tests {
         let db = test_db().await;
         let user_id = create_test_user(&db).await;
 
-        db.create_api_token(user_id, "token-a", None, None).await.unwrap();
-        db.create_api_token(user_id, "token-b", None, None).await.unwrap();
+        db.create_api_token(user_id, "token-a", None, None)
+            .await
+            .unwrap();
+        db.create_api_token(user_id, "token-b", None, None)
+            .await
+            .unwrap();
 
         let tokens = db.list_api_tokens(user_id).await.unwrap();
         assert_eq!(tokens.len(), 2);

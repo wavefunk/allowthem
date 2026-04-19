@@ -18,16 +18,26 @@ const MFA_CHALLENGE_HTML: &str = include_str!("../../binaries/templates/mfa_chal
 
 pub fn build_default_browser_env() -> Arc<Environment<'static>> {
     let mut env = Environment::new();
-    env.add_template_owned("base.html", BASE_HTML).expect("base.html");
-    env.add_template_owned("login.html", LOGIN_HTML).expect("login.html");
-    env.add_template_owned("register.html", REGISTER_HTML).expect("register.html");
-    env.add_template_owned("settings.html", SETTINGS_HTML).expect("settings.html");
-    env.add_template_owned("consent.html", CONSENT_HTML).expect("consent.html");
-    env.add_template_owned("forgot_password.html", FORGOT_PASSWORD_HTML).expect("forgot_password.html");
-    env.add_template_owned("reset_password.html", RESET_PASSWORD_HTML).expect("reset_password.html");
-    env.add_template_owned("mfa_setup.html", MFA_SETUP_HTML).expect("mfa_setup.html");
-    env.add_template_owned("mfa_recovery.html", MFA_RECOVERY_HTML).expect("mfa_recovery.html");
-    env.add_template_owned("mfa_challenge.html", MFA_CHALLENGE_HTML).expect("mfa_challenge.html");
+    env.add_template_owned("base.html", BASE_HTML)
+        .expect("base.html");
+    env.add_template_owned("login.html", LOGIN_HTML)
+        .expect("login.html");
+    env.add_template_owned("register.html", REGISTER_HTML)
+        .expect("register.html");
+    env.add_template_owned("settings.html", SETTINGS_HTML)
+        .expect("settings.html");
+    env.add_template_owned("consent.html", CONSENT_HTML)
+        .expect("consent.html");
+    env.add_template_owned("forgot_password.html", FORGOT_PASSWORD_HTML)
+        .expect("forgot_password.html");
+    env.add_template_owned("reset_password.html", RESET_PASSWORD_HTML)
+        .expect("reset_password.html");
+    env.add_template_owned("mfa_setup.html", MFA_SETUP_HTML)
+        .expect("mfa_setup.html");
+    env.add_template_owned("mfa_recovery.html", MFA_RECOVERY_HTML)
+        .expect("mfa_recovery.html");
+    env.add_template_owned("mfa_challenge.html", MFA_CHALLENGE_HTML)
+        .expect("mfa_challenge.html");
     Arc::new(env)
 }
 
@@ -70,10 +80,14 @@ mod tests {
     #[test]
     fn render_produces_html() {
         let env = build_default_browser_env();
-        let result = render(&env, "login.html", minijinja::context! {
-            csrf_token => "test",
-            is_production => false,
-        });
+        let result = render(
+            &env,
+            "login.html",
+            minijinja::context! {
+                csrf_token => "test",
+                is_production => false,
+            },
+        );
         assert!(result.is_ok());
     }
 }

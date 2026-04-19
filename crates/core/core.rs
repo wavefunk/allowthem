@@ -1,10 +1,10 @@
 pub mod access_tokens;
-pub mod csrf;
 pub mod api_tokens;
 pub mod applications;
 pub mod audit;
 pub mod auth_client;
 pub mod authorization;
+pub mod csrf;
 pub mod db;
 pub mod email;
 pub mod email_verification;
@@ -29,9 +29,9 @@ pub mod types;
 pub mod users;
 
 pub use access_tokens::{AccessTokenClaims, has_scope};
-pub use csrf::{derive_csrf_token, verify_csrf_token};
 pub use audit::{AuditEntry, AuditEvent};
 pub use auth_client::{AuthClient, AuthFuture, EmbeddedAuthClient};
+pub use csrf::{derive_csrf_token, verify_csrf_token};
 pub use db::Db;
 pub use email::{EmailMessage, EmailSender, LogEmailSender};
 pub use error::{AccessTokenError, AuthError};

@@ -11,8 +11,7 @@ type HmacSha256 = Hmac<Sha256>;
 /// Input: UTF-8 bytes of the base64url session token string (not decoded bytes).
 /// Returns a 64-char lowercase hex string. Pure function — no DB access.
 pub fn derive_csrf_token(session_token: &SessionToken, secret: &[u8]) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret).expect("HMAC accepts any key length");
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC accepts any key length");
     mac.update(session_token.as_str().as_bytes());
     let result = mac.finalize();
     format!("{:x}", result.into_bytes())
@@ -22,11 +21,7 @@ pub fn derive_csrf_token(session_token: &SessionToken, secret: &[u8]) -> String 
 ///
 /// Uses constant-time comparison to prevent timing attacks.
 /// Returns false if lengths differ or bytes do not match.
-pub fn verify_csrf_token(
-    session_token: &SessionToken,
-    secret: &[u8],
-    submitted: &str,
-) -> bool {
+pub fn verify_csrf_token(session_token: &SessionToken, secret: &[u8], submitted: &str) -> bool {
     let expected = derive_csrf_token(session_token, secret);
     if expected.len() != submitted.len() {
         return false;

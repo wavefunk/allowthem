@@ -72,6 +72,9 @@ pub enum AuthError {
     #[error("resource already consumed")]
     Gone,
 
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
     #[error("signing key error: {0}")]
     SigningKey(String),
 

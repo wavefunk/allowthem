@@ -107,6 +107,23 @@ fn event_label(event: &AuditEvent) -> &'static str {
         AuditEvent::MfaDisabled => "MFA disabled",
         AuditEvent::MfaChallengeSuccess => "MFA challenge success",
         AuditEvent::MfaChallengeFailed => "MFA challenge failed",
+        AuditEvent::OrgCreated => "Org created",
+        AuditEvent::OrgUpdated => "Org updated",
+        AuditEvent::OrgDeleted => "Org deleted",
+        AuditEvent::OrgMemberAdded => "Org member added",
+        AuditEvent::OrgMemberRemoved => "Org member removed",
+        AuditEvent::OrgMemberRoleChanged => "Org member role changed",
+        AuditEvent::OrgOwnershipTransferred => "Org ownership transferred",
+        AuditEvent::TeamCreated => "Team created",
+        AuditEvent::TeamUpdated => "Team updated",
+        AuditEvent::TeamDeleted => "Team deleted",
+        AuditEvent::TeamMemberAdded => "Team member added",
+        AuditEvent::TeamMemberRemoved => "Team member removed",
+        AuditEvent::TeamMemberRoleChanged => "Team member role changed",
+        AuditEvent::OrgInvitationCreated => "Org invitation created",
+        AuditEvent::OrgInvitationAccepted => "Org invitation accepted",
+        AuditEvent::OrgInvitationDeclined => "Org invitation declined",
+        AuditEvent::OrgInvitationRevoked => "Org invitation revoked",
     }
 }
 
@@ -157,7 +174,10 @@ fn to_entry_display(entries: Vec<AuditListEntry>) -> Vec<EntryDisplay> {
         .into_iter()
         .map(|e| EntryDisplay {
             event_label: event_label(&e.event_type).to_string(),
-            is_failure: matches!(e.event_type, AuditEvent::LoginFailed | AuditEvent::MfaChallengeFailed),
+            is_failure: matches!(
+                e.event_type,
+                AuditEvent::LoginFailed | AuditEvent::MfaChallengeFailed
+            ),
             user_id: e.user_id.map(|u| u.to_string()),
             user_email: e.user_email,
             ip_address: e.ip_address,
@@ -322,8 +342,8 @@ mod tests {
     use tower::ServiceExt;
 
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuditEvent, AuthClient, Email, EmbeddedAuthClient,
-        RoleName, generate_token, hash_token,
+        AllowThem, AllowThemBuilder, AuditEvent, AuthClient, Email, EmbeddedAuthClient, RoleName,
+        generate_token, hash_token,
     };
     use allowthem_server::csrf_middleware;
 
@@ -375,7 +395,10 @@ mod tests {
     fn test_app(state: AppState) -> Router {
         Router::new()
             .nest("/admin/audit", super::routes())
-            .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                csrf_middleware,
+            ))
             .with_state(state)
     }
 

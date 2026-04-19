@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use axum::Extension;
 use axum::Form;
+use axum::Router;
 use axum::extract::{Query, State};
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::http::header::COOKIE;
-use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use minijinja::{Environment, context};
 use serde::Deserialize;
 
@@ -218,7 +218,11 @@ async fn post_reset_password(
         return Ok(html.into_response());
     }
 
-    match ath.db().execute_reset(&form.token, &form.new_password).await? {
+    match ath
+        .db()
+        .execute_reset(&form.token, &form.new_password)
+        .await?
+    {
         true => {
             let html = crate::browser_templates::render(
                 &config.templates,

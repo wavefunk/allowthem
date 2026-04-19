@@ -25,10 +25,7 @@ fn hash_verification_token(token: &str) -> String {
 }
 
 impl Db {
-    pub async fn create_email_verification(
-        &self,
-        user_id: UserId,
-    ) -> Result<String, AuthError> {
+    pub async fn create_email_verification(&self, user_id: UserId) -> Result<String, AuthError> {
         let raw_token = generate_verification_token();
         let token_hash = hash_verification_token(&raw_token);
         let id = VerificationTokenId::new();
@@ -72,23 +69,19 @@ impl Db {
             Some(r) => r,
         };
 
-        sqlx::query(
-            "UPDATE allowthem_email_verification_tokens SET used_at = ? WHERE id = ?",
-        )
-        .bind(&now)
-        .bind(token_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(AuthError::Database)?;
+        sqlx::query("UPDATE allowthem_email_verification_tokens SET used_at = ? WHERE id = ?")
+            .bind(&now)
+            .bind(token_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(AuthError::Database)?;
 
-        sqlx::query(
-            "UPDATE allowthem_users SET email_verified = 1, updated_at = ? WHERE id = ?",
-        )
-        .bind(&now)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(AuthError::Database)?;
+        sqlx::query("UPDATE allowthem_users SET email_verified = 1, updated_at = ? WHERE id = ?")
+            .bind(&now)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(AuthError::Database)?;
 
         tx.commit().await.map_err(AuthError::Database)?;
 
@@ -163,10 +156,7 @@ mod tests {
     async fn verify_email_succeeds_with_valid_token() {
         let db = test_db().await;
         let (user_id, email) = make_user(&db).await;
-        let token = db
-            .create_email_verification(user_id)
-            .await
-            .expect("create");
+        let token = db.create_email_verification(user_id).await.expect("create");
         let result = db.verify_email(&token).await.expect("verify");
         assert!(result, "valid token must verify");
 
@@ -186,10 +176,7 @@ mod tests {
     async fn verify_email_fails_when_already_used() {
         let db = test_db().await;
         let (user_id, _) = make_user(&db).await;
-        let token = db
-            .create_email_verification(user_id)
-            .await
-            .expect("create");
+        let token = db.create_email_verification(user_id).await.expect("create");
         let first = db.verify_email(&token).await.expect("first verify");
         assert!(first);
         let second = db.verify_email(&token).await.expect("second verify");
@@ -200,10 +187,7 @@ mod tests {
     async fn verify_email_fails_with_expired_token() {
         let db = test_db().await;
         let (user_id, _) = make_user(&db).await;
-        let token = db
-            .create_email_verification(user_id)
-            .await
-            .expect("create");
+        let token = db.create_email_verification(user_id).await.expect("create");
 
         let past = (chrono::Utc::now() - chrono::Duration::hours(1))
             .format("%Y-%m-%dT%H:%M:%S%.3fZ")
