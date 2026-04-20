@@ -23,6 +23,15 @@ pub struct RegisteredEvent {
     pub ctx: EventContext,
 }
 
+impl RegisteredEvent {
+    /// Constructor used by allowthem's route handlers. Integrators receive
+    /// `RegisteredEvent` values from the channel and should not construct
+    /// them directly.
+    pub fn new(user: User, source: RegistrationSource, ctx: EventContext) -> Self {
+        Self { user, source, ctx }
+    }
+}
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum RegistrationSource {
@@ -37,6 +46,25 @@ pub struct EventContext {
     pub user_agent: Option<String>,
     pub base_url: String,
     pub occurred_at: DateTime<Utc>,
+}
+
+impl EventContext {
+    /// Constructor used by allowthem's route handlers. Integrators receive
+    /// `EventContext` values from the channel and should not construct them
+    /// directly.
+    pub fn new(
+        ip: Option<String>,
+        user_agent: Option<String>,
+        base_url: String,
+        occurred_at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            ip,
+            user_agent,
+            base_url,
+            occurred_at,
+        }
+    }
 }
 
 pub type AuthEventSender = mpsc::UnboundedSender<AuthEvent>;
@@ -63,16 +91,16 @@ mod tests {
 
     #[test]
     fn registered_event_constructs_and_clones() {
-        let event = AuthEvent::Registered(RegisteredEvent {
-            user: sample_user(),
-            source: RegistrationSource::Password,
-            ctx: EventContext {
-                ip: Some("127.0.0.1".into()),
-                user_agent: Some("test-agent".into()),
-                base_url: "http://test".into(),
-                occurred_at: Utc::now(),
-            },
-        });
+        let event = AuthEvent::Registered(RegisteredEvent::new(
+            sample_user(),
+            RegistrationSource::Password,
+            EventContext::new(
+                Some("127.0.0.1".into()),
+                Some("test-agent".into()),
+                "http://test".into(),
+                Utc::now(),
+            ),
+        ));
 
         let cloned = event.clone();
         // Debug-format should work on the cloned value.

@@ -336,6 +336,8 @@ impl AllRoutesBuilder {
                 templates.clone(),
                 is_production,
                 custom_schema,
+                self.events_tx.clone(),
+                self.base_url.clone(),
             ));
         }
 

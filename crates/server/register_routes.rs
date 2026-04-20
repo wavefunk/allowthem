@@ -16,7 +16,8 @@ use serde::Deserialize;
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::types::ClientId;
 use allowthem_core::{
-    AllowThem, AuditEvent, AuthError, Email, Username, generate_token, hash_token,
+    AllowThem, AuditEvent, AuthError, AuthEvent, AuthEventSender, Email, EventContext,
+    RegisteredEvent, RegistrationSource, Username, generate_token, hash_token,
 };
 
 use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
@@ -26,6 +27,7 @@ use crate::custom_fields::{
     CustomFieldDescriptor, CustomSchemaConfig, extract_and_coerce_custom_data,
     format_validation_errors,
 };
+use crate::events::{client_ip, publish};
 
 const MIN_PASSWORD_LEN: usize = 8;
 
@@ -34,6 +36,8 @@ struct RegisterConfig {
     templates: Arc<Environment<'static>>,
     is_production: bool,
     custom_schema: Option<Arc<CustomSchemaConfig>>,
+    events_tx: Option<AuthEventSender>,
+    base_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -267,7 +271,21 @@ async fn post_register(
         tracing::error!(error = %e, "failed to log registration audit event");
     }
 
-    // 9. Set session cookie and redirect
+    // 9. Publish lifecycle event (fire-and-forget; after all fallible DB calls).
+    publish(config.events_tx.as_ref(), || {
+        AuthEvent::Registered(RegisteredEvent::new(
+            user.clone(),
+            RegistrationSource::Password,
+            EventContext::new(
+                ip.clone(),
+                ua.map(str::to_owned),
+                config.base_url.clone().unwrap_or_default(),
+                Utc::now(),
+            ),
+        ))
+    });
+
+    // 10. Set session cookie and redirect
     let cookie = ath.session_cookie(&token);
     Ok((
         StatusCode::SEE_OTHER,
@@ -387,23 +405,19 @@ async fn is_authenticated(ath: &AllowThem, headers: &HeaderMap) -> bool {
         .is_some()
 }
 
-fn client_ip(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
-}
-
 pub fn register_routes(
     templates: Arc<Environment<'static>>,
     is_production: bool,
     custom_schema: Option<CustomSchemaConfig>,
+    events_tx: Option<AuthEventSender>,
+    base_url: Option<String>,
 ) -> Router<AllowThem> {
     let cfg = RegisterConfig {
         templates,
         is_production,
         custom_schema: custom_schema.map(Arc::new),
+        events_tx,
+        base_url,
     };
     Router::new()
         .route("/register", get(get_register).post(post_register))
@@ -419,7 +433,8 @@ mod tests {
     use tower::ServiceExt;
 
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuditEvent, Email, Username, parse_session_cookie,
+        AllowThem, AllowThemBuilder, AuditEvent, AuthEvent, Email, RegistrationSource, Username,
+        parse_session_cookie,
     };
 
     use crate::custom_fields::{CustomSchemaConfig, extract_field_descriptors};
@@ -438,6 +453,8 @@ mod tests {
             templates,
             is_production: false,
             custom_schema: None,
+            events_tx: None,
+            base_url: None,
         };
         (ath, config)
     }
@@ -451,6 +468,8 @@ mod tests {
                 validator: arc.validator.clone(),
                 fields: arc.fields.clone(),
             }),
+            config.events_tx.clone(),
+            config.base_url.clone(),
         )
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
@@ -490,6 +509,8 @@ mod tests {
             config.templates.clone(),
             config.is_production,
             Some(schema_config),
+            config.events_tx.clone(),
+            config.base_url.clone(),
         )
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
@@ -1071,5 +1092,97 @@ mod tests {
             "should render company custom field"
         );
         assert!(html.contains("Company Name"), "should render field label");
+    }
+
+    // --- Lifecycle events tests ---
+
+    fn test_app_with_events(
+        ath: AllowThem,
+        config: RegisterConfig,
+        events_tx: allowthem_core::AuthEventSender,
+        base_url: String,
+    ) -> Router {
+        register_routes(
+            config.templates.clone(),
+            config.is_production,
+            None,
+            Some(events_tx),
+            Some(base_url),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::csrf::csrf_middleware,
+        ))
+        .with_state(ath)
+    }
+
+    #[tokio::test]
+    async fn post_register_publishes_registered_event() {
+        let (ath, config) = setup().await;
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let app = test_app_with_events(ath, config, tx, "http://test".into());
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(
+            &csrf,
+            "events@example.com",
+            "password123",
+            "password123",
+            "",
+        );
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+        let event = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
+            .await
+            .expect("event received before timeout")
+            .expect("channel sender still alive");
+
+        match event {
+            AuthEvent::Registered(e) => {
+                assert!(matches!(e.source, RegistrationSource::Password));
+                assert_eq!(e.user.email.as_str(), "events@example.com");
+                assert_eq!(e.ctx.base_url, "http://test");
+            }
+            other => panic!("unexpected event variant: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn post_register_does_not_hang_when_receiver_dropped() {
+        let (ath, config) = setup().await;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(rx);
+        let app = test_app_with_events(ath, config, tx, "http://test".into());
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(
+            &csrf,
+            "dropped@example.com",
+            "password123",
+            "password123",
+            "",
+        );
+
+        let resp = tokio::time::timeout(std::time::Duration::from_secs(2), app.oneshot(req))
+            .await
+            .expect("register handler returned in time")
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    }
+
+    #[tokio::test]
+    async fn post_register_without_events_sender_succeeds() {
+        let (ath, config) = setup().await;
+        // No events_tx configured — same as the default setup path.
+        let app = test_app(ath, config);
+        let csrf = get_csrf_token(&app).await;
+        let req = register_request(
+            &csrf,
+            "no-events@example.com",
+            "password123",
+            "password123",
+            "",
+        );
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     }
 }

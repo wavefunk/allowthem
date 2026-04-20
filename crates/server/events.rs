@@ -11,7 +11,6 @@ use allowthem_core::events::{AuthEvent, AuthEventSender};
 ///
 /// Takes a builder closure so the call site can skip event construction
 /// entirely when no sender is configured.
-#[allow(dead_code)] // wired up in register_routes/oauth_routes in a follow-up commit
 pub(crate) fn publish(tx: Option<&AuthEventSender>, build: impl FnOnce() -> AuthEvent) {
     if let Some(tx) = tx {
         let _ = tx.send(build());
@@ -22,7 +21,6 @@ pub(crate) fn publish(tx: Option<&AuthEventSender>, build: impl FnOnce() -> Auth
 ///
 /// Reads the first entry in `X-Forwarded-For`. Returns `None` when the header
 /// is absent or malformed. Both the register and OAuth handlers use this.
-#[allow(dead_code)] // wired up in register_routes/oauth_routes in a follow-up commit
 pub(crate) fn client_ip(headers: &HeaderMap) -> Option<String> {
     headers
         .get("x-forwarded-for")
