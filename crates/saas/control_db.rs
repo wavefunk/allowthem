@@ -1,5 +1,11 @@
+use sqlx::{Row, SqlitePool};
+use uuid::Uuid;
+
 use allowthem_core::error::AuthError;
-use sqlx::SqlitePool;
+
+use crate::cache::TenantMeta;
+use crate::error::SaasError;
+use crate::tenants::{TenantId, TenantStatus};
 
 pub struct ControlDb {
     pool: SqlitePool,
@@ -16,6 +22,60 @@ impl ControlDb {
 
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    pub async fn tenant_meta_by_slug(&self, slug: &str) -> Result<Option<TenantMeta>, SaasError> {
+        let row = sqlx::query("SELECT id, status, plan_id FROM tenants WHERE slug = ?1")
+            .bind(slug)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let Some(row) = row else { return Ok(None) };
+
+        let id_bytes: Vec<u8> = row.try_get("id")?;
+        let status: TenantStatus = row.try_get("status")?;
+        let plan_id: Vec<u8> = row.try_get("plan_id")?;
+        let id = Uuid::from_slice(&id_bytes).map_err(|_| SaasError::TenantNotFound)?;
+
+        Ok(Some(TenantMeta {
+            id: TenantId::from(id),
+            status,
+            plan_id,
+        }))
+    }
+
+    pub async fn most_recently_seen_tenants(
+        &self,
+        count: i64,
+    ) -> Result<Vec<TenantId>, SaasError> {
+        let rows = sqlx::query(
+            "SELECT id FROM tenants \
+             WHERE status = 'active' AND last_seen_at IS NOT NULL \
+             ORDER BY last_seen_at DESC LIMIT ?1",
+        )
+        .bind(count)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut result = Vec::with_capacity(rows.len());
+        for row in rows {
+            let bytes: Vec<u8> = row.try_get("id")?;
+            match Uuid::from_slice(&bytes) {
+                Ok(uuid) => result.push(TenantId::from(uuid)),
+                Err(_) => {
+                    tracing::warn!("skipping tenant with undecodable UUID in most_recently_seen");
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    pub async fn touch_last_seen(&self, tenant_id: &TenantId) -> Result<(), SaasError> {
+        sqlx::query("UPDATE tenants SET last_seen_at = datetime('now') WHERE id = ?1")
+            .bind(tenant_id.as_bytes())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 

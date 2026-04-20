@@ -16,6 +16,7 @@ pub struct TenantMeta {
     pub plan_id: Vec<u8>,
 }
 
+#[derive(Clone)]
 pub struct SlugCache(Cache<String, TenantMeta>);
 
 impl SlugCache {

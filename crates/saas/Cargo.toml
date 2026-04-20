@@ -24,6 +24,7 @@ futures.workspace = true
 dashmap.workspace = true
 axum.workspace = true
 tower.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
