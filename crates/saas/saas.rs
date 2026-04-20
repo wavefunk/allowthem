@@ -3,4 +3,4 @@ pub mod error;
 pub mod tenants;
 
 pub use error::SaasError;
-pub use tenants::{Tenant, TenantId, TenantStatus};
+pub use tenants::{ProvisionResult, Tenant, TenantBuilderConfig, TenantId, TenantStatus};
