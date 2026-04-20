@@ -111,6 +111,20 @@ Consuming projects code against an `AuthClient` trait, not the `AllowThem` handl
 - Login challenge (second factor after password)
 - One-time recovery codes (10, stored hashed)
 
+### Lifecycle Events
+- Integrators can subscribe to auth lifecycle moments (register today; login,
+  password change, delete on demand) via a user-supplied
+  `tokio::sync::mpsc::UnboundedSender<AuthEvent>` passed to
+  `AllRoutesBuilder::events(tx)`
+- Fire-and-forget, at-most-once delivery — integrator code never sits in the
+  request path
+- `AuthEvent` is a `#[non_exhaustive]` enum so new variants never break
+  subscribers. Current variants: `Registered` (password + OAuth first-sign-in)
+- Integrator contract (summary): missed events are the integrator's problem,
+  handlers should be idempotent per user, drainers doing heavy work should
+  spawn per event rather than await inline. Full contract:
+  `docs/superpowers/specs/2026-04-20-lifecycle-events-design.md`
+
 ### Standalone Service Features
 - Application registry (client_id/secret, redirect URIs)
 - OIDC provider (authorization code flow, RS256-signed tokens)
