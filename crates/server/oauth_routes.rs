@@ -1144,11 +1144,7 @@ mod tests {
     // Lifecycle event tests
     // ---------------------------------------------------------------------------
 
-    async fn test_app_with_events() -> (
-        AllowThem,
-        Router,
-        allowthem_core::AuthEventReceiver,
-    ) {
+    async fn test_app_with_events() -> (AllowThem, Router, allowthem_core::AuthEventReceiver) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .build()

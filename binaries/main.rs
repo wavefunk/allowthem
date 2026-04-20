@@ -17,6 +17,8 @@ use eyre::Result;
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
+#[cfg(test)]
+use allowthem_core::types::ClientType;
 use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
@@ -676,6 +678,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "MyTestApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -714,6 +717,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "TrustedApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 true,
                 None,
@@ -743,6 +747,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "NoAuth".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -774,6 +779,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "HttpLogo".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -792,6 +798,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "HttpsLogo".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -826,6 +833,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "ColorApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -855,6 +863,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "DefaultColor".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,

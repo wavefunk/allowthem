@@ -362,6 +362,7 @@ mod tests {
     use chrono::Duration;
     use tower::ServiceExt;
 
+    use allowthem_core::types::ClientType;
     use allowthem_core::{AllowThemBuilder, Email, generate_token, hash_token};
 
     async fn setup() -> (AllowThem, LoginConfig) {
@@ -718,6 +719,7 @@ mod tests {
             .db()
             .create_application(
                 "BrandedApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/cb".into()],
                 false,
                 None,
@@ -789,6 +791,7 @@ mod tests {
             .db()
             .create_application(
                 "BrandedPost".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/cb".into()],
                 false,
                 None,
@@ -896,6 +899,7 @@ mod tests {
             .db()
             .create_application(
                 "LinkApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/cb".into()],
                 false,
                 None,

@@ -531,7 +531,7 @@ pub async fn authorize_post(
 mod tests {
     use super::*;
     use allowthem_core::handle::AllowThemBuilder;
-    use allowthem_core::types::Email;
+    use allowthem_core::types::{ClientType, Email};
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request;
@@ -558,6 +558,7 @@ mod tests {
             .db()
             .create_application(
                 "TestApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".to_string()],
                 false,
                 Some(user.id),
@@ -797,6 +798,7 @@ mod tests {
             .db()
             .create_application(
                 "TrustedApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://trusted.example.com/callback".to_string()],
                 true,
                 None,

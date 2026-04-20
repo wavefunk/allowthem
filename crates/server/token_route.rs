@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use allowthem_core::password::verify_password;
-use allowthem_core::types::ClientId;
+use allowthem_core::types::{ClientId, ClientType};
 use allowthem_core::{
     AllowThem, AuthError, TokenError, exchange_authorization_code, exchange_refresh_token,
 };
@@ -40,7 +40,7 @@ struct TokenParams {
 fn extract_client_credentials(
     headers: &HeaderMap,
     params: &TokenParams,
-) -> Result<(ClientId, String), TokenError> {
+) -> Result<(ClientId, Option<String>), TokenError> {
     if let Some(auth_header) = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok())
         && let Some(encoded) = auth_header.strip_prefix("Basic ")
     {
@@ -48,7 +48,7 @@ fn extract_client_credentials(
             .map_err(|_| TokenError::InvalidClient("malformed Basic credentials".into()))?;
         let decoded_str = String::from_utf8(decoded)
             .map_err(|_| TokenError::InvalidClient("malformed Basic credentials".into()))?;
-        let (id_str, secret) = decoded_str
+        let (id_str, secret_str) = decoded_str
             .split_once(':')
             .ok_or_else(|| TokenError::InvalidClient("malformed Basic credentials".into()))?;
         let client_id: ClientId =
@@ -56,18 +56,24 @@ fn extract_client_credentials(
                 .map_err(|_| {
                     TokenError::InvalidClient("invalid client_id in Basic credentials".into())
                 })?;
-        return Ok((client_id, secret.to_string()));
+        let secret = if secret_str.is_empty() {
+            None
+        } else {
+            Some(secret_str.to_string())
+        };
+        return Ok((client_id, secret));
     }
 
     let client_id = params
         .client_id
         .clone()
         .ok_or_else(|| TokenError::InvalidClient("missing client credentials".into()))?;
-    let client_secret = params
+    let secret = params
         .client_secret
-        .clone()
-        .ok_or_else(|| TokenError::InvalidClient("missing client credentials".into()))?;
-    Ok((client_id, client_secret))
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned();
+    Ok((client_id, secret))
 }
 
 // ---------------------------------------------------------------------------
@@ -122,12 +128,12 @@ async fn token(
     Form(params): Form<TokenParams>,
 ) -> Response {
     // 1. Extract client credentials
-    let (client_id, client_secret) = match extract_client_credentials(&headers, &params) {
+    let (client_id, maybe_secret) = match extract_client_credentials(&headers, &params) {
         Ok(creds) => creds,
         Err(e) => return token_error_response(&e),
     };
 
-    // 2. Authenticate client
+    // 2. Look up application
     let application = match ath.db().get_application_by_client_id(&client_id).await {
         Ok(app) => app,
         Err(AuthError::NotFound) => {
@@ -136,12 +142,33 @@ async fn token(
         Err(_) => return token_error_response(&TokenError::ServerError("internal error".into())),
     };
 
-    match verify_password(&client_secret, &application.client_secret_hash) {
-        Ok(true) => {}
-        _ => {
-            return token_error_response(&TokenError::InvalidClient(
-                "invalid client_secret".into(),
-            ));
+    // 3. Authenticate based on client type
+    match application.client_type {
+        ClientType::Confidential => {
+            let secret = match maybe_secret {
+                Some(s) => s,
+                None => {
+                    return token_error_response(&TokenError::InvalidClient(
+                        "missing client_secret".into(),
+                    ));
+                }
+            };
+            // client_secret_hash is always Some for Confidential — invariant from create_application
+            match verify_password(&secret, application.client_secret_hash.as_ref().unwrap()) {
+                Ok(true) => {}
+                _ => {
+                    return token_error_response(&TokenError::InvalidClient(
+                        "invalid client_secret".into(),
+                    ));
+                }
+            }
+        }
+        ClientType::Public => {
+            if maybe_secret.is_some() {
+                return token_error_response(&TokenError::InvalidClient(
+                    "public clients must not send client_secret".into(),
+                ));
+            }
         }
     }
 
@@ -348,6 +375,7 @@ mod tests {
             .db()
             .create_application(
                 "TokenTestApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".to_string()],
                 false,
                 Some(user.id),
@@ -356,7 +384,10 @@ mod tests {
             )
             .await
             .unwrap();
-        let raw_secret = client_secret.as_str().to_string();
+        let raw_secret = client_secret
+            .expect("confidential app has secret")
+            .as_str()
+            .to_string();
 
         let code_verifier = "test_verifier_with_enough_entropy_1234567890abcdef";
         let digest = Sha256::digest(code_verifier.as_bytes());
@@ -961,6 +992,7 @@ mod tests {
             .db()
             .create_application(
                 "OtherApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://other.example.com/callback".to_string()],
                 false,
                 Some(user_b.id),
@@ -969,7 +1001,10 @@ mod tests {
             )
             .await
             .unwrap();
-        let raw_secret_b = secret_b.as_str().to_string();
+        let raw_secret_b = secret_b
+            .expect("confidential app has secret")
+            .as_str()
+            .to_string();
 
         // Try to use app_a's refresh token as app_b
         let body = build_refresh_body(&app_b, &raw_secret_b, &refresh_token);
@@ -1006,5 +1041,140 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let json = read_body(resp).await;
         assert_eq!(json["error"], "unsupported_grant_type");
+    }
+
+    async fn setup_public_client_code_exchange(
+        ath: &AllowThem,
+    ) -> (
+        allowthem_core::applications::Application,
+        String,
+        String,
+        String,
+    ) {
+        let email =
+            allowthem_core::types::Email::new("public_client_test@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
+
+        let (app, _secret) = ath
+            .db()
+            .create_application(
+                "PublicApp".to_string(),
+                ClientType::Public,
+                vec!["https://example.com/callback".to_string()],
+                false,
+                Some(user.id),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let code_verifier = "public_client_verifier_with_enough_entropy_1234567890";
+        let digest = sha2::Sha256::digest(code_verifier.as_bytes());
+        let code_challenge = base64ct::Base64UrlUnpadded::encode_string(&digest);
+
+        let raw_code = allowthem_core::authorization::generate_authorization_code();
+        let code_hash = allowthem_core::authorization::hash_authorization_code(&raw_code);
+        ath.db()
+            .create_authorization_code(
+                app.id,
+                user.id,
+                &code_hash,
+                "https://example.com/callback",
+                &["openid".to_string()],
+                &code_challenge,
+                "S256",
+                None,
+            )
+            .await
+            .unwrap();
+
+        (
+            app,
+            raw_code,
+            code_verifier.to_string(),
+            "https://example.com/callback".to_string(),
+        )
+    }
+
+    #[tokio::test]
+    async fn public_client_gets_token_without_secret() {
+        let (ath, app) = test_app().await;
+        let (application, code, verifier, redirect_uri) =
+            setup_public_client_code_exchange(&ath).await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "authorization_code")
+            .append_pair("code", &code)
+            .append_pair("redirect_uri", &redirect_uri)
+            .append_pair("code_verifier", &verifier)
+            .append_pair("client_id", application.client_id.as_str())
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = read_body(resp).await;
+        assert!(json["access_token"].is_string());
+    }
+
+    #[tokio::test]
+    async fn public_client_rejected_when_secret_present() {
+        let (ath, app) = test_app().await;
+        let (application, code, verifier, redirect_uri) =
+            setup_public_client_code_exchange(&ath).await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "authorization_code")
+            .append_pair("code", &code)
+            .append_pair("redirect_uri", &redirect_uri)
+            .append_pair("code_verifier", &verifier)
+            .append_pair("client_id", application.client_id.as_str())
+            .append_pair("client_secret", "should-not-be-here")
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let json = read_body(resp).await;
+        assert_eq!(json["error"], "invalid_client");
+    }
+
+    #[tokio::test]
+    async fn public_client_rejected_when_code_verifier_missing() {
+        let (ath, app) = test_app().await;
+        let (application, code, _, redirect_uri) = setup_public_client_code_exchange(&ath).await;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "authorization_code")
+            .append_pair("code", &code)
+            .append_pair("redirect_uri", &redirect_uri)
+            .append_pair("client_id", application.client_id.as_str())
+            .finish();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let json = read_body(resp).await;
+        assert_eq!(json["error"], "invalid_request");
     }
 }

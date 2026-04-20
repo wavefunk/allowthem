@@ -432,6 +432,7 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt;
 
+    use allowthem_core::types::ClientType;
     use allowthem_core::{
         AllowThem, AllowThemBuilder, AuditEvent, AuthEvent, Email, RegistrationSource, Username,
         parse_session_cookie,
@@ -881,6 +882,7 @@ mod tests {
             .db()
             .create_application(
                 "BrandedRegApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/cb".into()],
                 false,
                 None,
@@ -932,6 +934,7 @@ mod tests {
             .db()
             .create_application(
                 "LinkApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/cb".into()],
                 false,
                 None,
