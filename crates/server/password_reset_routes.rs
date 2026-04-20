@@ -16,12 +16,14 @@ struct PasswordResetConfig {
     base_url: String,
 }
 
-/// Create a router with password reset route handlers.
+/// Create a router with password reset JSON API handlers.
 ///
-/// Returns a `Router<AllowThem>` with three endpoints:
-/// - `POST /forgot-password` — initiates reset flow (always returns 200)
-/// - `GET /reset-password?token=...` — validates a reset token
-/// - `POST /reset-password` — executes the password reset
+/// Returns a `Router<AllowThem>` with three endpoints namespaced under `/api`
+/// to avoid colliding with the browser form surface in
+/// [`crate::password_reset_page_routes`]:
+/// - `POST /api/forgot-password` — initiates reset flow (always returns 200)
+/// - `GET /api/reset-password?token=...` — validates a reset token
+/// - `POST /api/reset-password` — executes the password reset
 ///
 /// The caller provides an `EmailSender` for delivering reset emails and a
 /// `base_url` used to construct the reset link in the email.
@@ -42,8 +44,11 @@ pub fn password_reset_routes(
         base_url,
     };
     Router::new()
-        .route("/forgot-password", post(forgot_password))
-        .route("/reset-password", get(validate_reset).post(execute_reset))
+        .route("/api/forgot-password", post(forgot_password))
+        .route(
+            "/api/reset-password",
+            get(validate_reset).post(execute_reset),
+        )
         .layer(Extension(config))
 }
 
@@ -52,7 +57,7 @@ struct ForgotPasswordBody {
     email: String,
 }
 
-/// POST /forgot-password
+/// POST /api/forgot-password
 ///
 /// Always returns 200 regardless of whether the email exists.
 /// This prevents email enumeration attacks.
@@ -94,7 +99,7 @@ struct ResetTokenQuery {
     token: String,
 }
 
-/// GET /reset-password?token=...
+/// GET /api/reset-password?token=...
 ///
 /// Validates a reset token without consuming it.
 async fn validate_reset(
@@ -120,7 +125,7 @@ struct ResetPasswordBody {
     new_password: String,
 }
 
-/// POST /reset-password
+/// POST /api/reset-password
 ///
 /// Executes the password reset: validates the token, hashes the new password,
 /// updates the user, and marks the token as used.
@@ -194,7 +199,7 @@ mod tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri("/forgot-password")
+            .uri("/api/forgot-password")
             .header("content-type", "application/json")
             .body(Body::from(r#"{"email":"user@example.com"}"#))
             .unwrap();
@@ -216,7 +221,7 @@ mod tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri("/forgot-password")
+            .uri("/api/forgot-password")
             .header("content-type", "application/json")
             .body(Body::from(r#"{"email":"nobody@example.com"}"#))
             .unwrap();
@@ -246,7 +251,7 @@ mod tests {
             .unwrap();
 
         let req = Request::builder()
-            .uri(format!("/reset-password?token={raw_token}"))
+            .uri(format!("/api/reset-password?token={raw_token}"))
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
@@ -261,7 +266,7 @@ mod tests {
         let (_ath, app) = test_app().await;
 
         let req = Request::builder()
-            .uri("/reset-password?token=garbage-token")
+            .uri("/api/reset-password?token=garbage-token")
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
@@ -286,7 +291,7 @@ mod tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri("/reset-password")
+            .uri("/api/reset-password")
             .header("content-type", "application/json")
             .body(Body::from(format!(
                 r#"{{"token":"{raw_token}","new_password":"new-secure-pass"}}"#
@@ -330,7 +335,7 @@ mod tests {
         // Second reset with same token — must fail.
         let req = Request::builder()
             .method("POST")
-            .uri("/reset-password")
+            .uri("/api/reset-password")
             .header("content-type", "application/json")
             .body(Body::from(format!(
                 r#"{{"token":"{raw_token}","new_password":"second-password"}}"#
