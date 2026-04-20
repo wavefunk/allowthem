@@ -73,9 +73,6 @@ impl Email {
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
             return Err(crate::error::AuthError::InvalidEmail);
         }
-        if !parts[1].contains('.') {
-            return Err(crate::error::AuthError::InvalidEmail);
-        }
         Ok(Self(trimmed))
     }
 
