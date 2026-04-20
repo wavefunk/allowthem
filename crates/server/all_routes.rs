@@ -397,7 +397,11 @@ impl AllRoutesBuilder {
         if self.selected(RouteGroup::OAuth) {
             let providers = self.oauth_provider_impls.take().expect("validated above");
             let base_url = self.base_url.clone().expect("validated above");
-            non_csrf = non_csrf.merge(crate::oauth_routes::oauth_routes(providers, base_url));
+            non_csrf = non_csrf.merge(crate::oauth_routes::oauth_routes(
+                providers,
+                base_url,
+                self.events_tx.clone(),
+            ));
         }
 
         if self.selected(RouteGroup::Token) {
