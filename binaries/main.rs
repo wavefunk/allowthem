@@ -20,6 +20,7 @@ use tracing_subscriber::EnvFilter;
 use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
+use allowthem_core::types::ClientType;
 use allowthem_server::{AllRoutesBuilder, csrf_middleware};
 
 use crate::state::AppState;
@@ -676,7 +677,8 @@ mod consent_tests {
             .db()
             .create_application(
                 "MyTestApp".into(),
-                vec!["https://example.com/callback".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/callback".into()],
                 false,
                 None,
                 None,
@@ -714,7 +716,8 @@ mod consent_tests {
             .db()
             .create_application(
                 "TrustedApp".into(),
-                vec!["https://example.com/callback".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/callback".into()],
                 true,
                 None,
                 None,
@@ -743,7 +746,8 @@ mod consent_tests {
             .db()
             .create_application(
                 "NoAuth".into(),
-                vec!["https://example.com/callback".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/callback".into()],
                 false,
                 None,
                 None,
@@ -774,7 +778,8 @@ mod consent_tests {
             .db()
             .create_application(
                 "HttpLogo".into(),
-                vec!["https://example.com/callback".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/callback".into()],
                 false,
                 None,
                 Some("http://example.com/logo.png".into()),
@@ -792,7 +797,8 @@ mod consent_tests {
             .db()
             .create_application(
                 "HttpsLogo".into(),
-                vec!["https://example.com/callback".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/callback".into()],
                 false,
                 None,
                 Some("https://cdn.example.com/logo.png".into()),
@@ -826,7 +832,8 @@ mod consent_tests {
             .db()
             .create_application(
                 "ColorApp".into(),
-                vec!["https://example.com/callback".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/callback".into()],
                 false,
                 None,
                 None,
@@ -855,7 +862,8 @@ mod consent_tests {
             .db()
             .create_application(
                 "DefaultColor".into(),
-                vec!["https://example.com/callback".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/callback".into()],
                 false,
                 None,
                 None,

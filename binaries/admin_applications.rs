@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use allowthem_core::AuthError;
 use allowthem_core::applications::UpdateApplication;
-use allowthem_core::types::ApplicationId;
+use allowthem_core::types::{ApplicationId, ClientType};
 use allowthem_server::{BrowserAdminUser, CsrfToken};
 
 use crate::error::AppError;
@@ -175,7 +175,7 @@ pub async fn create(
                 context! {
                     app => &app,
                     redirect_uris => &uris,
-                    client_secret => secret.as_str(),
+                    client_secret => secret.as_ref().map(|s| s.as_str()).unwrap_or(""),
                     csrf_token => csrf.as_str(),
                 },
                 state.is_production,
@@ -333,7 +333,7 @@ pub async fn regenerate_secret(
         context! {
             app => &app,
             redirect_uris => &uris,
-            client_secret => secret.as_str(),
+            client_secret => secret.as_ref().map(|s| s.as_str()).unwrap_or(""),
             csrf_token => csrf.as_str(),
         },
         state.is_production,
@@ -489,7 +489,8 @@ mod tests {
         ath.db()
             .create_application(
                 "Test App".to_string(),
-                vec!["https://example.com/cb".to_string()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -618,7 +619,8 @@ mod tests {
             .db()
             .create_application(
                 "Detail App".to_string(),
-                vec!["https://example.com/cb".to_string()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -648,7 +650,8 @@ mod tests {
             .db()
             .create_application(
                 "Edit App".to_string(),
-                vec!["https://example.com/cb".to_string()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".to_string()],
                 true,
                 None,
                 None,
@@ -679,7 +682,8 @@ mod tests {
             .db()
             .create_application(
                 "Update App".to_string(),
-                vec!["https://example.com/cb".to_string()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -725,7 +729,8 @@ mod tests {
             .db()
             .create_application(
                 "Regen App".to_string(),
-                vec!["https://example.com/cb".to_string()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -771,7 +776,8 @@ mod tests {
             .db()
             .create_application(
                 "Delete App".to_string(),
-                vec!["https://example.com/cb".to_string()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -916,7 +922,8 @@ mod tests {
             .db()
             .create_application(
                 "Trusted App".to_string(),
-                vec!["https://example.com/cb".to_string()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".to_string()],
                 true,
                 None,
                 None,

@@ -18,7 +18,7 @@ use serde::Deserialize;
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::password::verify_password;
 use allowthem_core::sessions;
-use allowthem_core::types::ClientId;
+use allowthem_core::types::{ClientId, ClientType};
 use allowthem_core::{AllowThem, AuditEvent, PasswordHash, SessionToken};
 
 use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
@@ -718,7 +718,8 @@ mod tests {
             .db()
             .create_application(
                 "BrandedApp".into(),
-                vec!["https://example.com/cb".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".into()],
                 false,
                 None,
                 Some("https://cdn.example.com/logo.png".into()),
@@ -789,7 +790,8 @@ mod tests {
             .db()
             .create_application(
                 "BrandedPost".into(),
-                vec!["https://example.com/cb".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".into()],
                 false,
                 None,
                 None,
@@ -896,7 +898,8 @@ mod tests {
             .db()
             .create_application(
                 "LinkApp".into(),
-                vec!["https://example.com/cb".into()],
+                ClientType::Confidential,
+                                vec!["https://example.com/cb".into()],
                 false,
                 None,
                 None,

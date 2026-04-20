@@ -11,7 +11,7 @@ use allowthem_core::applications::{Application, BrandingConfig, validate_redirec
 use allowthem_core::authorization::{
     generate_authorization_code, hash_authorization_code, validate_scopes,
 };
-use allowthem_core::types::{ClientId, UserId};
+use allowthem_core::types::{ClientId, ClientType, UserId};
 use allowthem_core::{AllowThem, AuthError};
 
 // ---------------------------------------------------------------------------
@@ -558,7 +558,8 @@ mod tests {
             .db()
             .create_application(
                 "TestApp".to_string(),
-                vec!["https://example.com/callback".to_string()],
+                ClientType::Confidential,
+                                vec!["https://example.com/callback".to_string()],
                 false,
                 Some(user.id),
                 None,
@@ -797,7 +798,8 @@ mod tests {
             .db()
             .create_application(
                 "TrustedApp".to_string(),
-                vec!["https://trusted.example.com/callback".to_string()],
+                ClientType::Confidential,
+                                vec!["https://trusted.example.com/callback".to_string()],
                 true,
                 None,
                 None,

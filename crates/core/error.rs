@@ -90,6 +90,9 @@ pub enum AuthError {
     #[error("invalid authorization request: {0}")]
     InvalidAuthorizationRequest(String),
 
+    #[error("invalid request: {0}")]
+    InvalidRequest(String),
+
     #[error("base URL not configured -- provide base_url to AllowThemBuilder")]
     BaseUrlNotConfigured,
 

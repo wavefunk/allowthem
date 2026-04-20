@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use allowthem_core::password::verify_password;
-use allowthem_core::types::ClientId;
+use allowthem_core::types::{ClientId, ClientType};
 use allowthem_core::{
     AllowThem, AuthError, TokenError, exchange_authorization_code, exchange_refresh_token,
 };
@@ -348,7 +348,8 @@ mod tests {
             .db()
             .create_application(
                 "TokenTestApp".to_string(),
-                vec!["https://example.com/callback".to_string()],
+                ClientType::Confidential,
+                                vec!["https://example.com/callback".to_string()],
                 false,
                 Some(user.id),
                 None,
@@ -356,7 +357,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let raw_secret = client_secret.as_str().to_string();
+        let raw_secret = client_secret.expect("confidential app has secret").as_str().to_string();
 
         let code_verifier = "test_verifier_with_enough_entropy_1234567890abcdef";
         let digest = Sha256::digest(code_verifier.as_bytes());
@@ -961,7 +962,8 @@ mod tests {
             .db()
             .create_application(
                 "OtherApp".to_string(),
-                vec!["https://other.example.com/callback".to_string()],
+                ClientType::Confidential,
+                                vec!["https://other.example.com/callback".to_string()],
                 false,
                 Some(user_b.id),
                 None,
@@ -969,7 +971,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let raw_secret_b = secret_b.as_str().to_string();
+        let raw_secret_b = secret_b.expect("confidential app has secret").as_str().to_string();
 
         // Try to use app_a's refresh token as app_b
         let body = build_refresh_body(&app_b, &raw_secret_b, &refresh_token);

@@ -178,6 +178,18 @@ impl std::fmt::Display for ClientId {
     }
 }
 
+/// Whether an OIDC application is a confidential or public client.
+///
+/// Confidential clients (server-side apps) authenticate with a `client_secret`.
+/// Public clients (SPAs, native apps) have no secret — they authenticate via PKCE only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
+#[sqlx(type_name = "TEXT", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum ClientType {
+    Confidential,
+    Public,
+}
+
 /// A raw OAuth client secret — returned once on application creation.
 ///
 /// 32 random bytes base64url-encoded (43 chars). Same entropy as session tokens.

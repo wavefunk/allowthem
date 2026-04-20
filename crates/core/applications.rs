@@ -7,7 +7,7 @@ use url::Url;
 
 use crate::db::Db;
 use crate::error::AuthError;
-use crate::types::{ApplicationId, ClientId, ClientSecret, PasswordHash, UserId};
+use crate::types::{ApplicationId, ClientId, ClientSecret, ClientType, PasswordHash, UserId};
 
 /// An OIDC client application registered with allowthem.
 ///
@@ -18,8 +18,9 @@ pub struct Application {
     pub id: ApplicationId,
     pub name: String,
     pub client_id: ClientId,
+    pub client_type: ClientType,
     #[serde(skip_serializing)]
-    pub client_secret_hash: PasswordHash,
+    pub client_secret_hash: Option<PasswordHash>,
     pub redirect_uris: String, // JSON array, parsed at the call site
     pub logo_url: Option<String>,
     pub primary_color: Option<String>,
@@ -224,12 +225,13 @@ impl Db {
     pub async fn create_application(
         &self,
         name: String,
+        client_type: ClientType,
         redirect_uris: Vec<String>,
         is_trusted: bool,
         created_by: Option<UserId>,
         logo_url: Option<String>,
         primary_color: Option<String>,
-    ) -> Result<(Application, ClientSecret), AuthError> {
+    ) -> Result<(Application, Option<ClientSecret>), AuthError> {
         validate_redirect_uris(&redirect_uris)?;
         if let Some(ref url) = logo_url {
             validate_logo_url(url)?;
@@ -239,20 +241,27 @@ impl Db {
         }
         let id = ApplicationId::new();
         let client_id = generate_client_id();
-        let (raw_secret, hash) = generate_client_secret()?;
+        let (raw_secret, hash) = match client_type {
+            ClientType::Confidential => {
+                let (secret, hash) = generate_client_secret()?;
+                (Some(secret), Some(hash))
+            }
+            ClientType::Public => (None, None),
+        };
         let redirect_uris_json =
             serde_json::to_string(&redirect_uris).expect("Vec<String> serializes to JSON");
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
         sqlx::query(
             "INSERT INTO allowthem_applications \
-             (id, name, client_id, client_secret_hash, redirect_uris, logo_url, \
+             (id, name, client_id, client_type, client_secret_hash, redirect_uris, logo_url, \
               primary_color, is_trusted, created_by, is_active, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?11)",
         )
         .bind(id)
         .bind(&name)
         .bind(&client_id)
+        .bind(client_type)
         .bind(&hash)
         .bind(&redirect_uris_json)
         .bind(&logo_url)
@@ -271,7 +280,7 @@ impl Db {
     /// Get an application by internal ID.
     pub async fn get_application(&self, id: ApplicationId) -> Result<Application, AuthError> {
         sqlx::query_as::<_, Application>(
-            "SELECT id, name, client_id, client_secret_hash, redirect_uris, \
+            "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
              logo_url, primary_color, is_trusted, created_by, is_active, \
              created_at, updated_at \
              FROM allowthem_applications WHERE id = ?",
@@ -290,7 +299,7 @@ impl Db {
         client_id: &ClientId,
     ) -> Result<Application, AuthError> {
         sqlx::query_as::<_, Application>(
-            "SELECT id, name, client_id, client_secret_hash, redirect_uris, \
+            "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
              logo_url, primary_color, is_trusted, created_by, is_active, \
              created_at, updated_at \
              FROM allowthem_applications WHERE client_id = ?",
@@ -324,7 +333,7 @@ impl Db {
     /// List all applications ordered by `created_at ASC`.
     pub async fn list_applications(&self) -> Result<Vec<Application>, AuthError> {
         sqlx::query_as::<_, Application>(
-            "SELECT id, name, client_id, client_secret_hash, redirect_uris, \
+            "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
              logo_url, primary_color, is_trusted, created_by, is_active, \
              created_at, updated_at \
              FROM allowthem_applications ORDER BY created_at ASC",
@@ -392,6 +401,12 @@ impl Db {
         &self,
         id: ApplicationId,
     ) -> Result<(Application, ClientSecret), AuthError> {
+        let application = self.get_application(id).await?;
+        if application.client_type == ClientType::Public {
+            return Err(AuthError::InvalidRequest(
+                "public clients have no client secret".into(),
+            ));
+        }
         let (raw_secret, hash) = generate_client_secret()?;
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
@@ -570,7 +585,8 @@ mod tests {
             id: ApplicationId::new(),
             name: "Test".to_string(),
             client_id: generate_client_id(),
-            client_secret_hash: hash,
+            client_type: ClientType::Confidential,
+            client_secret_hash: Some(hash),
             redirect_uris: r#"["https://example.com/callback","https://example.com/other"]"#
                 .to_string(),
             logo_url: None,
@@ -598,7 +614,8 @@ mod tests {
             id: ApplicationId::new(),
             name: "Test".to_string(),
             client_id: generate_client_id(),
-            client_secret_hash: hash,
+            client_type: ClientType::Confidential,
+            client_secret_hash: Some(hash),
             redirect_uris: "not valid json".to_string(),
             logo_url: None,
             primary_color: None,
@@ -700,7 +717,8 @@ mod tests {
             id: ApplicationId::new(),
             name: "My App".to_string(),
             client_id: generate_client_id(),
-            client_secret_hash: hash,
+            client_type: ClientType::Confidential,
+            client_secret_hash: Some(hash),
             redirect_uris: r#"["https://example.com/cb"]"#.to_string(),
             logo_url: Some("https://example.com/logo.png".to_string()),
             primary_color: Some("#3B82F6".to_string()),
@@ -723,7 +741,8 @@ mod tests {
             id: ApplicationId::new(),
             name: "Test App".to_string(),
             client_id: generate_client_id(),
-            client_secret_hash: hash,
+            client_type: ClientType::Confidential,
+            client_secret_hash: Some(hash),
             redirect_uris: r#"["https://example.com/callback"]"#.to_string(),
             logo_url: None,
             primary_color: None,
