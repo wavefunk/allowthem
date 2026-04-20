@@ -131,6 +131,7 @@ mod tests {
             ath.db()
                 .create_application(
                     "TestApp".to_string(),
+                    allowthem_core::ClientType::Confidential,
                     redirect_uris,
                     false,
                     None,
