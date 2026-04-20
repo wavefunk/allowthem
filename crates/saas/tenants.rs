@@ -162,6 +162,62 @@ impl ControlDb {
 }
 
 // ---------------------------------------------------------------------------
+// Simple mutations
+// ---------------------------------------------------------------------------
+
+impl ControlDb {
+    pub async fn update_tenant_name(
+        &self,
+        id: &TenantId,
+        name: String,
+    ) -> Result<(), SaasError> {
+        let rows = sqlx::query(
+            "UPDATE tenants \
+             SET name = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE id = ?2 AND status != 'deleted'",
+        )
+        .bind(&name)
+        .bind(id.as_bytes())
+        .execute(self.pool())
+        .await?;
+        if rows.rows_affected() == 0 {
+            return Err(SaasError::TenantNotFound);
+        }
+        Ok(())
+    }
+
+    pub async fn suspend_tenant(&self, id: &TenantId) -> Result<(), SaasError> {
+        let rows = sqlx::query(
+            "UPDATE tenants \
+             SET status = 'suspended', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE id = ?1 AND status = 'active'",
+        )
+        .bind(id.as_bytes())
+        .execute(self.pool())
+        .await?;
+        if rows.rows_affected() == 0 {
+            return Err(SaasError::TenantNotFound);
+        }
+        Ok(())
+    }
+
+    pub async fn delete_tenant(&self, id: &TenantId) -> Result<(), SaasError> {
+        let rows = sqlx::query(
+            "UPDATE tenants \
+             SET status = 'deleted', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE id = ?1 AND status != 'deleted'",
+        )
+        .bind(id.as_bytes())
+        .execute(self.pool())
+        .await?;
+        if rows.rows_affected() == 0 {
+            return Err(SaasError::TenantNotFound);
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -231,5 +287,54 @@ mod tests {
             .await
             .expect("query");
         assert_eq!(tenants.len(), 2);
+    }
+
+    // --- Commit 2: simple mutations ---
+
+    #[tokio::test]
+    async fn update_name_persists() {
+        let db = test_db().await;
+        let id_bytes = insert_tenant(&db, "rename-me", "owner@example.com").await;
+        let uuid = Uuid::from_slice(&id_bytes).unwrap();
+        let tid = TenantId::from(uuid);
+        db.update_tenant_name(&tid, "Renamed Corp".into())
+            .await
+            .expect("update_name");
+        let tenant = db.tenant_by_id(&tid).await.expect("query").unwrap();
+        assert_eq!(tenant.name, "Renamed Corp");
+    }
+
+    #[tokio::test]
+    async fn suspend_sets_status() {
+        let db = test_db().await;
+        let id_bytes = insert_tenant(&db, "suspend-me", "owner@example.com").await;
+        let uuid = Uuid::from_slice(&id_bytes).unwrap();
+        let tid = TenantId::from(uuid);
+        db.suspend_tenant(&tid).await.expect("suspend");
+        let tenant = db.tenant_by_id(&tid).await.expect("query").unwrap();
+        assert_eq!(tenant.status, TenantStatus::Suspended);
+    }
+
+    #[tokio::test]
+    async fn delete_sets_status() {
+        let db = test_db().await;
+        let id_bytes = insert_tenant(&db, "delete-me", "owner@example.com").await;
+        let uuid = Uuid::from_slice(&id_bytes).unwrap();
+        let tid = TenantId::from(uuid);
+        db.delete_tenant(&tid).await.expect("delete");
+        let tenant = db.tenant_by_id(&tid).await.expect("query").unwrap();
+        assert_eq!(tenant.status, TenantStatus::Deleted);
+    }
+
+    #[tokio::test]
+    async fn update_name_unknown_id() {
+        let db = test_db().await;
+        let tid = TenantId::new();
+        let err = db
+            .update_tenant_name(&tid, "Ghost".into())
+            .await
+            .err()
+            .expect("expected error");
+        assert!(matches!(err, SaasError::TenantNotFound));
     }
 }
