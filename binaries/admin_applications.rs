@@ -159,6 +159,7 @@ pub async fn create(
         .db()
         .create_application(
             name.clone(),
+            ClientType::Confidential,
             redirect_uris,
             is_trusted,
             Some(user.id),
@@ -333,7 +334,7 @@ pub async fn regenerate_secret(
         context! {
             app => &app,
             redirect_uris => &uris,
-            client_secret => secret.as_ref().map(|s| s.as_str()).unwrap_or(""),
+            client_secret => secret.as_str(),
             csrf_token => csrf.as_str(),
         },
         state.is_production,
@@ -389,6 +390,7 @@ mod tests {
     use chrono::{Duration, Utc};
     use tower::ServiceExt;
 
+    use allowthem_core::types::ClientType;
     use allowthem_core::{
         AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, RoleName,
         generate_token, hash_token,
@@ -490,7 +492,7 @@ mod tests {
             .create_application(
                 "Test App".to_string(),
                 ClientType::Confidential,
-                                vec!["https://example.com/cb".to_string()],
+                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -620,7 +622,7 @@ mod tests {
             .create_application(
                 "Detail App".to_string(),
                 ClientType::Confidential,
-                                vec!["https://example.com/cb".to_string()],
+                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -651,7 +653,7 @@ mod tests {
             .create_application(
                 "Edit App".to_string(),
                 ClientType::Confidential,
-                                vec!["https://example.com/cb".to_string()],
+                vec!["https://example.com/cb".to_string()],
                 true,
                 None,
                 None,
@@ -683,7 +685,7 @@ mod tests {
             .create_application(
                 "Update App".to_string(),
                 ClientType::Confidential,
-                                vec!["https://example.com/cb".to_string()],
+                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -730,7 +732,7 @@ mod tests {
             .create_application(
                 "Regen App".to_string(),
                 ClientType::Confidential,
-                                vec!["https://example.com/cb".to_string()],
+                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -777,7 +779,7 @@ mod tests {
             .create_application(
                 "Delete App".to_string(),
                 ClientType::Confidential,
-                                vec!["https://example.com/cb".to_string()],
+                vec!["https://example.com/cb".to_string()],
                 false,
                 None,
                 None,
@@ -923,7 +925,7 @@ mod tests {
             .create_application(
                 "Trusted App".to_string(),
                 ClientType::Confidential,
-                                vec!["https://example.com/cb".to_string()],
+                vec!["https://example.com/cb".to_string()],
                 true,
                 None,
                 None,

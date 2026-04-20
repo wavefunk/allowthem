@@ -14,7 +14,7 @@ use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
-use allowthem_core::types::{ClientId, ClientType};
+use allowthem_core::types::ClientId;
 use allowthem_core::{
     AllowThem, AuditEvent, AuthError, AuthEvent, AuthEventSender, Email, EventContext,
     RegisteredEvent, RegistrationSource, Username, generate_token, hash_token,
@@ -432,11 +432,11 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt;
 
+    use allowthem_core::types::ClientType;
     use allowthem_core::{
         AllowThem, AllowThemBuilder, AuditEvent, AuthEvent, Email, RegistrationSource, Username,
         parse_session_cookie,
     };
-    use allowthem_core::types::ClientType;
 
     use crate::custom_fields::{CustomSchemaConfig, extract_field_descriptors};
 
@@ -883,7 +883,7 @@ mod tests {
             .create_application(
                 "BrandedRegApp".into(),
                 ClientType::Confidential,
-                                vec!["https://example.com/cb".into()],
+                vec!["https://example.com/cb".into()],
                 false,
                 None,
                 Some("https://cdn.example.com/logo.png".into()),
@@ -935,7 +935,7 @@ mod tests {
             .create_application(
                 "LinkApp".into(),
                 ClientType::Confidential,
-                                vec!["https://example.com/cb".into()],
+                vec!["https://example.com/cb".into()],
                 false,
                 None,
                 None,

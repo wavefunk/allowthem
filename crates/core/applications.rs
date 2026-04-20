@@ -222,6 +222,7 @@ impl Db {
     ///
     /// Validates `redirect_uris` before inserting. Returns `AuthError::InvalidRedirectUri`
     /// if any URI fails validation.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_application(
         &self,
         name: String,

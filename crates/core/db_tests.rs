@@ -2429,7 +2429,15 @@ async fn create_application_returns_app_and_secret() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, secret) = db
-        .create_application("My App".to_string(), ClientType::Confidential, uris.clone(), false, None, None, None)
+        .create_application(
+            "My App".to_string(),
+            ClientType::Confidential,
+            uris.clone(),
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("create_application");
 
@@ -2439,7 +2447,12 @@ async fn create_application_returns_app_and_secret() {
     assert!(app.is_active);
     assert!(app.logo_url.is_none());
     assert!(app.primary_color.is_none());
-    assert!(!secret.expect("confidential app has secret").as_str().is_empty());
+    assert!(
+        !secret
+            .expect("confidential app has secret")
+            .as_str()
+            .is_empty()
+    );
     let list = app.redirect_uri_list().expect("redirect_uri_list");
     assert_eq!(list, uris);
 }
@@ -2456,7 +2469,15 @@ async fn get_application_by_client_id_finds_app() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application("App".to_string(), ClientType::Confidential, uris, false, None, None, None)
+        .create_application(
+            "App".to_string(),
+            ClientType::Confidential,
+            uris,
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("create_application");
 
@@ -2482,11 +2503,27 @@ async fn list_applications_ordered_by_created_at() {
     let uris = vec!["https://example.com/callback".to_string()];
 
     let (a, _) = db
-        .create_application("First".to_string(), ClientType::Confidential, uris.clone(), false, None, None, None)
+        .create_application(
+            "First".to_string(),
+            ClientType::Confidential,
+            uris.clone(),
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("create first");
     let (b, _) = db
-        .create_application("Second".to_string(), ClientType::Confidential, uris, false, None, None, None)
+        .create_application(
+            "Second".to_string(),
+            ClientType::Confidential,
+            uris,
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("create second");
 
@@ -2504,7 +2541,15 @@ async fn update_application_changes_fields() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application("Original".to_string(), ClientType::Confidential, uris, false, None, None, None)
+        .create_application(
+            "Original".to_string(),
+            ClientType::Confidential,
+            uris,
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("create_application");
 
@@ -2535,7 +2580,15 @@ async fn update_application_sets_logo_url_and_primary_color() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application("App".to_string(), ClientType::Confidential, uris.clone(), false, None, None, None)
+        .create_application(
+            "App".to_string(),
+            ClientType::Confidential,
+            uris.clone(),
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("create_application");
 
@@ -2586,7 +2639,15 @@ async fn regenerate_client_secret_returns_new_secret() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, original_secret) = db
-        .create_application("App".to_string(), ClientType::Confidential, uris, false, None, None, None)
+        .create_application(
+            "App".to_string(),
+            ClientType::Confidential,
+            uris,
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("create_application");
 
@@ -2596,16 +2657,16 @@ async fn regenerate_client_secret_returns_new_secret() {
         .expect("regenerate_client_secret");
 
     let original_secret = original_secret.expect("confidential app has secret");
-    let hash = updated_app.client_secret_hash.as_ref().expect("confidential app has hash");
+    let hash = updated_app
+        .client_secret_hash
+        .as_ref()
+        .expect("confidential app has hash");
     assert_eq!(updated_app.id, app.id);
     assert_ne!(new_secret.as_str(), original_secret.as_str());
 
     // New secret verifies against the stored hash; old one should not
     use crate::password::verify_password;
-    assert!(
-        verify_password(new_secret.as_str(), hash)
-            .expect("verify new secret")
-    );
+    assert!(verify_password(new_secret.as_str(), hash).expect("verify new secret"));
     assert!(
         !verify_password(original_secret.as_str(), hash)
             .expect("verify old secret against new hash")
@@ -2627,14 +2688,19 @@ async fn regenerate_client_secret_rejects_public_client() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application("PublicApp".to_string(), ClientType::Public, uris, false, None, None, None)
+        .create_application(
+            "PublicApp".to_string(),
+            ClientType::Public,
+            uris,
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("create_application");
 
-    let err = db
-        .regenerate_client_secret(app.id)
-        .await
-        .unwrap_err();
+    let err = db.regenerate_client_secret(app.id).await.unwrap_err();
     assert!(
         matches!(err, AuthError::InvalidRequest(_)),
         "public client must not regenerate secret"
@@ -2646,7 +2712,15 @@ async fn delete_application_removes_row() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application("App".to_string(), ClientType::Confidential, uris, false, None, None, None)
+        .create_application(
+            "App".to_string(),
+            ClientType::Confidential,
+            uris,
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("create_application");
 
@@ -2919,7 +2993,7 @@ async fn get_branding_returns_config_for_active_app() {
         .create_application(
             "Branded".into(),
             ClientType::Confidential,
-                        vec!["https://example.com/cb".into()],
+            vec!["https://example.com/cb".into()],
             false,
             None,
             Some("https://example.com/logo.png".into()),
@@ -2942,7 +3016,7 @@ async fn get_branding_returns_none_for_inactive_app() {
         .create_application(
             "Inactive".into(),
             ClientType::Confidential,
-                        vec!["https://example.com/cb".into()],
+            vec!["https://example.com/cb".into()],
             false,
             None,
             None,
