@@ -74,6 +74,9 @@ pub struct AllRoutesBuilder {
     // Route selection
     routes: HashSet<RouteGroup>,
     all: bool,
+
+    // CORS for OIDC endpoints
+    cors_enabled: bool,
 }
 
 impl Default for AllRoutesBuilder {
@@ -98,6 +101,7 @@ impl AllRoutesBuilder {
             events_tx: None,
             routes: HashSet::new(),
             all: false,
+            cors_enabled: false,
         }
     }
 
@@ -229,6 +233,15 @@ impl AllRoutesBuilder {
 
     pub fn all_routes(mut self) -> Self {
         self.all = true;
+        self
+    }
+
+    /// Enable dynamic CORS for OIDC endpoints (`/oauth/token`, `/oauth/userinfo`,
+    /// `/.well-known/*`). Allowed origins are derived per-request from active
+    /// application redirect URIs. Has no effect unless Token, UserInfo, or
+    /// WellKnown routes are also selected.
+    pub fn cors(mut self) -> Self {
+        self.cors_enabled = true;
         self
     }
 
@@ -404,18 +417,34 @@ impl AllRoutesBuilder {
             ));
         }
 
+        // --- OIDC sub-router (CORS-eligible routes) ---
+
+        let mut oidc: Router<AllowThem> = Router::new();
+
         if self.selected(RouteGroup::Token) {
-            non_csrf = non_csrf.merge(crate::token_route::token_route());
+            oidc = oidc.merge(crate::token_route::token_route());
         }
 
         if self.selected(RouteGroup::UserInfo) {
-            non_csrf = non_csrf.merge(crate::userinfo_route::userinfo_route());
+            oidc = oidc.merge(crate::userinfo_route::userinfo_route());
         }
 
         if self.selected(RouteGroup::WellKnown) {
             let base_url = self.base_url.clone().expect("validated above");
-            non_csrf = non_csrf.merge(crate::well_known_routes::well_known_routes(base_url));
+            oidc = oidc.merge(crate::well_known_routes::well_known_routes(base_url));
         }
+
+        let oidc_final: Router<AllowThem> = if self.cors_enabled {
+            oidc.layer(axum::middleware::from_fn(crate::cors::cors_middleware))
+                .layer(axum::middleware::from_fn_with_state(
+                    ath.clone(),
+                    crate::cors::inject_ath_into_extensions,
+                ))
+        } else {
+            oidc
+        };
+
+        non_csrf = non_csrf.merge(oidc_final);
 
         if self.selected(RouteGroup::PasswordReset) {
             let email_sender = self.email_sender.take().expect("validated above");

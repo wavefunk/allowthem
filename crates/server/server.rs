@@ -7,6 +7,7 @@ pub mod branding;
 pub mod browser_error;
 pub mod browser_templates;
 pub mod consent_routes;
+pub(crate) mod cors;
 pub mod csrf;
 pub mod custom_fields;
 pub mod error;
