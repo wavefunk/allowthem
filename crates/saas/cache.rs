@@ -79,6 +79,10 @@ impl HandleCache {
     pub async fn invalidate(&self, tenant_id: &TenantId) {
         self.0.invalidate(tenant_id).await;
     }
+
+    pub fn entry_count(&self) -> u64 {
+        self.0.entry_count()
+    }
 }
 
 #[cfg(test)]

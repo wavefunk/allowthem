@@ -56,7 +56,11 @@ pub enum SlugOrRoot {
 /// - `Some(Slug(s))` if host is `<s>.<base_domain>` and `s` has no nested dots
 /// - `None` for any other host (unknown domain, multi-level subdomain, etc.)
 pub fn parse_slug(host_raw: &str, base_domain: &str) -> Option<SlugOrRoot> {
-    let host = host_raw.split(':').next().unwrap_or(host_raw).to_lowercase();
+    let host = host_raw
+        .split(':')
+        .next()
+        .unwrap_or(host_raw)
+        .to_lowercase();
 
     if host == base_domain {
         return Some(SlugOrRoot::Root);
@@ -87,7 +91,11 @@ pub async fn tenant_router_middleware(
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
-    let host = match request.headers().get(header::HOST).and_then(|v| v.to_str().ok()) {
+    let host = match request
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+    {
         Some(h) => h.to_owned(),
         None => return StatusCode::BAD_REQUEST.into_response(),
     };
@@ -167,7 +175,16 @@ async fn build_handle(
         .tenant_by_id_raw(tenant_id.as_bytes())
         .await?
         .ok_or(SaasError::TenantNotFound)?;
-    let full_path = tenant_data_dir.join(&tenant.db_path);
+    build_handle_with_path(&tenant.db_path, &tenant_data_dir, &config, slug).await
+}
+
+async fn build_handle_with_path(
+    db_file: &str,
+    tenant_data_dir: &std::path::Path,
+    config: &TenantBuilderConfig,
+    slug: &str,
+) -> Result<AllowThem, SaasError> {
+    let full_path = tenant_data_dir.join(db_file);
 
     let opts = SqliteConnectOptions::new()
         .filename(&full_path)
@@ -188,6 +205,73 @@ async fn build_handle(
         .build()
         .await
         .map_err(|e| SaasError::ProvisionFailed(e.to_string()))
+}
+
+/// Pre-warm the handle cache with the most recently active tenants.
+///
+/// Called at server startup to avoid cold-cache latency spikes for the first
+/// requests to each tenant. Errors per tenant are logged and swallowed so one
+/// bad tenant can't block the rest.
+pub async fn pre_warm(
+    control_db: Arc<ControlDb>,
+    cache: &HandleCache,
+    tenant_data_dir: PathBuf,
+    config: Arc<TenantBuilderConfig>,
+    count: i64,
+) {
+    let ids = match control_db.most_recently_seen_tenants(count).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "pre_warm: failed to fetch tenant list");
+            return;
+        }
+    };
+
+    let futs: Vec<_> = ids
+        .into_iter()
+        .map(|tenant_id| {
+            let cache = cache.clone();
+            let ctrl = control_db.clone();
+            let dir = tenant_data_dir.clone();
+            let cfg = config.clone();
+            async move {
+                let tenant = match ctrl.tenant_by_id_raw(tenant_id.as_bytes()).await {
+                    Ok(Some(t)) => t,
+                    Ok(None) => {
+                        tracing::warn!(
+                            tenant_id = %tenant_id.as_uuid(),
+                            "pre_warm: tenant not found"
+                        );
+                        return;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            tenant_id = %tenant_id.as_uuid(),
+                            error = %e,
+                            "pre_warm: fetch failed"
+                        );
+                        return;
+                    }
+                };
+                let db_file = tenant.db_path.clone();
+                let slug = tenant.slug.clone();
+                let result = cache
+                    .get_or_init(tenant_id, async move {
+                        build_handle_with_path(&db_file, &dir, &cfg, &slug).await
+                    })
+                    .await;
+                if let Err(e) = result {
+                    tracing::warn!(
+                        tenant_id = %tenant_id.as_uuid(),
+                        error = %e,
+                        "pre_warm: handle init failed"
+                    );
+                }
+            }
+        })
+        .collect();
+
+    futures::future::join_all(futs).await;
 }
 
 pub(crate) fn debounce_last_seen(state: &TenantRouterState, tenant_id: TenantId) {
@@ -226,9 +310,7 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for RequireActiveTenant 
         };
         match meta.status {
             TenantStatus::Active => Ok(RequireActiveTenant),
-            TenantStatus::Suspended => {
-                Err(StatusCode::SERVICE_UNAVAILABLE.into_response())
-            }
+            TenantStatus::Suspended => Err(StatusCode::SERVICE_UNAVAILABLE.into_response()),
             TenantStatus::Deleted => Err(StatusCode::NOT_FOUND.into_response()),
         }
     }
@@ -311,12 +393,33 @@ mod tests {
     }
 
     fn make_meta(status: TenantStatus) -> TenantMeta {
-        use crate::tenants::TenantId;
         use uuid::Uuid;
         TenantMeta {
             id: TenantId::from(Uuid::nil()),
             status,
             plan_id: vec![],
+        }
+    }
+
+    async fn make_state() -> TenantRouterState {
+        use std::str::FromStr;
+        let opts = sqlx::sqlite::SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .pragma("foreign_keys", "ON");
+        let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+        let ctrl = Arc::new(crate::control_db::ControlDb::new(pool).await.unwrap());
+        TenantRouterState {
+            control_db: ctrl,
+            slug_cache: SlugCache::new(10, 60),
+            handle_cache: HandleCache::new(10),
+            tenant_data_dir: PathBuf::from("/tmp"),
+            config: Arc::new(TenantBuilderConfig {
+                mfa_key: [0u8; 32],
+                signing_key: [0u8; 32],
+                csrf_key: [0u8; 32],
+                base_domain: "example.com".into(),
+            }),
+            seen_times: Arc::new(DashMap::new()),
         }
     }
 
@@ -345,5 +448,75 @@ mod tests {
             RequireActiveTenant::from_request_parts(&mut parts, &()).await;
         let err = result.unwrap_err();
         assert_eq!(err.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn debounce_inserts_into_seen_times() {
+        let state = make_state().await;
+        let id = TenantId::from(uuid::Uuid::nil());
+        debounce_last_seen(&state, id);
+        assert!(state.seen_times.contains_key(&id));
+    }
+
+    #[tokio::test]
+    async fn debounce_suppresses_rapid_repeat() {
+        let state = make_state().await;
+        let id = TenantId::from(uuid::Uuid::from_bytes([0x11; 16]));
+        debounce_last_seen(&state, id);
+        let first_time = *state.seen_times.get(&id).unwrap();
+        // Second call within DEBOUNCE window should not update the timestamp.
+        debounce_last_seen(&state, id);
+        let second_time = *state.seen_times.get(&id).unwrap();
+        assert_eq!(first_time, second_time);
+    }
+
+    #[tokio::test]
+    async fn pre_warm_noop_when_no_active_tenants() {
+        let state = make_state().await;
+        // Empty DB — most_recently_seen_tenants returns an empty list.
+        pre_warm(
+            state.control_db.clone(),
+            &state.handle_cache,
+            state.tenant_data_dir.clone(),
+            state.config.clone(),
+            10,
+        )
+        .await;
+        // The test passing (no panic, entry_count stays 0) is the assertion.
+        assert_eq!(state.handle_cache.entry_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn pre_warm_swallows_error_for_missing_tenant_db() {
+        use uuid::Uuid;
+        let state = make_state().await;
+
+        // Insert a tenant row with last_seen_at set so it shows up in pre_warm.
+        let plan_row = sqlx::query("SELECT id FROM tenant_plans LIMIT 1")
+            .fetch_one(state.control_db.pool())
+            .await
+            .unwrap();
+        let plan_id: Vec<u8> = sqlx::Row::try_get(&plan_row, "id").unwrap();
+        let tid = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO tenants (id, name, slug, owner_email, plan_id, status, db_path, last_seen_at) \
+             VALUES (?1, 'Test', 'pretest', 't@t.com', ?2, 'active', 'pretest.db', datetime('now'))",
+        )
+        .bind(tid.as_bytes().as_ref())
+        .bind(&plan_id)
+        .execute(state.control_db.pool())
+        .await
+        .unwrap();
+
+        // pre_warm should attempt to open pretest.db (which doesn't exist), log the error,
+        // and return without panicking.
+        pre_warm(
+            state.control_db.clone(),
+            &state.handle_cache,
+            state.tenant_data_dir.clone(),
+            state.config.clone(),
+            10,
+        )
+        .await;
     }
 }

@@ -44,10 +44,7 @@ impl ControlDb {
         }))
     }
 
-    pub async fn most_recently_seen_tenants(
-        &self,
-        count: i64,
-    ) -> Result<Vec<TenantId>, SaasError> {
+    pub async fn most_recently_seen_tenants(&self, count: i64) -> Result<Vec<TenantId>, SaasError> {
         let rows = sqlx::query(
             "SELECT id FROM tenants \
              WHERE status = 'active' AND last_seen_at IS NOT NULL \
