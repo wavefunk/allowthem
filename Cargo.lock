@@ -142,6 +142,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "allowthem-saas"
+version = "0.0.3"
+dependencies = [
+ "allowthem-core",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "allowthem-server"
 version = "0.0.3"
 dependencies = [
