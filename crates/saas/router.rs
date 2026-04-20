@@ -164,7 +164,7 @@ pub async fn tenant_router_middleware(
     next.run(request).await
 }
 
-async fn build_handle(
+pub(crate) async fn build_handle(
     control_db: Arc<ControlDb>,
     tenant_data_dir: PathBuf,
     config: Arc<TenantBuilderConfig>,
