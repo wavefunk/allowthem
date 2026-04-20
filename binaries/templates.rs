@@ -1,35 +1,33 @@
 use std::sync::Arc;
 
+use allowthem_server::browser_templates::add_default_browser_templates;
 use axum::response::Html;
 use eyre::Result;
 use minijinja::{Environment, context, path_loader};
 
 use crate::error::AppError;
 
-/// Build the template environment, loading templates from the `templates/`
-/// directory adjacent to the binary's Cargo manifest.
+/// Build the template environment.
 ///
-/// At runtime (`just dev`), CWD is the workspace root, so
-/// `binaries/templates` resolves correctly. During `cargo test`, CWD may
-/// vary, so we resolve relative to `CARGO_MANIFEST_DIR` when available.
+/// Base/browser templates are embedded in the `allowthem-server` crate via
+/// `include_str!`; admin templates are loaded from disk via `path_loader`
+/// so admin UI can be iterated on without rebuilding. Owned templates take
+/// precedence over the loader, so admin templates that `{% extends "base.html" %}`
+/// resolve the bundled base, not a disk copy.
 ///
-/// Eagerly loads `base.html` to fail fast at startup if the template directory
-/// is missing or the base template is broken.
+/// Eagerly resolves `base.html` to fail fast if the bundle is broken.
 pub fn build_template_env() -> Result<Arc<Environment<'static>>> {
-    let template_dir = template_dir();
     let mut env = Environment::new();
-    env.set_loader(path_loader(template_dir));
-    // Fail fast: verify base.html is loadable at startup
+    add_default_browser_templates(&mut env);
+    env.set_loader(path_loader(admin_template_dir()));
     env.get_template("base.html")?;
     Ok(Arc::new(env))
 }
 
-fn template_dir() -> std::path::PathBuf {
-    // During tests, CARGO_MANIFEST_DIR points to binaries/
+fn admin_template_dir() -> std::path::PathBuf {
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
         std::path::PathBuf::from(manifest_dir).join("templates")
     } else {
-        // Runtime: CWD is workspace root
         std::path::PathBuf::from("binaries/templates")
     }
 }

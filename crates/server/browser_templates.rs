@@ -5,19 +5,22 @@ use minijinja::Environment;
 
 use crate::browser_error::BrowserError;
 
-const BASE_HTML: &str = include_str!("../../binaries/templates/base.html");
-const LOGIN_HTML: &str = include_str!("../../binaries/templates/login.html");
-const REGISTER_HTML: &str = include_str!("../../binaries/templates/register.html");
-const SETTINGS_HTML: &str = include_str!("../../binaries/templates/settings.html");
-const CONSENT_HTML: &str = include_str!("../../binaries/templates/consent.html");
-const FORGOT_PASSWORD_HTML: &str = include_str!("../../binaries/templates/forgot_password.html");
-const RESET_PASSWORD_HTML: &str = include_str!("../../binaries/templates/reset_password.html");
-const MFA_SETUP_HTML: &str = include_str!("../../binaries/templates/mfa_setup.html");
-const MFA_RECOVERY_HTML: &str = include_str!("../../binaries/templates/mfa_recovery.html");
-const MFA_CHALLENGE_HTML: &str = include_str!("../../binaries/templates/mfa_challenge.html");
+const BASE_HTML: &str = include_str!("templates/base.html");
+const LOGIN_HTML: &str = include_str!("templates/login.html");
+const REGISTER_HTML: &str = include_str!("templates/register.html");
+const SETTINGS_HTML: &str = include_str!("templates/settings.html");
+const CONSENT_HTML: &str = include_str!("templates/consent.html");
+const FORGOT_PASSWORD_HTML: &str = include_str!("templates/forgot_password.html");
+const RESET_PASSWORD_HTML: &str = include_str!("templates/reset_password.html");
+const MFA_SETUP_HTML: &str = include_str!("templates/mfa_setup.html");
+const MFA_RECOVERY_HTML: &str = include_str!("templates/mfa_recovery.html");
+const MFA_CHALLENGE_HTML: &str = include_str!("templates/mfa_challenge.html");
 
-pub fn build_default_browser_env() -> Arc<Environment<'static>> {
-    let mut env = Environment::new();
+/// Register the default browser templates into an existing environment.
+///
+/// Useful for consumers (like the standalone binary) that need to extend
+/// the default template set with additional templates of their own.
+pub fn add_default_browser_templates(env: &mut Environment<'static>) {
     env.add_template_owned("base.html", BASE_HTML)
         .expect("base.html");
     env.add_template_owned("login.html", LOGIN_HTML)
@@ -38,6 +41,11 @@ pub fn build_default_browser_env() -> Arc<Environment<'static>> {
         .expect("mfa_recovery.html");
     env.add_template_owned("mfa_challenge.html", MFA_CHALLENGE_HTML)
         .expect("mfa_challenge.html");
+}
+
+pub fn build_default_browser_env() -> Arc<Environment<'static>> {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
     Arc::new(env)
 }
 
