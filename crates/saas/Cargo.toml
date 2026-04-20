@@ -1,0 +1,24 @@
+[package]
+name = "allowthem-saas"
+version.workspace = true
+authors.workspace = true
+description = "SaaS multi-tenancy layer for allowthem"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+path = "./saas.rs"
+
+[dependencies]
+allowthem-core = { path = "../core", version = "0.0.3" }
+sqlx.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
