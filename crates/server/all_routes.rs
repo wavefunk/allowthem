@@ -5,7 +5,7 @@ use std::sync::Arc;
 use axum::Router;
 use minijinja::Environment;
 
-use allowthem_core::{AllowThem, EmailSender, OAuthProvider};
+use allowthem_core::{AllowThem, AuthEventSender, EmailSender, OAuthProvider};
 
 use crate::browser_templates::build_default_browser_env;
 
@@ -68,6 +68,9 @@ pub struct AllRoutesBuilder {
     // Register-specific
     custom_fields_schema: Option<serde_json::Value>,
 
+    // Event publishing (optional)
+    events_tx: Option<AuthEventSender>,
+
     // Route selection
     routes: HashSet<RouteGroup>,
     all: bool,
@@ -92,6 +95,7 @@ impl AllRoutesBuilder {
             oauth_provider_impls: None,
             mfa_issuer: None,
             custom_fields_schema: None,
+            events_tx: None,
             routes: HashSet::new(),
             all: false,
         }
@@ -116,6 +120,15 @@ impl AllRoutesBuilder {
 
     pub fn email_sender(mut self, sender: Arc<dyn EmailSender>) -> Self {
         self.email_sender = Some(sender);
+        self
+    }
+
+    /// Attach a channel sender that receives lifecycle events (register, etc.).
+    ///
+    /// See `docs/superpowers/specs/2026-04-20-lifecycle-events-design.md` for
+    /// the delivery contract. Called at most once; subsequent calls overwrite.
+    pub fn events(mut self, tx: AuthEventSender) -> Self {
+        self.events_tx = Some(tx);
         self
     }
 
@@ -240,6 +253,12 @@ impl AllRoutesBuilder {
         if needs_base_url && self.base_url.is_none() {
             return Err(AllRoutesError::MissingConfig(
                 "base_url required by selected route groups".into(),
+            ));
+        }
+
+        if self.events_tx.is_some() && self.base_url.is_none() {
+            return Err(AllRoutesError::MissingConfig(
+                "base_url required when events channel is configured".into(),
             ));
         }
 
@@ -465,6 +484,21 @@ mod tests {
             .mfa()
             .build(&ath);
         assert!(matches!(result, Err(AllRoutesError::MissingConfig(_))));
+    }
+
+    #[tokio::test]
+    async fn build_fails_events_without_base_url() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .csrf_key(*b"test-csrf-key-for-server-tests!!")
+            .build()
+            .await
+            .unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let result = AllRoutesBuilder::new().events(tx).register().build(&ath);
+        match result {
+            Err(AllRoutesError::MissingConfig(msg)) => assert!(msg.contains("base_url")),
+            other => panic!("expected MissingConfig, got {other:?}"),
+        }
     }
 
     #[tokio::test]

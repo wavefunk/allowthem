@@ -10,6 +10,7 @@ pub mod consent_routes;
 pub mod csrf;
 pub mod custom_fields;
 pub mod error;
+pub(crate) mod events;
 pub mod extractors;
 pub mod login_routes;
 pub mod logout_routes;
