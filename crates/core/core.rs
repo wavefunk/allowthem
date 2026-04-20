@@ -9,6 +9,7 @@ pub mod db;
 pub mod email;
 pub mod email_verification;
 pub mod error;
+pub mod events;
 pub mod handle;
 pub mod invitations;
 pub mod jwt;
@@ -35,6 +36,10 @@ pub use csrf::{derive_csrf_token, verify_csrf_token};
 pub use db::Db;
 pub use email::{EmailMessage, EmailSender, LogEmailSender};
 pub use error::{AccessTokenError, AuthError};
+pub use events::{
+    AuthEvent, AuthEventReceiver, AuthEventSender, EventContext, RegisteredEvent,
+    RegistrationSource,
+};
 pub use handle::{AllowThem, AllowThemBuilder, BuildError, LoginOutcome};
 pub use invitations::Invitation;
 pub use jwt::{Claims, JwtConfig, generate_token as generate_jwt, validate_token};
