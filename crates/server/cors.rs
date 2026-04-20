@@ -220,10 +220,7 @@ mod tests {
     #[tokio::test]
     async fn t5_no_origin_passes_through_unchanged() {
         let app = make_test_app(vec!["https://app.example.com/callback".into()]).await;
-        let req = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(resp.headers().get("access-control-allow-origin").is_none());
