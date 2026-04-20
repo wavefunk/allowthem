@@ -68,7 +68,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "allowthem"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allowthem-core",
  "allowthem-server",
@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "allowthem-client"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allowthem-core",
  "axum",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "allowthem-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -143,7 +143,7 @@ dependencies = [
 
 [[package]]
 name = "allowthem-server"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allowthem-core",
  "axum",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "allowthem-teams"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allowthem-core",
  "chrono",
