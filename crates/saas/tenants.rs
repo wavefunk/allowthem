@@ -9,33 +9,7 @@ use allowthem_core::{AllowThem, ClientSecret};
 
 use crate::control_db::ControlDb;
 use crate::error::{SaasError, map_slug_conflict};
-
-// moves to router.rs in tx8.4
-const RESERVED_SLUGS: &[&str] = &[
-    "www",
-    "api",
-    "admin",
-    "auth",
-    "manage",
-    "oauth",
-    "app",
-    "dashboard",
-    "status",
-    "mail",
-    "docs",
-    "help",
-    "support",
-    "static",
-    "cdn",
-    "assets",
-    "id",
-    "sso",
-    "allowthem",
-];
-
-fn is_reserved_slug(slug: &str) -> bool {
-    RESERVED_SLUGS.contains(&slug)
-}
+use crate::router::is_reserved_slug;
 
 /// Validates slug format per spec §4 step 1: ^[a-z][a-z0-9-]{2,39}$
 pub(crate) fn validate_slug(slug: &str) -> Result<(), SaasError> {
