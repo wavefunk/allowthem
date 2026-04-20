@@ -13,13 +13,19 @@ use serde_json::json;
 
 use allowthem_core::oauth::{generate_pkce_verifier, pkce_challenge};
 use allowthem_core::types::Email;
-use allowthem_core::{AllowThem, AuthError, OAuthAccountInfo, OAuthProvider};
+use allowthem_core::{
+    AllowThem, AuthError, AuthEvent, AuthEventSender, EventContext, OAuthAccountInfo,
+    OAuthProvider, RegisteredEvent, RegistrationSource,
+};
 use allowthem_core::{generate_token, hash_token, parse_session_cookie};
+
+use crate::events::{client_ip, publish};
 
 #[derive(Clone)]
 struct OAuthConfig {
     providers: Arc<HashMap<String, Box<dyn OAuthProvider>>>,
     base_url: String,
+    events_tx: Option<AuthEventSender>,
 }
 
 /// Validate a post-login redirect to prevent open redirects.
@@ -99,6 +105,7 @@ async fn callback(
     Extension(config): Extension<OAuthConfig>,
     Path(provider_name): Path<String>,
     Query(query): Query<CallbackQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     // Validate state
     let state_info = match ath.db().validate_oauth_state(&query.state).await {
@@ -247,7 +254,7 @@ async fn callback(
                     }
                     Err(AuthError::NotFound) => {
                         // Create new OAuth user
-                        match ath
+                        let new_user = match ath
                             .db()
                             .create_oauth_user(email, &provider_name, &user_info.provider_user_id)
                             .await
@@ -267,7 +274,25 @@ async fn callback(
                                 )
                                     .into_response()
                             }
-                        }
+                        };
+                        publish(config.events_tx.as_ref(), || {
+                            AuthEvent::Registered(RegisteredEvent::new(
+                                new_user.clone(),
+                                RegistrationSource::OAuth {
+                                    provider: provider_name.clone(),
+                                },
+                                EventContext::new(
+                                    client_ip(&headers),
+                                    headers
+                                        .get(axum::http::header::USER_AGENT)
+                                        .and_then(|v| v.to_str().ok())
+                                        .map(str::to_owned),
+                                    config.base_url.clone(),
+                                    Utc::now(),
+                                ),
+                            ))
+                        });
+                        new_user
                     }
                     Err(e) => {
                         return (
@@ -290,7 +315,7 @@ async fn callback(
                     }
                 };
 
-                match ath
+                let new_user = match ath
                     .db()
                     .create_oauth_user(email, &provider_name, &user_info.provider_user_id)
                     .await
@@ -310,7 +335,25 @@ async fn callback(
                         )
                             .into_response()
                     }
-                }
+                };
+                publish(config.events_tx.as_ref(), || {
+                    AuthEvent::Registered(RegisteredEvent::new(
+                        new_user.clone(),
+                        RegistrationSource::OAuth {
+                            provider: provider_name.clone(),
+                        },
+                        EventContext::new(
+                            client_ip(&headers),
+                            headers
+                                .get(axum::http::header::USER_AGENT)
+                                .and_then(|v| v.to_str().ok())
+                                .map(str::to_owned),
+                            config.base_url.clone(),
+                            Utc::now(),
+                        ),
+                    ))
+                });
+                new_user
             }
         }
         Err(e) => {
@@ -550,10 +593,12 @@ async fn list_linked_providers(
 pub fn oauth_routes(
     providers: HashMap<String, Box<dyn OAuthProvider>>,
     base_url: String,
+    events_tx: Option<AuthEventSender>,
 ) -> Router<AllowThem> {
     let config = OAuthConfig {
         providers: Arc::new(providers),
         base_url,
+        events_tx,
     };
     Router::new()
         .route("/oauth/{provider}/authorize", get(authorize))
@@ -619,7 +664,7 @@ mod tests {
         let mut providers: HashMap<String, Box<dyn OAuthProvider>> = HashMap::new();
         providers.insert("mock".to_string(), Box::new(MockOAuthProvider));
 
-        let routes = oauth_routes(providers, "https://example.com".into());
+        let routes = oauth_routes(providers, "https://example.com".into(), None);
         let app = routes.with_state(ath.clone());
         (ath, app)
     }
@@ -1093,5 +1138,124 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Lifecycle event tests
+    // ---------------------------------------------------------------------------
+
+    async fn test_app_with_events() -> (
+        AllowThem,
+        Router,
+        allowthem_core::AuthEventReceiver,
+    ) {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap();
+
+        let mut providers: HashMap<String, Box<dyn OAuthProvider>> = HashMap::new();
+        providers.insert("mock".to_string(), Box::new(MockOAuthProvider));
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let routes = oauth_routes(providers, "https://example.com".into(), Some(tx));
+        let app = routes.with_state(ath.clone());
+        (ath, app, rx)
+    }
+
+    #[tokio::test]
+    async fn callback_fresh_user_publishes_oauth_registered() {
+        let (ath, app, mut rx) = test_app_with_events().await;
+
+        let redirect_uri = "https://example.com/oauth/mock/callback";
+        let raw_state = ath
+            .db()
+            .create_oauth_state("mock", redirect_uri, "test-verifier", None, None)
+            .await
+            .unwrap();
+
+        let uri = format!("/oauth/mock/callback?code=mock-code&state={}", raw_state);
+        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
+
+        let event = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
+            .await
+            .expect("event received before timeout")
+            .expect("channel sender still alive");
+
+        match event {
+            AuthEvent::Registered(e) => {
+                assert_eq!(e.user.email.as_str(), "oauth@example.com");
+                match e.source {
+                    RegistrationSource::OAuth { provider } => assert_eq!(provider, "mock"),
+                    other => panic!("expected OAuth source, got {other:?}"),
+                }
+                assert_eq!(e.ctx.base_url, "https://example.com");
+            }
+            other => panic!("unexpected event variant: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn callback_linking_existing_email_does_not_publish() {
+        let (ath, app, mut rx) = test_app_with_events().await;
+
+        // Pre-create a password user with the same email the mock provider returns.
+        let email = Email::new("oauth@example.com".into()).unwrap();
+        ath.db()
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
+
+        let redirect_uri = "https://example.com/oauth/mock/callback";
+        let raw_state = ath
+            .db()
+            .create_oauth_state("mock", redirect_uri, "test-verifier", None, None)
+            .await
+            .unwrap();
+
+        let uri = format!("/oauth/mock/callback?code=mock-code&state={}", raw_state);
+        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
+
+        // No event should arrive — the OAuth identity was linked to an existing user.
+        let got = tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv()).await;
+        match got {
+            Err(_) | Ok(None) => {}
+            Ok(Some(event)) => panic!("expected no event, got {event:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn callback_returning_oauth_user_does_not_publish() {
+        let (ath, app, mut rx) = test_app_with_events().await;
+
+        // Pre-create an OAuth user so find_user_by_oauth returns a hit.
+        let email = Email::new("oauth@example.com".into()).unwrap();
+        ath.db()
+            .create_oauth_user(email, "mock", "mock-uid-123")
+            .await
+            .unwrap();
+
+        let redirect_uri = "https://example.com/oauth/mock/callback";
+        let raw_state = ath
+            .db()
+            .create_oauth_state("mock", redirect_uri, "test-verifier", None, None)
+            .await
+            .unwrap();
+
+        let uri = format!("/oauth/mock/callback?code=mock-code&state={}", raw_state);
+        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
+
+        let got = tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv()).await;
+        match got {
+            Err(_) | Ok(None) => {}
+            Ok(Some(event)) => panic!("expected no event for returning OAuth user, got {event:?}"),
+        }
     }
 }
