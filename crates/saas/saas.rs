@@ -1,3 +1,4 @@
+pub mod api_keys;
 pub mod cache;
 pub mod control_db;
 pub mod error;
