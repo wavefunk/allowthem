@@ -18,6 +18,8 @@ use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
 #[cfg(test)]
+use allowthem_core::applications::CreateApplicationParams;
+#[cfg(test)]
 use allowthem_core::types::ClientType;
 use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
@@ -683,15 +685,15 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "html@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "MyTestApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "MyTestApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -722,15 +724,15 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "trusted@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "TrustedApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                true,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "TrustedApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: true,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -752,15 +754,15 @@ mod consent_tests {
         let (ath, state) = consent_test_state().await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "NoAuth".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "NoAuth".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -784,15 +786,15 @@ mod consent_tests {
         let (ath, _state) = consent_test_state().await;
         let result = ath
             .db()
-            .create_application(
-                "HttpLogo".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                Some("http://example.com/logo.png".into()),
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "HttpLogo".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: Some("http://example.com/logo.png".into()),
+                primary_color: None,
+            })
             .await;
         assert!(result.is_err(), "HTTP logo URL should be rejected");
     }
@@ -803,15 +805,15 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "httpslogo@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "HttpsLogo".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                Some("https://cdn.example.com/logo.png".into()),
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "HttpsLogo".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: Some("https://cdn.example.com/logo.png".into()),
+                primary_color: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -838,15 +840,15 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "color@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "ColorApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                None,
-                Some("#ff6600".into()),
-            )
+            .create_application(CreateApplicationParams {
+                name: "ColorApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: Some("#ff6600".into()),
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -868,15 +870,15 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "defcolor@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "DefaultColor".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "DefaultColor".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);

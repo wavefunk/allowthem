@@ -431,6 +431,7 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt;
 
+    use allowthem_core::applications::CreateApplicationParams;
     use allowthem_core::types::ClientType;
     use allowthem_core::{
         AllowThem, AllowThemBuilder, AuditEvent, AuthEvent, Email, RegistrationSource, Username,
@@ -879,15 +880,15 @@ mod tests {
         let (ath, config) = setup().await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "BrandedRegApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".into()],
-                false,
-                None,
-                Some("https://cdn.example.com/logo.png".into()),
-                Some("#ff6600".into()),
-            )
+            .create_application(CreateApplicationParams {
+                name: "BrandedRegApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: Some("https://cdn.example.com/logo.png".into()),
+                primary_color: Some("#ff6600".into()),
+            })
             .await
             .unwrap();
         let router = test_app(ath, config);
@@ -931,15 +932,15 @@ mod tests {
         let (ath, config) = setup().await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "LinkApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".into()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "LinkApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
         let router = test_app(ath, config);

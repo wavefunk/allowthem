@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use allowthem_core::AllowThem;
-use allowthem_core::applications::{Application, ApplicationCursor, UpdateApplication};
+use allowthem_core::applications::{
+    Application, ApplicationCursor, CreateApplicationParams, UpdateApplication,
+};
 use allowthem_core::error::AuthError;
 use allowthem_core::types::{ApplicationId, ClientType};
 
@@ -110,15 +112,15 @@ pub async fn create_application(
 ) -> Result<Response, ManageError> {
     let (app, secret) = ath
         .db()
-        .create_application(
-            body.name,
-            body.client_type,
-            body.redirect_uris,
-            body.is_trusted,
-            None,
-            body.logo_url,
-            body.primary_color,
-        )
+        .create_application(CreateApplicationParams {
+            name: body.name,
+            client_type: body.client_type,
+            redirect_uris: body.redirect_uris,
+            is_trusted: body.is_trusted,
+            created_by: None,
+            logo_url: body.logo_url,
+            primary_color: body.primary_color,
+        })
         .await
         .map_err(|e| match e {
             AuthError::InvalidRedirectUri(_) | AuthError::Validation(_) => {
@@ -280,15 +282,15 @@ mod tests {
     async fn make_app(handle: &AllowThem, name: &str) -> Application {
         let (app, _) = handle
             .db()
-            .create_application(
-                name.to_owned(),
-                ClientType::Public,
-                vec!["https://example.com/callback".to_owned()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: name.to_owned(),
+                client_type: ClientType::Public,
+                redirect_uris: vec!["https://example.com/callback".to_owned()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
         app

@@ -153,6 +153,17 @@ impl ApplicationCursor {
     }
 }
 
+/// Parameters for registering a new OIDC application via [`Db::create_application`].
+pub struct CreateApplicationParams {
+    pub name: String,
+    pub client_type: ClientType,
+    pub redirect_uris: Vec<String>,
+    pub is_trusted: bool,
+    pub created_by: Option<UserId>,
+    pub logo_url: Option<String>,
+    pub primary_color: Option<String>,
+}
+
 /// Parameters for updating an application's mutable fields.
 ///
 /// All fields are required. Fetch the current application first
@@ -269,17 +280,19 @@ impl Db {
     ///
     /// Validates `redirect_uris` before inserting. Returns `AuthError::InvalidRedirectUri`
     /// if any URI fails validation.
-    #[allow(clippy::too_many_arguments)]
     pub async fn create_application(
         &self,
-        name: String,
-        client_type: ClientType,
-        redirect_uris: Vec<String>,
-        is_trusted: bool,
-        created_by: Option<UserId>,
-        logo_url: Option<String>,
-        primary_color: Option<String>,
+        params: CreateApplicationParams,
     ) -> Result<(Application, Option<ClientSecret>), AuthError> {
+        let CreateApplicationParams {
+            name,
+            client_type,
+            redirect_uris,
+            is_trusted,
+            created_by,
+            logo_url,
+            primary_color,
+        } = params;
         validate_redirect_uris(&redirect_uris)?;
         if let Some(ref url) = logo_url {
             validate_logo_url(url)?;

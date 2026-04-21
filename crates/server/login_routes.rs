@@ -15,6 +15,8 @@ use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
+#[cfg(test)]
+use allowthem_core::applications::CreateApplicationParams;
 use allowthem_core::password::verify_password;
 use allowthem_core::sessions;
 use allowthem_core::types::ClientId;
@@ -716,15 +718,15 @@ mod tests {
         let (ath, config) = setup().await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "BrandedApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".into()],
-                false,
-                None,
-                Some("https://cdn.example.com/logo.png".into()),
-                Some("#ff6600".into()),
-            )
+            .create_application(CreateApplicationParams {
+                name: "BrandedApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: Some("https://cdn.example.com/logo.png".into()),
+                primary_color: Some("#ff6600".into()),
+            })
             .await
             .unwrap();
         let router = test_app(ath, config);
@@ -788,15 +790,15 @@ mod tests {
         create_user(&ath, "branded@example.com", "correcthorse").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "BrandedPost".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".into()],
-                false,
-                None,
-                None,
-                Some("#ff6600".into()),
-            )
+            .create_application(CreateApplicationParams {
+                name: "BrandedPost".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: Some("#ff6600".into()),
+            })
             .await
             .unwrap();
         let router = test_app(ath, config);
@@ -896,15 +898,15 @@ mod tests {
         let (ath, config) = setup().await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "LinkApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".into()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "LinkApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
         let router = test_app(ath, config);

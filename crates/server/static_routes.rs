@@ -9,19 +9,14 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::get;
 
-const COLORS_AND_TYPE_CSS: &[u8] =
-    include_bytes!("assets/static/css/colors_and_type.css");
+const COLORS_AND_TYPE_CSS: &[u8] = include_bytes!("assets/static/css/colors_and_type.css");
 const KIT_CSS: &[u8] = include_bytes!("assets/static/css/kit.css");
 const FONTS_CSS: &[u8] = include_bytes!("assets/static/css/fonts.css");
 
-const IOSEVKA_400: &[u8] =
-    include_bytes!("assets/static/fonts/iosevka-aile-400.woff2");
-const IOSEVKA_500: &[u8] =
-    include_bytes!("assets/static/fonts/iosevka-aile-500.woff2");
-const IOSEVKA_600: &[u8] =
-    include_bytes!("assets/static/fonts/iosevka-aile-600.woff2");
-const IOSEVKA_800: &[u8] =
-    include_bytes!("assets/static/fonts/iosevka-aile-800.woff2");
+const IOSEVKA_400: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-400.woff2");
+const IOSEVKA_500: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-500.woff2");
+const IOSEVKA_600: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-600.woff2");
+const IOSEVKA_800: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-800.woff2");
 
 /// Cache-Control value for all static assets.
 ///

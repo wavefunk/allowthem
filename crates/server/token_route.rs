@@ -327,6 +327,7 @@ pub fn token_route() -> Router<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use allowthem_core::applications::CreateApplicationParams;
     use allowthem_core::authorization::{generate_authorization_code, hash_authorization_code};
     use allowthem_core::handle::AllowThemBuilder;
     use allowthem_core::types::Email;
@@ -376,15 +377,15 @@ mod tests {
 
         let (app, client_secret) = ath
             .db()
-            .create_application(
-                "TokenTestApp".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".to_string()],
-                false,
-                Some(user.id),
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "TokenTestApp".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".to_string()],
+                is_trusted: false,
+                created_by: Some(user.id),
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
         let raw_secret = client_secret
@@ -993,15 +994,15 @@ mod tests {
             .unwrap();
         let (app_b, secret_b) = ath
             .db()
-            .create_application(
-                "OtherApp".to_string(),
-                ClientType::Confidential,
-                vec!["https://other.example.com/callback".to_string()],
-                false,
-                Some(user_b.id),
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "OtherApp".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://other.example.com/callback".to_string()],
+                is_trusted: false,
+                created_by: Some(user_b.id),
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
         let raw_secret_b = secret_b
@@ -1064,15 +1065,15 @@ mod tests {
 
         let (app, _secret) = ath
             .db()
-            .create_application(
-                "PublicApp".to_string(),
-                ClientType::Public,
-                vec!["https://example.com/callback".to_string()],
-                false,
-                Some(user.id),
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "PublicApp".to_string(),
+                client_type: ClientType::Public,
+                redirect_uris: vec!["https://example.com/callback".to_string()],
+                is_trusted: false,
+                created_by: Some(user.id),
+                logo_url: None,
+                primary_color: None,
+            })
             .await
             .unwrap();
 

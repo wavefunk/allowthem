@@ -57,7 +57,7 @@ pub use password_reset_routes::password_reset_routes;
 pub use rate_limit::{AuthRateLimiter, Quota, extract_client_ip};
 pub use register_routes::register_routes;
 pub use settings_routes::settings_routes;
+pub use static_routes::router as static_router;
 pub use token_route::token_route;
 pub use userinfo_route::userinfo_route;
-pub use static_routes::router as static_router;
 pub use well_known_routes::well_known_routes;
