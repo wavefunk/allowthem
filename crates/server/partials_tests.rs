@@ -6,7 +6,7 @@
 //! or `flash` struct are driven via the `context!` macro with ad-hoc objects.
 
 use allowthem_core::applications::BrandingConfig;
-use allowthem_core::types::SplashPrimitive;
+use allowthem_core::types::{Mode, SplashPrimitive};
 use minijinja::{Environment, context};
 
 use crate::browser_templates::add_default_browser_templates;
@@ -310,4 +310,101 @@ fn splash_cell_scale_is_pluggable() {
         .render(context! { branding => &b })
         .unwrap();
     assert!(html.contains("data-cell-scale=\"40\""));
+}
+
+#[test]
+fn auth_shell_wraps_form_block_and_includes_splash_and_status_bar() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    env.add_template(
+        "auth_child.html",
+        r#"{% extends "_partials/_auth_shell.html" %}
+           {% block form %}<section id="the-form">hi</section>{% endblock %}"#,
+    )
+    .unwrap();
+    let html = env
+        .get_template("auth_child.html")
+        .unwrap()
+        .render(context! {
+            csrf_token => "_",
+            is_production => false,
+            application_name => "acme",
+        })
+        .unwrap();
+    assert!(html.contains("at-auth-shell"));
+    assert!(html.contains("wf-splash"));
+    assert!(html.contains("wf-statusbar"));
+    assert!(html.contains("id=\"the-form\""));
+    // Exactly one <body> opening tag — the shell overrides body_content +
+    // body_class, NOT the inner body block, so no nested body materializes.
+    assert_eq!(html.matches("<body").count(), 1);
+    // JS scripts linked.
+    assert!(html.contains("/__allowthem/static/js/mode-toggle.js"));
+    assert!(html.contains("/__allowthem/static/js/shader-ascii.js"));
+}
+
+#[test]
+fn auth_shell_without_forced_mode_emits_no_html_attrs() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    env.add_template(
+        "auth_child_nofm.html",
+        r#"{% extends "_partials/_auth_shell.html" %}
+           {% block form %}<section>x</section>{% endblock %}"#,
+    )
+    .unwrap();
+    let html = env
+        .get_template("auth_child_nofm.html")
+        .unwrap()
+        .render(context! {
+            csrf_token => "_",
+            is_production => false,
+            application_name => "acme",
+        })
+        .unwrap();
+    // No forced_mode → no data-mode / data-mode-locked on <html>.
+    // Scope to html_open (before <head) to avoid matching the FOUC JS in base.html
+    // which contains hasAttribute('data-mode-locked') as a literal substring.
+    let html_open = html.split_once("<head").map(|(h, _)| h).unwrap_or("");
+    assert!(
+        !html_open.contains("data-mode-locked"),
+        "no data-mode-locked attr on <html> when branding.forced_mode unset: {html_open}"
+    );
+    assert!(
+        !html_open.contains("data-mode="),
+        "no data-mode attr on <html> when branding.forced_mode unset: {html_open}"
+    );
+}
+
+#[test]
+fn auth_shell_with_forced_mode_emits_locked_attrs() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    env.add_template(
+        "auth_child_fm.html",
+        r#"{% extends "_partials/_auth_shell.html" %}
+           {% block form %}<section>x</section>{% endblock %}"#,
+    )
+    .unwrap();
+    let mut b = mock_branding();
+    b.forced_mode = Some(Mode::Light);
+    let html = env
+        .get_template("auth_child_fm.html")
+        .unwrap()
+        .render(context! {
+            csrf_token => "_",
+            is_production => false,
+            application_name => "acme",
+            branding => &b,
+        })
+        .unwrap();
+    let html_open = html.split_once("<head").map(|(h, _)| h).unwrap_or("");
+    assert!(
+        html_open.contains("data-mode=\"light\""),
+        "<html> must carry data-mode=\"light\": {html_open}"
+    );
+    assert!(
+        html_open.contains("data-mode-locked"),
+        "<html> must carry data-mode-locked: {html_open}"
+    );
 }
