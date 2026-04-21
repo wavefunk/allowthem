@@ -148,3 +148,37 @@ a.wf-link-quiet:active,
   background: var(--ok);
   display: inline-block; vertical-align: middle;
 }
+
+/* TODO(allowthem-z3b): align with Wave Funk design guide */
+.wf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.wf-table th,
+.wf-table td {
+  padding: 12px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--hairline);
+}
+.wf-table th { font-weight: 600; color: var(--fg-muted); }
+
+/* TODO(allowthem-z3b): align with Wave Funk design guide */
+.wf-dl {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 3fr;
+  gap: 8px 24px;
+}
+.wf-dl dt { color: var(--fg-muted); }
+.wf-dl dd { margin: 0; }
+
+/* TODO(allowthem-z3b): align with Wave Funk design guide */
+.wf-empty {
+  padding: 32px 0;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+/* TODO(allowthem-z3b): align with Wave Funk design guide */
+.wf-tag.muted { color: var(--fg-muted); border-color: var(--hairline-dim); }
