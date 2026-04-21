@@ -4,6 +4,7 @@ mod admin_sessions;
 mod config;
 mod error;
 mod mock_oauth;
+mod preview;
 mod state;
 mod templates;
 mod test_oauth_routes;
@@ -141,7 +142,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         ath: ath.clone(),
         auth_client,
-        templates,
+        templates: templates.clone(),
         is_production: config.is_production,
     };
 
@@ -171,6 +172,16 @@ async fn main() -> Result<()> {
     // Conditionally mount mock test routes
     let app = if config.oauth_mock {
         app.merge(test_oauth_routes::test_oauth_routes())
+    } else {
+        app
+    };
+
+    // Dev-only: partial gallery for frontend work. Off by default; never
+    // enabled in production. See binaries/standalone/preview.rs.
+    let app = if config.debug_preview {
+        app.merge(preview::routes(preview::PreviewState {
+            templates: templates.clone(),
+        }))
     } else {
         app
     };
