@@ -19,3 +19,6 @@ binaries/static/css/style.css
 # E2E test artifacts
 tests/e2e/server.log
 .worktrees/
+
+# Personal task file (symlink to user's org file)
+tasks.org
