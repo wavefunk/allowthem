@@ -1,0 +1,33 @@
+/* Iosevka Aile — self-hosted
+   Source: @fontsource/iosevka-aile@5.0.0 (OFL-1.1)
+   Four weights: 400 body, 500 mid, 600 strong, 800 display.
+   Paths resolved relative to THIS file. */
+
+@font-face {
+  font-family: "Iosevka Aile";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/iosevka-aile-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Iosevka Aile";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/iosevka-aile-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Iosevka Aile";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/iosevka-aile-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Iosevka Aile";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../fonts/iosevka-aile-800.woff2") format("woff2");
+}
