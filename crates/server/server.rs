@@ -2,6 +2,8 @@
 
 pub mod all_routes;
 #[cfg(test)]
+mod all_server_templates_guard_tests;
+#[cfg(test)]
 mod auth_template_guard_tests;
 pub mod authorize_routes;
 pub mod bearer;

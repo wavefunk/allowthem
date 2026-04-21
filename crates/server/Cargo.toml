@@ -33,6 +33,7 @@ jsonschema.workspace = true
 
 [dev-dependencies]
 jsonwebtoken.workspace = true
+regex.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 tempfile = "3.8"

@@ -65,7 +65,8 @@
 
     {% block head %}{% endblock %}
 </head>
-<body class="{% block body_class %}bg-gray-50 min-h-screen{% endblock %}">
+{% set body_class_rendered %}{% block body_class %}{% endblock %}{% endset %}
+<body{% if body_class_rendered %} class="{{ body_class_rendered }}"{% endif %}>
     {# body_content: outer block new shells override; body: legacy inner block existing pages override. Override one, not both. #}
     {% block body_content %}{% block body %}{% endblock %}{% endblock %}
 

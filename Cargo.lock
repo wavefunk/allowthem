@@ -186,6 +186,7 @@ dependencies = [
  "jsonschema",
  "jsonwebtoken",
  "minijinja",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

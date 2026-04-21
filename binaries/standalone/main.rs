@@ -11,6 +11,8 @@ mod test_oauth_routes;
 
 #[cfg(test)]
 mod admin_template_render_tests;
+#[cfg(test)]
+mod all_standalone_templates_guard_tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
