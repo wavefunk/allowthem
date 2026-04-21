@@ -21,6 +21,8 @@ pub mod middleware;
 pub mod oauth_bearer;
 pub mod oauth_routes;
 #[cfg(test)]
+mod auth_template_guard_tests;
+#[cfg(test)]
 mod partials_tests;
 pub mod password_reset_page_routes;
 pub mod password_reset_routes;

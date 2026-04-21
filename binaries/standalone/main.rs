@@ -976,7 +976,7 @@ mod consent_tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
-        assert!(body.contains("at-btn-primary"), "themed button class");
+        assert!(body.contains("wf-btn primary"), "themed button class");
         assert!(body.contains("#ff6600"), "accent color in theme");
     }
 
@@ -1016,7 +1016,7 @@ mod consent_tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
-        assert!(body.contains("at-btn-primary"), "themed button class");
+        assert!(body.contains("wf-btn primary"), "themed button class");
         assert!(
             body.contains("--accent: #ffffff"),
             "default white accent"
