@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
     let auth_routes = AllRoutesBuilder::new()
         .templates(build_default_browser_env())
         .is_production(cfg.is_production)
-        .base_url(&format!("https://{}", cfg.base_domain))
+        .base_url(format!("https://{}", cfg.base_domain))
         .email_sender(Arc::new(LogEmailSender) as Arc<dyn allowthem_core::EmailSender>)
         .mfa_issuer(&cfg.base_domain)
         .all_routes()
