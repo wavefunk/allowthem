@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -47,7 +46,7 @@ fn build_scope_items(scopes: &[String]) -> Vec<ScopeItem> {
 
 /// GET /oauth/authorize — render consent screen or delegate to redirect.
 async fn get_authorize(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<ConsentConfig>,
     csrf: CsrfToken,
     headers: HeaderMap,
@@ -95,7 +94,7 @@ async fn get_authorize(
 pub fn consent_routes(
     templates: Arc<Environment<'static>>,
     is_production: bool,
-) -> Router<AllowThem> {
+) -> Router<()> {
     let cfg = ConsentConfig {
         templates,
         is_production,

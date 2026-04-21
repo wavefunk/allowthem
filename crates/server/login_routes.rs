@@ -2,10 +2,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::Extension;
 use axum::Form;
 use axum::Router;
-use axum::extract::{ConnectInfo, Query, State};
+use axum::extract::{ConnectInfo, Extension, Query};
 use axum::http::header::{COOKIE, SET_COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
@@ -145,7 +144,7 @@ fn record_login_success(config: &LoginConfig, ip: IpAddr) {
 
 /// GET /login — render the login form, or redirect if already authenticated.
 async fn get_login(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<LoginConfig>,
     csrf: CsrfToken,
     Query(query): Query<LoginQuery>,
@@ -178,7 +177,7 @@ async fn get_login(
 
 /// POST /login — validate credentials, create session on success.
 async fn post_login(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<LoginConfig>,
     csrf: CsrfToken,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -337,7 +336,7 @@ pub fn login_routes(
     max_login_attempts: u32,
     rate_limit_window_secs: u64,
     oauth_providers: Vec<String>,
-) -> Router<AllowThem> {
+) -> Router<()> {
     let cfg = LoginConfig {
         templates,
         is_production,
@@ -392,12 +391,12 @@ mod tests {
             config.rate_limit_window_secs,
             config.oauth_providers.clone(),
         )
+        .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))))
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
-            crate::csrf::csrf_middleware,
+            crate::cors::inject_ath_into_extensions,
         ))
-        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))))
-        .with_state(ath)
     }
 
     async fn get_csrf_token(app: &Router) -> String {

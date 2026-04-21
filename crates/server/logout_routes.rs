@@ -1,5 +1,5 @@
 use axum::Router;
-use axum::extract::State;
+use axum::extract::Extension;
 use axum::http::header::{COOKIE, SET_COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -7,11 +7,11 @@ use axum::routing::get;
 
 use allowthem_core::{AllowThem, AuditEvent};
 
-pub fn logout_routes() -> Router<AllowThem> {
+pub fn logout_routes() -> Router<()> {
     Router::new().route("/logout", get(handler).post(handler))
 }
 
-async fn handler(State(ath): State<AllowThem>, headers: HeaderMap) -> Response {
+async fn handler(Extension(ath): Extension<AllowThem>, headers: HeaderMap) -> Response {
     let cookie_name = ath.session_config().cookie_name;
     let secure = ath.session_config().secure;
 
@@ -125,7 +125,7 @@ mod tests {
     }
 
     fn test_app(ath: allowthem_core::AllowThem) -> Router {
-        logout_routes().with_state(ath)
+        logout_routes().layer(axum::middleware::from_fn_with_state(ath, crate::cors::inject_ath_into_extensions))
     }
 
     #[tokio::test]

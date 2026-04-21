@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::Form;
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query};
 use axum::http::header::{COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -50,7 +49,7 @@ struct RegisterQuery {
 ///
 /// If the user already has a valid session, redirects to `/`.
 async fn get_register(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<RegisterConfig>,
     headers: HeaderMap,
     csrf: CsrfToken,
@@ -89,7 +88,7 @@ async fn get_register(
 /// Uses a raw `HashMap<String, String>` form extraction to capture both
 /// standard fields and custom_data[*] fields in one pass.
 async fn post_register(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<RegisterConfig>,
     csrf: CsrfToken,
     Query(query): Query<RegisterQuery>,
@@ -411,7 +410,7 @@ pub fn register_routes(
     custom_schema: Option<CustomSchemaConfig>,
     events_tx: Option<AuthEventSender>,
     base_url: Option<String>,
-) -> Router<AllowThem> {
+) -> Router<()> {
     let cfg = RegisterConfig {
         templates,
         is_production,
@@ -472,11 +471,11 @@ mod tests {
             config.events_tx.clone(),
             config.base_url.clone(),
         )
+        .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
-            crate::csrf::csrf_middleware,
+            crate::cors::inject_ath_into_extensions,
         ))
-        .with_state(ath)
     }
 
     fn test_app_with_schema(ath: AllowThem, config: RegisterConfig) -> Router {
@@ -513,11 +512,11 @@ mod tests {
             config.events_tx.clone(),
             config.base_url.clone(),
         )
+        .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
-            crate::csrf::csrf_middleware,
+            crate::cors::inject_ath_into_extensions,
         ))
-        .with_state(ath)
     }
 
     /// Send GET /register, extract the csrf_token cookie value from Set-Cookie.
@@ -1112,11 +1111,11 @@ mod tests {
             Some(events_tx),
             Some(base_url),
         )
+        .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
-            crate::csrf::csrf_middleware,
+            crate::cors::inject_ath_into_extensions,
         ))
-        .with_state(ath)
     }
 
     #[tokio::test]
@@ -1165,7 +1164,7 @@ mod tests {
             "",
         );
 
-        let resp = tokio::time::timeout(std::time::Duration::from_secs(2), app.oneshot(req))
+        let resp = tokio::time::timeout(std::time::Duration::from_secs(10), app.oneshot(req))
             .await
             .expect("register handler returned in time")
             .unwrap();

@@ -12,7 +12,7 @@ use allowthem_core::AllowThem;
 /// [`cors_middleware`] (which reads from extensions) works in standalone mode.
 /// In SaaS mode the tenant router populates extensions directly; this shim is
 /// not used there.
-pub(crate) async fn inject_ath_into_extensions(
+pub async fn inject_ath_into_extensions(
     State(ath): State<AllowThem>,
     mut req: Request<Body>,
     next: Next,
@@ -149,7 +149,6 @@ mod tests {
                 ath.clone(),
                 inject_ath_into_extensions,
             ))
-            .with_state(ath)
     }
 
     #[tokio::test]

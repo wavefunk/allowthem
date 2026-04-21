@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, Query};
 use axum::http::StatusCode;
 use axum::http::header::COOKIE;
 use axum::response::{IntoResponse, Redirect, Response};
@@ -46,7 +46,7 @@ struct AuthorizeQuery {
 }
 
 async fn authorize(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<OAuthConfig>,
     Path(provider_name): Path<String>,
     Query(query): Query<AuthorizeQuery>,
@@ -101,7 +101,7 @@ struct CallbackQuery {
 }
 
 async fn callback(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<OAuthConfig>,
     Path(provider_name): Path<String>,
     Query(query): Query<CallbackQuery>,
@@ -468,7 +468,7 @@ async fn require_session(
 
 /// `GET /oauth/:provider/link` — authenticated user initiates provider linking.
 async fn link_authorize(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<OAuthConfig>,
     Path(provider_name): Path<String>,
     Query(query): Query<AuthorizeQuery>,
@@ -529,7 +529,7 @@ struct UnlinkBody {
 
 /// `POST /oauth/unlink` — authenticated user removes a linked provider.
 async fn unlink(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     headers: axum::http::HeaderMap,
     Json(body): Json<UnlinkBody>,
 ) -> Response {
@@ -555,7 +555,7 @@ async fn unlink(
 
 /// `GET /account/linked-providers` — authenticated user lists linked OAuth accounts.
 async fn list_linked_providers(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     headers: axum::http::HeaderMap,
 ) -> Response {
     let user = match require_session(&ath, &headers).await {
@@ -594,7 +594,7 @@ pub fn oauth_routes(
     providers: HashMap<String, Box<dyn OAuthProvider>>,
     base_url: String,
     events_tx: Option<AuthEventSender>,
-) -> Router<AllowThem> {
+) -> Router<()> {
     let config = OAuthConfig {
         providers: Arc::new(providers),
         base_url,
@@ -665,7 +665,7 @@ mod tests {
         providers.insert("mock".to_string(), Box::new(MockOAuthProvider));
 
         let routes = oauth_routes(providers, "https://example.com".into(), None);
-        let app = routes.with_state(ath.clone());
+        let app = routes.layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
         (ath, app)
     }
 
@@ -1156,7 +1156,7 @@ mod tests {
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let routes = oauth_routes(providers, "https://example.com".into(), Some(tx));
-        let app = routes.with_state(ath.clone());
+        let app = routes.layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
         (ath, app, rx)
     }
 

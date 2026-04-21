@@ -1,4 +1,4 @@
-use axum::extract::{FromRef, FromRequestParts};
+use axum::extract::FromRequestParts;
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 
@@ -20,15 +20,15 @@ use crate::error::AuthExtractError;
 /// Usage: `BearerAuthUser(user): BearerAuthUser` in handler arguments.
 pub struct BearerAuthUser(pub User);
 
-impl<S> FromRequestParts<S> for BearerAuthUser
-where
-    AllowThem: FromRef<S>,
-    S: Send + Sync,
-{
+impl<S: Send + Sync> FromRequestParts<S> for BearerAuthUser {
     type Rejection = AuthExtractError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let ath = AllowThem::from_ref(state);
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let ath = parts
+            .extensions
+            .get::<AllowThem>()
+            .cloned()
+            .ok_or(AuthExtractError::Unauthenticated)?;
 
         let auth_header = parts
             .headers
@@ -64,7 +64,6 @@ where
 mod tests {
     use axum::Json;
     use axum::Router;
-    use axum::extract::FromRef;
     use axum::http::{Request, StatusCode};
     use axum::routing::get;
     use chrono::{Duration, Utc};
@@ -73,19 +72,6 @@ mod tests {
     use allowthem_core::{AllowThem, AllowThemBuilder, Email};
 
     use super::*;
-
-    #[derive(Clone)]
-    struct TestState {
-        ath: AllowThem,
-        // server extractors also need Arc<dyn AuthClient> in general state,
-        // but bearer only needs AllowThem — keep it minimal
-    }
-
-    impl FromRef<TestState> for AllowThem {
-        fn from_ref(s: &TestState) -> Self {
-            s.ath.clone()
-        }
-    }
 
     async fn test_setup() -> (AllowThem, String) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -111,10 +97,12 @@ mod tests {
     }
 
     fn test_app(ath: AllowThem) -> Router {
-        let state = TestState { ath };
         Router::new()
             .route("/bearer", get(bearer_handler))
-            .with_state(state)
+            .layer(axum::middleware::from_fn_with_state(
+                ath,
+                crate::cors::inject_ath_into_extensions,
+            ))
     }
 
     async fn bearer_handler(BearerAuthUser(user): BearerAuthUser) -> Json<serde_json::Value> {

@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::Form;
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query};
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::http::header::COOKIE;
@@ -50,7 +49,7 @@ pub struct ResetPasswordForm {
 
 /// GET /forgot-password — render the email input form.
 async fn get_forgot_password(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
     headers: HeaderMap,
     csrf: CsrfToken,
@@ -74,7 +73,7 @@ async fn get_forgot_password(
 
 /// POST /forgot-password — initiate reset; always render success to prevent enumeration.
 async fn post_forgot_password(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
     csrf: CsrfToken,
     Form(form): Form<ForgotPasswordForm>,
@@ -120,7 +119,7 @@ async fn post_forgot_password(
 
 /// GET /auth/reset-password?token=... — validate token and render form or error state.
 async fn get_reset_password(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
     csrf: CsrfToken,
     Query(query): Query<ResetTokenQuery>,
@@ -179,7 +178,7 @@ async fn get_reset_password(
 
 /// POST /auth/reset-password — execute the password reset.
 async fn post_reset_password(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
     csrf: CsrfToken,
     Form(form): Form<ResetPasswordForm>,
@@ -277,7 +276,7 @@ pub fn password_reset_page_routes(
     is_production: bool,
     email_sender: Arc<dyn EmailSender>,
     base_url: String,
-) -> Router<AllowThem> {
+) -> Router<()> {
     let cfg = PasswordResetPageConfig {
         templates,
         is_production,
@@ -333,11 +332,11 @@ mod tests {
             config.email_sender.clone(),
             config.base_url.clone(),
         )
+        .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
-            crate::csrf::csrf_middleware,
+            crate::cors::inject_ath_into_extensions,
         ))
-        .with_state(ath)
     }
 
     async fn get_csrf_token(app: &Router, path: &str) -> String {

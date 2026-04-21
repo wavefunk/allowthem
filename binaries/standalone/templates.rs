@@ -26,9 +26,9 @@ pub fn build_template_env() -> Result<Arc<Environment<'static>>> {
 
 fn admin_template_dir() -> std::path::PathBuf {
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        std::path::PathBuf::from(manifest_dir).join("templates")
+        std::path::PathBuf::from(manifest_dir).join("standalone/templates")
     } else {
-        std::path::PathBuf::from("binaries/templates")
+        std::path::PathBuf::from("binaries/standalone/templates")
     }
 }
 

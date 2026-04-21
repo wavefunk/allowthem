@@ -1,4 +1,3 @@
-use axum::extract::FromRef;
 use axum::extract::FromRequestParts;
 use axum::http::StatusCode;
 use axum::http::header::AUTHORIZATION;
@@ -66,15 +65,15 @@ impl IntoResponse for OAuthBearerError {
 /// Rejects with 401 and `WWW-Authenticate: Bearer` header per RFC 6750.
 pub struct OAuthBearerToken(pub AccessTokenClaims);
 
-impl<S> FromRequestParts<S> for OAuthBearerToken
-where
-    AllowThem: FromRef<S>,
-    S: Send + Sync,
-{
+impl<S: Send + Sync> FromRequestParts<S> for OAuthBearerToken {
     type Rejection = OAuthBearerError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let ath = AllowThem::from_ref(state);
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let ath = parts
+            .extensions
+            .get::<AllowThem>()
+            .cloned()
+            .ok_or(OAuthBearerError::Internal)?;
 
         let auth_header = parts
             .headers
@@ -116,7 +115,6 @@ where
 #[cfg(test)]
 mod tests {
     use axum::Router;
-    use axum::extract::FromRef;
     use axum::http::{Request, StatusCode};
     use axum::response::Json;
     use axum::routing::get;
@@ -126,17 +124,6 @@ mod tests {
 
     use super::*;
 
-    #[derive(Clone)]
-    struct TestState {
-        ath: AllowThem,
-    }
-
-    impl FromRef<TestState> for AllowThem {
-        fn from_ref(s: &TestState) -> Self {
-            s.ath.clone()
-        }
-    }
-
     async fn test_setup() -> (AllowThem, Router) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
@@ -145,7 +132,6 @@ mod tests {
             .await
             .unwrap();
 
-        let state = TestState { ath: ath.clone() };
         let app = Router::new()
             .route(
                 "/test",
@@ -153,7 +139,11 @@ mod tests {
                     Json(serde_json::json!({"sub": claims.sub.to_string()}))
                 }),
             )
-            .with_state(state);
+            .layer(axum::middleware::from_fn_with_state(
+                ath.clone(),
+                crate::cors::inject_ath_into_extensions,
+            ))
+            .with_state(ath.clone());
 
         (ath, app)
     }
