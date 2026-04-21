@@ -1,70 +1,42 @@
-{% extends "base.html" %}
+{% extends "_partials/_app_shell.html" %}
 
 {% block title %}Applications — allowthem{% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen justify-center px-4 py-12">
-    <div class="w-full max-w-4xl space-y-6">
-        <div class="flex items-center justify-between">
-            <h1 class="text-2xl font-bold text-gray-900">Applications</h1>
-            <a href="/admin/applications/new"
-               class="rounded bg-blue-600 px-4 py-2 text-white font-medium
-                      hover:bg-blue-700 focus:outline-none focus:ring-2
-                      focus:ring-blue-500 focus:ring-offset-2">
-                New application
-            </a>
-        </div>
+{% block content %}
+  <h1 class="wf-display-sm">Applications</h1>
 
-        {% if applications %}
-        <table class="w-full text-sm text-left">
-            <thead class="border-b border-gray-200 text-gray-500 uppercase text-xs">
-                <tr>
-                    <th class="py-3 pr-4">Name</th>
-                    <th class="py-3 pr-4">Client ID</th>
-                    <th class="py-3 pr-4">Status</th>
-                    <th class="py-3 pr-4">Trusted</th>
-                    <th class="py-3">Created</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for app in applications %}
-                <tr class="border-b border-gray-100 hover:bg-gray-50">
-                    <td class="py-3 pr-4">
-                        <a href="/admin/applications/{{ app.id }}"
-                           class="text-blue-600 hover:underline font-medium">
-                            {{ app.name }}
-                        </a>
-                    </td>
-                    <td class="py-3 pr-4">
-                        <code class="text-xs text-gray-600 truncate max-w-[12rem] inline-block align-bottom"
-                              title="{{ app.client_id }}">
-                            {{ app.client_id }}
-                        </code>
-                    </td>
-                    <td class="py-3 pr-4">
-                        {% if app.is_active %}
-                        <span class="inline-flex items-center space-x-1">
-                            <span class="inline-block h-2 w-2 rounded-full bg-green-500"></span>
-                            <span class="text-gray-700">Active</span>
-                        </span>
-                        {% else %}
-                        <span class="inline-flex items-center space-x-1">
-                            <span class="inline-block h-2 w-2 rounded-full bg-gray-300"></span>
-                            <span class="text-gray-500">Inactive</span>
-                        </span>
-                        {% endif %}
-                    </td>
-                    <td class="py-3 pr-4 text-gray-600">
-                        {% if app.is_trusted %}Yes{% else %}No{% endif %}
-                    </td>
-                    <td class="py-3 text-gray-500 text-xs">{{ app.created_at }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p class="text-sm text-gray-500">No applications registered.</p>
-        {% endif %}
-    </div>
-</div>
+  <p><a class="wf-btn primary" href="/admin/applications/new">New application</a></p>
+
+  {% if applications %}
+    <table class="wf-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Client ID</th>
+          <th>Status</th>
+          <th>Trusted</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for app in applications %}
+          <tr>
+            <td><a class="wf-link" href="/admin/applications/{{ app.id }}">{{ app.name }}</a></td>
+            <td><code title="{{ app.client_id }}">{{ app.client_id }}</code></td>
+            <td>
+              {% if app.is_active %}
+                <span class="wf-tag ok">Active</span>
+              {% else %}
+                <span class="wf-tag muted">Inactive</span>
+              {% endif %}
+            </td>
+            <td>{% if app.is_trusted %}Yes{% else %}No{% endif %}</td>
+            <td>{{ app.created_at }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="wf-empty">No applications registered.</p>
+  {% endif %}
 {% endblock %}

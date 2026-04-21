@@ -10,7 +10,8 @@ use serde::Deserialize;
 use allowthem_core::AuthError;
 use allowthem_core::applications::{CreateApplicationParams, UpdateApplication};
 use allowthem_core::types::{ApplicationId, ClientType};
-use allowthem_server::{BrowserAdminUser, CsrfToken};
+use allowthem_server::{BrowserAdminUser, CsrfToken, ShellContext};
+use minijinja::value::Value;
 
 use crate::error::AppError;
 use crate::state::AppState;
@@ -102,10 +103,12 @@ pub async fn list(
     BrowserAdminUser(_user): BrowserAdminUser,
 ) -> Result<Response, AppError> {
     let applications = state.ath.db().list_applications().await?;
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
     let html = crate::templates::render(
         &state.templates,
         "admin/applications_list.html",
         context! {
+            shell => Value::from_serialize(&shell),
             applications => &applications,
         },
         state.is_production,
@@ -180,10 +183,12 @@ pub async fn create(
     {
         Ok((app, secret)) => {
             let uris = app.redirect_uri_list()?;
+            let shell = ShellContext::new(true, "/admin/applications", "allowthem");
             let html = crate::templates::render(
                 &state.templates,
                 "admin/application_detail.html",
                 context! {
+                    shell => Value::from_serialize(&shell),
                     app => &app,
                     redirect_uris => &uris,
                     client_secret => secret.as_ref().map(|s| s.as_str()).unwrap_or(""),
@@ -232,10 +237,12 @@ pub async fn detail(
 ) -> Result<Response, AppError> {
     let app = state.ath.db().get_application(id).await?;
     let uris = app.redirect_uri_list()?;
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
     let html = crate::templates::render(
         &state.templates,
         "admin/application_detail.html",
         context! {
+            shell => Value::from_serialize(&shell),
             app => &app,
             redirect_uris => &uris,
             csrf_token => csrf.as_str(),
@@ -254,10 +261,12 @@ pub async fn edit_form(
 ) -> Result<Response, AppError> {
     let app = state.ath.db().get_application(id).await?;
     let uris = app.redirect_uri_list()?;
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
     let html = crate::templates::render(
         &state.templates,
         "admin/application_edit.html",
         context! {
+            shell => Value::from_serialize(&shell),
             app => &app,
             redirect_uris => &uris,
             csrf_token => csrf.as_str(),
@@ -306,10 +315,12 @@ pub async fn update(
         Err(AuthError::InvalidRedirectUri(msg)) => {
             let app = state.ath.db().get_application(id).await?;
             let uris = app.redirect_uri_list()?;
+            let shell = ShellContext::new(true, "/admin/applications", "allowthem");
             let html = crate::templates::render(
                 &state.templates,
                 "admin/application_edit.html",
                 context! {
+                    shell => Value::from_serialize(&shell),
                     app => &app,
                     redirect_uris => &uris,
                     error => format!("Invalid redirect URI: {msg}"),
@@ -322,10 +333,12 @@ pub async fn update(
         Err(AuthError::Validation(msg)) => {
             let app = state.ath.db().get_application(id).await?;
             let uris = app.redirect_uri_list()?;
+            let shell = ShellContext::new(true, "/admin/applications", "allowthem");
             let html = crate::templates::render(
                 &state.templates,
                 "admin/application_edit.html",
                 context! {
+                    shell => Value::from_serialize(&shell),
                     app => &app,
                     redirect_uris => &uris,
                     error => msg,
@@ -348,10 +361,12 @@ pub async fn regenerate_secret(
 ) -> Result<Response, AppError> {
     let (app, secret) = state.ath.db().regenerate_client_secret(id).await?;
     let uris = app.redirect_uri_list()?;
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
     let html = crate::templates::render(
         &state.templates,
         "admin/application_detail.html",
         context! {
+            shell => Value::from_serialize(&shell),
             app => &app,
             redirect_uris => &uris,
             client_secret => secret.as_str(),
@@ -384,10 +399,12 @@ fn render_new_form(
     form_logo_url: &str,
     form_primary_color: &str,
 ) -> Result<axum::response::Html<String>, AppError> {
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
     crate::templates::render(
         &state.templates,
         "admin/application_new.html",
         context! {
+            shell => Value::from_serialize(&shell),
             csrf_token,
             error,
             form_name,
@@ -544,6 +561,8 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body_string(resp).await;
         assert!(body.contains("Test App"));
+        assert!(body.contains("at-app-shell"));
+        assert!(body.contains("&#x2f;admin&#x2f;audit"));
     }
 
     #[tokio::test]
