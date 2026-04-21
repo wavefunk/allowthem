@@ -335,24 +335,36 @@ fn validate_https_url(url: &str, field: &str) -> Result<(), AuthError> {
     Ok(())
 }
 
-/// Validate a primary color for branding.
+/// Shared hex color validator used by branding color fields.
+///
+/// Accepts `#RRGGBB` (7 chars: `#` + 6 hex digits). Safe for injection
+/// into CSS `color` / `background` declarations without escaping.
+fn validate_hex_color(color: &str, field: &str) -> Result<(), AuthError> {
+    let bytes = color.as_bytes();
+    if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AuthError::Validation(format!(
+            "{field} must be a hex color (#RRGGBB)"
+        )));
+    }
+    Ok(())
+}
+
+/// Validate a primary color for Wave Funk branding.
 ///
 /// Must be a 7-character CSS hex color: `#` followed by exactly 6 hex
 /// digits (e.g., `#3B82F6`). This format is safe for injection into
 /// HTML `style` attributes without escaping.
 pub fn validate_primary_color(color: &str) -> Result<(), AuthError> {
-    let bytes = color.as_bytes();
-    if bytes.len() != 7 || bytes[0] != b'#' {
-        return Err(AuthError::Validation(
-            "primary_color must be a hex color (#RRGGBB)".into(),
-        ));
-    }
-    if !bytes[1..].iter().all(|b| b.is_ascii_hexdigit()) {
-        return Err(AuthError::Validation(
-            "primary_color must be a hex color (#RRGGBB)".into(),
-        ));
-    }
-    Ok(())
+    validate_hex_color(color, "primary_color")
+}
+
+/// Validate an accent color for Wave Funk branding.
+///
+/// Same format as `validate_primary_color` — `#RRGGBB` (7 chars, `#` + 6 hex
+/// digits). Safe for injection into CSS `color` / `background` declarations
+/// without escaping.
+pub fn validate_accent_hex(color: &str) -> Result<(), AuthError> {
+    validate_hex_color(color, "accent_hex")
 }
 
 impl Db {
@@ -394,6 +406,9 @@ impl Db {
         }
         if let Some(ref color) = primary_color {
             validate_primary_color(color)?;
+        }
+        if let Some(ref hex) = accent_hex {
+            validate_accent_hex(hex)?;
         }
         if let Some(ref url) = font_css_url {
             validate_font_css_url(url)?;
@@ -582,7 +597,7 @@ impl Db {
 
     /// Update an application's mutable fields.
     ///
-    /// Validates `redirect_uris`, serializes them to JSON, and writes all six
+    /// Validates `redirect_uris`, serializes them to JSON, and writes all
     /// mutable fields atomically. Caller is responsible for fetching the current
     /// application and populating unchanged fields.
     ///
@@ -599,6 +614,9 @@ impl Db {
         }
         if let Some(ref color) = params.primary_color {
             validate_primary_color(color)?;
+        }
+        if let Some(ref hex) = params.accent_hex {
+            validate_accent_hex(hex)?;
         }
         if let Some(ref url) = params.font_css_url {
             validate_font_css_url(url)?;
@@ -1023,6 +1041,71 @@ mod tests {
         assert_eq!(b.application_name, "My App");
         assert_eq!(b.logo_url.as_deref(), Some("https://example.com/logo.png"));
         assert_eq!(b.primary_color.as_deref(), Some("#3B82F6"));
+    }
+
+    // validate_https_url tests (via public wrappers)
+
+    #[test]
+    fn https_url_accepts_https() {
+        assert!(validate_font_css_url("https://example.com/x.css").is_ok());
+    }
+
+    #[test]
+    fn https_url_rejects_http() {
+        let err = validate_font_css_url("http://example.com/x.css").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn https_url_rejects_invalid() {
+        let err = validate_font_css_url("not a url").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn logo_url_loopback_hostname_accepted() {
+        assert!(validate_logo_url("http://localhost/logo.png").is_ok());
+    }
+
+    #[test]
+    fn logo_url_loopback_ip_accepted() {
+        assert!(validate_logo_url("http://127.0.0.1/logo.png").is_ok());
+    }
+
+    #[test]
+    fn font_css_url_rejects_localhost() {
+        let err = validate_font_css_url("http://localhost/font.css").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    // validate_accent_hex tests
+
+    #[test]
+    fn accent_hex_valid() {
+        assert!(validate_accent_hex("#ff6b35").is_ok());
+    }
+
+    #[test]
+    fn accent_hex_rejects_named_color() {
+        let err = validate_accent_hex("red").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn accent_hex_rejects_shorthand() {
+        let err = validate_accent_hex("#fff").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn accent_hex_rejects_non_hex_chars() {
+        let err = validate_accent_hex("#gggggg").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn primary_color_still_valid_after_refactor() {
+        assert!(validate_primary_color("#3B82F6").is_ok());
     }
 
     #[test]
