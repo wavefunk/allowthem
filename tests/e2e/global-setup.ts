@@ -63,6 +63,8 @@ export default async function globalSetup(): Promise<void> {
       ALLOWTHEM_BASE_URL: "http://127.0.0.1:3100",
       ALLOWTHEM_SIGNING_KEY_HEX:
         "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      ALLOWTHEM_CSRF_KEY_HEX:
+        "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe",
       ALLOWTHEM_IS_PRODUCTION: "false",
       ALLOWTHEM_MAX_LOGIN_ATTEMPTS: "50",
       ALLOWTHEM_OAUTH_MOCK: "true",

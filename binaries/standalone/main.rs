@@ -55,6 +55,12 @@ async fn main() -> Result<()> {
         None => None,
     };
 
+    // 3c. CSRF key — required by csrf_middleware for pre-auth form GETs.
+    let csrf_key: Option<[u8; 32]> = match &config.csrf_key_hex {
+        Some(hex) => Some(decode_hex_key(hex)?),
+        None => None,
+    };
+
     // 4. AllowThem handle
     let mut builder = AllowThemBuilder::new(&config.database_url)
         .session_ttl(Duration::hours(config.session_ttl_hours as i64))
@@ -66,6 +72,9 @@ async fn main() -> Result<()> {
     }
     if let Some(key) = signing_key {
         builder = builder.signing_key(key);
+    }
+    if let Some(key) = csrf_key {
+        builder = builder.csrf_key(key);
     }
     let ath = builder.build().await?;
 
