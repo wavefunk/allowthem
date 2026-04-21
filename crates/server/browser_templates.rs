@@ -19,6 +19,7 @@ const STATUS_BAR_PARTIAL: &str = include_str!("templates/_partials/_status_bar.h
 const MODE_TOGGLE_PARTIAL: &str = include_str!("templates/_partials/_mode_toggle.html");
 const FLASH_PARTIAL: &str = include_str!("templates/_partials/_flash.html");
 const FORM_FIELD_PARTIAL: &str = include_str!("templates/_partials/_form_field.html");
+const SPLASH_PARTIAL: &str = include_str!("templates/_partials/_splash.html");
 
 /// Register the default browser templates into an existing environment.
 ///
@@ -53,6 +54,8 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
         .expect("_partials/_flash.html");
     env.add_template_owned("_partials/_form_field.html", FORM_FIELD_PARTIAL)
         .expect("_partials/_form_field.html");
+    env.add_template_owned("_partials/_splash.html", SPLASH_PARTIAL)
+        .expect("_partials/_splash.html");
 }
 
 pub fn build_default_browser_env() -> Arc<Environment<'static>> {
@@ -93,6 +96,7 @@ mod tests {
             "_partials/_mode_toggle.html",
             "_partials/_flash.html",
             "_partials/_form_field.html",
+            "_partials/_splash.html",
         ] {
             assert!(
                 env.get_template(name).is_ok(),
