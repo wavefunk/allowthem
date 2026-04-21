@@ -7,7 +7,8 @@ use serde::Deserialize;
 
 use allowthem_core::sessions::ListSessionsParams;
 use allowthem_core::types::{SessionId, UserId};
-use allowthem_server::{BrowserAdminUser, CsrfToken};
+use allowthem_server::{BrowserAdminUser, CsrfToken, ShellContext};
+use minijinja::value::Value;
 
 use crate::error::AppError;
 use crate::state::AppState;
@@ -74,10 +75,12 @@ pub async fn list(
         result.total.div_ceil(PAGE_SIZE)
     };
 
+    let shell = ShellContext::new(true, "/admin/sessions", "allowthem");
     let html = crate::templates::render(
         &state.templates,
         "admin/sessions_list.html",
         context! {
+            shell => Value::from_serialize(&shell),
             sessions => &result.sessions,
             total => result.total,
             page,
@@ -279,6 +282,7 @@ mod tests {
         let body = read_body_string(resp).await;
         assert!(body.contains("user@example.com"));
         assert!(body.contains("1.2.3.4"));
+        assert!(body.contains("at-app-shell"));
     }
 
     #[tokio::test]

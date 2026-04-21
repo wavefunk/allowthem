@@ -1,127 +1,93 @@
-{% extends "base.html" %}
+{% extends "_partials/_app_shell.html" %}
 
 {% block title %}Sessions — allowthem{% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen justify-center px-4 py-12">
-    <div class="w-full max-w-5xl space-y-6">
-        <div class="flex items-center justify-between">
-            <h1 class="text-2xl font-bold text-gray-900">Sessions</h1>
-            <span class="text-sm text-gray-500">{{ total }} active session{% if total != 1 %}s{% endif %}</span>
-        </div>
+{% block content %}
+  <h1 class="wf-display-sm">Sessions</h1>
+  <p class="wf-meta">{{ total }} active session{% if total != 1 %}s{% endif %}</p>
 
-        {% if filter_user_email %}
-        <div class="rounded bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700">
-            Showing sessions for <strong>{{ filter_user_email }}</strong>
-            <a href="/admin/sessions" class="ml-2 underline">Show all</a>
-        </div>
-        {% endif %}
-
-        {% if sessions %}
-        <table class="w-full text-sm text-left">
-            <thead class="border-b border-gray-200 text-gray-500 uppercase text-xs">
-                <tr>
-                    <th class="py-3 pr-4">User</th>
-                    <th class="py-3 pr-4">IP address</th>
-                    <th class="py-3 pr-4">User agent</th>
-                    <th class="py-3 pr-4">Created</th>
-                    <th class="py-3 pr-4">Expires</th>
-                    <th class="py-3"></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for session in sessions %}
-                <tr class="border-b border-gray-100 hover:bg-gray-50">
-                    <td class="py-3 pr-4">
-                        <a href="/admin/users/{{ session.user_id }}"
-                           class="text-blue-600 hover:underline font-medium">
-                            {{ session.user_email }}
-                        </a>
-                    </td>
-                    <td class="py-3 pr-4 text-gray-700">
-                        {% if session.ip_address %}{{ session.ip_address }}{% else %}<span class="text-gray-400">Unknown</span>{% endif %}
-                    </td>
-                    <td class="py-3 pr-4">
-                        {% if session.user_agent %}
-                        <span class="text-gray-600 text-xs truncate max-w-[16rem] inline-block align-bottom"
-                              title="{{ session.user_agent }}">{{ session.user_agent }}</span>
-                        {% else %}
-                        <span class="text-gray-400">Unknown</span>
-                        {% endif %}
-                    </td>
-                    <td class="py-3 pr-4 text-gray-500 text-xs">{{ session.created_at }}</td>
-                    <td class="py-3 pr-4 text-gray-500 text-xs">{{ session.expires_at }}</td>
-                    <td class="py-3">
-                        <form method="POST" action="/admin/sessions/{{ session.id }}/revoke"
-                              onsubmit="return confirm('This will end this session immediately.')">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            {% if filter_user_id %}<input type="hidden" name="user_id" value="{{ filter_user_id }}">{% endif %}
-                            {% if page %}<input type="hidden" name="page" value="{{ page }}">{% endif %}
-                            <button type="submit" class="text-sm text-red-600 hover:underline">Revoke</button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        {% if filter_user_id %}
-        <div class="border-t border-gray-200 pt-4">
-            <form method="POST" action="/admin/sessions/revoke-all/{{ filter_user_id }}"
-                  onsubmit="return confirm('This will end all sessions for this user.')">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit"
-                        class="rounded bg-red-600 px-4 py-2 text-sm text-white font-medium
-                               hover:bg-red-700 focus:outline-none focus:ring-2
-                               focus:ring-red-500 focus:ring-offset-2">
-                    Revoke all sessions for this user
-                </button>
-            </form>
-        </div>
-        {% endif %}
-
-        {% if total_pages > 1 %}
-        <nav class="flex items-center justify-center space-x-2 pt-4">
-            {% if page > 1 %}
-            <a href="/admin/sessions?{% if filter_user_id %}user_id={{ filter_user_id }}&{% endif %}page={{ page - 1 }}"
-               class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
-                Previous
-            </a>
-            {% else %}
-            <span class="rounded border border-gray-200 px-3 py-1 text-sm text-gray-300">Previous</span>
-            {% endif %}
-
-            {% for n in range(1, total_pages + 1) %}
-                {% if n == page %}
-                <span class="rounded bg-blue-600 px-3 py-1 text-sm text-white font-bold">{{ n }}</span>
-                {% else %}
-                <a href="/admin/sessions?{% if filter_user_id %}user_id={{ filter_user_id }}&{% endif %}page={{ n }}"
-                   class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
-                    {{ n }}
-                </a>
-                {% endif %}
-            {% endfor %}
-
-            {% if page < total_pages %}
-            <a href="/admin/sessions?{% if filter_user_id %}user_id={{ filter_user_id }}&{% endif %}page={{ page + 1 }}"
-               class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
-                Next
-            </a>
-            {% else %}
-            <span class="rounded border border-gray-200 px-3 py-1 text-sm text-gray-300">Next</span>
-            {% endif %}
-        </nav>
-        {% endif %}
-
-        {% else %}
-        <p class="text-sm text-gray-500">
-            {% if filter_user_id %}No active sessions for this user.{% else %}No active sessions.{% endif %}
-        </p>
-        {% endif %}
-
-        <a href="/admin/applications" class="inline-block text-sm text-blue-600 hover:underline">
-            &larr; Back to applications
-        </a>
+  {% if filter_user_email %}
+    <div class="wf-alert info">
+      <span class="wf-bar"></span>
+      <div>
+        Showing sessions for <strong>{{ filter_user_email }}</strong>
+        <a class="wf-link" href="/admin/sessions">Show all</a>
+      </div>
+      <span></span>
     </div>
-</div>
+  {% endif %}
+
+  {% if sessions %}
+    <table class="wf-table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>IP address</th>
+          <th>User agent</th>
+          <th>Created</th>
+          <th>Expires</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for session in sessions %}
+          <tr>
+            <td><a class="wf-link" href="/admin/users/{{ session.user_id }}">{{ session.user_email }}</a></td>
+            <td>{% if session.ip_address %}{{ session.ip_address }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</td>
+            <td title="{% if session.user_agent %}{{ session.user_agent }}{% endif %}">
+              {% if session.user_agent %}{{ session.user_agent }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}
+            </td>
+            <td>{{ session.created_at }}</td>
+            <td>{{ session.expires_at }}</td>
+            <td>
+              <form method="POST" action="/admin/sessions/{{ session.id }}/revoke"
+                    onsubmit="return confirm('This will end this session immediately.')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                {% if filter_user_id %}<input type="hidden" name="user_id" value="{{ filter_user_id }}">{% endif %}
+                {% if page %}<input type="hidden" name="page" value="{{ page }}">{% endif %}
+                <button class="wf-btn danger sm" type="submit">Revoke</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if filter_user_id %}
+      <hr class="wf-hr">
+      <form method="POST" action="/admin/sessions/revoke-all/{{ filter_user_id }}"
+            onsubmit="return confirm('This will end all sessions for this user.')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="wf-btn danger" type="submit">Revoke all sessions for this user</button>
+      </form>
+    {% endif %}
+
+    {% if total_pages > 1 %}
+      <nav>
+        {% if page > 1 %}
+          <a class="wf-btn sm" href="/admin/sessions?{% if filter_user_id %}user_id={{ filter_user_id }}&amp;{% endif %}page={{ page - 1 }}">Previous</a>
+        {% else %}
+          <span class="wf-btn sm" aria-disabled="true">Previous</span>
+        {% endif %}
+
+        {% for n in range(1, total_pages + 1) %}
+          {% if n == page %}
+            <span class="wf-btn primary sm">{{ n }}</span>
+          {% else %}
+            <a class="wf-btn sm" href="/admin/sessions?{% if filter_user_id %}user_id={{ filter_user_id }}&amp;{% endif %}page={{ n }}">{{ n }}</a>
+          {% endif %}
+        {% endfor %}
+
+        {% if page < total_pages %}
+          <a class="wf-btn sm" href="/admin/sessions?{% if filter_user_id %}user_id={{ filter_user_id }}&amp;{% endif %}page={{ page + 1 }}">Next</a>
+        {% else %}
+          <span class="wf-btn sm" aria-disabled="true">Next</span>
+        {% endif %}
+      </nav>
+    {% endif %}
+  {% else %}
+    <p class="wf-empty">
+      {% if filter_user_id %}No active sessions for this user.{% else %}No active sessions.{% endif %}
+    </p>
+  {% endif %}
 {% endblock %}
