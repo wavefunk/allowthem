@@ -148,7 +148,7 @@ mod tests {
     async fn test_router(handle: AllowThem) -> Router {
         let state = make_state().await;
         Router::<ManageState>::new()
-            .merge(super::super::users::user_routes())
+            .route("/{id}/sessions", axum::routing::get(list_for_user))
             .merge(session_routes())
             .layer(axum::Extension(handle))
             .layer(axum::Extension(make_admin_key()))
