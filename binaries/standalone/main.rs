@@ -567,6 +567,50 @@ mod tests {
         );
     }
 
+    #[test]
+    fn base_html_has_fouc_free_mode_bootstrap() {
+        let env = crate::templates::build_template_env().unwrap();
+        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, false);
+        let html = result.unwrap().0;
+        assert!(
+            html.contains("allowthem:mode"),
+            "base.html must contain the localStorage key for the FOUC-free mode bootstrap"
+        );
+        assert!(
+            html.contains("data-mode-locked"),
+            "FOUC bootstrap must respect data-mode-locked"
+        );
+        let script_at = html.find("allowthem:mode").unwrap();
+        let css_at = html.find("rel=\"stylesheet\"").unwrap();
+        assert!(script_at < css_at, "bootstrap must precede stylesheets");
+    }
+
+    #[test]
+    fn base_html_renders_unchanged_when_body_content_not_overridden() {
+        let env = crate::templates::build_template_env().unwrap();
+        let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
+            .unwrap()
+            .0;
+        assert_eq!(html.matches("<body").count(), 1, "no nested <body> tags");
+        assert!(html.contains("<html"), "html element present");
+    }
+
+    #[test]
+    fn base_html_without_forced_mode_emits_no_html_attrs() {
+        let env = crate::templates::build_template_env().unwrap();
+        let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
+            .unwrap()
+            .0;
+        assert!(
+            !html.contains("data-mode=\""),
+            "no data-mode attr on <html> when branding.forced_mode is unset"
+        );
+        assert!(
+            !html.contains("data-mode-locked>") && !html.contains("data-mode-locked "),
+            "no data-mode-locked attr on <html> when branding.forced_mode is unset"
+        );
+    }
+
     #[tokio::test]
     async fn static_file_serving() {
         let ath = AllowThemBuilder::new("sqlite::memory:")

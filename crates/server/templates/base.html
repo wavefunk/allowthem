@@ -1,9 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" {% block html_attrs %}{% endblock %}>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}allowthem{% endblock %}</title>
+
+    {# FOUC-free mode bootstrap — MUST run before any stylesheet loads so that
+       CSS keyed off [data-mode="light"] / [data-mode="dark"] applies on the
+       very first paint. Respects <html data-mode-locked> emitted by the
+       server when branding.forced_mode is set. See §Mode system in the spec. #}
+    <script>(function(){try{var m=localStorage.getItem('allowthem:mode');if((m==='dark'||m==='light')&&!document.documentElement.hasAttribute('data-mode-locked')){document.documentElement.dataset.mode=m;}}catch(_e){}})();</script>
 
     {# CSS: Tailwind browser package in dev, compiled CSS in production #}
     {% if is_production %}
@@ -51,8 +57,8 @@
 
     {% block head %}{% endblock %}
 </head>
-<body class="bg-gray-50 min-h-screen">
-    {% block body %}{% endblock %}
+<body class="{% block body_class %}bg-gray-50 min-h-screen{% endblock %}">
+    {% block body_content %}{% block body %}{% endblock %}{% endblock %}
 
     {# HTMX #}
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"
