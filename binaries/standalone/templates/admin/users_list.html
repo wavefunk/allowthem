@@ -1,133 +1,93 @@
-{% extends "../base.html" %}
+{% extends "_partials/_app_shell.html" %}
 
 {% block title %}Users — allowthem{% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen justify-center px-4 py-12">
-    <div class="w-full max-w-4xl space-y-6">
-        <div class="flex items-center justify-between">
-            <h1 class="text-2xl font-bold text-gray-900">Users</h1>
-            <span class="text-sm text-gray-500">{{ total }} users</span>
-        </div>
+{% block content %}
+  <h1 class="wf-display-sm">Users</h1>
+  <p class="wf-meta">{{ total }} users</p>
 
-        <form method="GET" action="/admin/users" class="flex flex-wrap gap-3 items-end">
-            <div class="flex-1 min-w-[200px]">
-                <input type="text" name="q" value="{{ q }}"
-                       placeholder="Search email or username…"
-                       class="w-full rounded border border-gray-300 px-3 py-2 text-sm
-                              focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
-            </div>
-            <div>
-                <select name="status"
-                        class="rounded border border-gray-300 px-3 py-2 text-sm
-                               focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
-                    <option value="">All status</option>
-                    <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
-                    <option value="deactivated" {% if status == "deactivated" %}selected{% endif %}>Deactivated</option>
-                </select>
-            </div>
-            <div>
-                <select name="mfa"
-                        class="rounded border border-gray-300 px-3 py-2 text-sm
-                               focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
-                    <option value="">All MFA</option>
-                    <option value="yes" {% if mfa == "yes" %}selected{% endif %}>MFA enabled</option>
-                    <option value="no" {% if mfa == "no" %}selected{% endif %}>MFA not enabled</option>
-                </select>
-            </div>
-            <button type="submit"
-                    class="rounded bg-blue-600 px-4 py-2 text-sm text-white font-medium
-                           hover:bg-blue-700 focus:outline-none focus:ring-2
-                           focus:ring-blue-500 focus:ring-offset-2">
-                Search
-            </button>
-        </form>
+  <form method="GET" action="/admin/users">
+    <label class="wf-label" for="q">Search</label>
+    <input class="wf-input" type="text" id="q" name="q" value="{{ q }}"
+           placeholder="Search email or username…">
 
-        {% if users %}
-        <table class="w-full text-sm text-left">
-            <thead class="border-b border-gray-200 text-gray-500 uppercase text-xs">
-                <tr>
-                    <th class="py-3 pr-4">Email</th>
-                    <th class="py-3 pr-4">Username</th>
-                    <th class="py-3 pr-4">Status</th>
-                    <th class="py-3 pr-4">MFA</th>
-                    <th class="py-3">Registered</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for user in users %}
-                <tr class="border-b border-gray-100 hover:bg-gray-50">
-                    <td class="py-3 pr-4">
-                        <a href="/admin/users/{{ user.id }}"
-                           class="text-blue-600 hover:underline font-medium">
-                            {{ user.email }}
-                        </a>
-                    </td>
-                    <td class="py-3 pr-4 text-gray-600">
-                        {% if user.username %}{{ user.username }}{% else %}&mdash;{% endif %}
-                    </td>
-                    <td class="py-3 pr-4">
-                        {% if user.is_active %}
-                        <span class="inline-flex items-center space-x-1">
-                            <span class="inline-block h-2 w-2 rounded-full bg-green-500"></span>
-                            <span class="text-gray-700">Active</span>
-                        </span>
-                        {% else %}
-                        <span class="inline-flex items-center space-x-1">
-                            <span class="inline-block h-2 w-2 rounded-full bg-gray-300"></span>
-                            <span class="text-gray-500">Deactivated</span>
-                        </span>
-                        {% endif %}
-                    </td>
-                    <td class="py-3 pr-4">
-                        {% if user.has_mfa %}
-                        <span class="text-green-600">Enabled</span>
-                        {% else %}
-                        <span class="text-gray-400">&mdash;</span>
-                        {% endif %}
-                    </td>
-                    <td class="py-3 text-gray-500 text-xs">{{ user.created_at }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <label class="wf-label" for="status">Status</label>
+    <select class="wf-select" id="status" name="status">
+      <option value="">All status</option>
+      <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+      <option value="deactivated" {% if status == "deactivated" %}selected{% endif %}>Deactivated</option>
+    </select>
 
-        {% if total_pages > 1 %}
-        <nav class="flex items-center justify-center space-x-2 pt-4">
-            {% if page > 1 %}
-            <a href="/admin/users?q={{ q }}&status={{ status }}&mfa={{ mfa }}&page={{ page - 1 }}"
-               class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
-                Previous
-            </a>
-            {% else %}
-            <span class="rounded border border-gray-200 px-3 py-1 text-sm text-gray-300">Previous</span>
-            {% endif %}
+    <label class="wf-label" for="mfa">MFA</label>
+    <select class="wf-select" id="mfa" name="mfa">
+      <option value="">All MFA</option>
+      <option value="yes" {% if mfa == "yes" %}selected{% endif %}>MFA enabled</option>
+      <option value="no" {% if mfa == "no" %}selected{% endif %}>MFA not enabled</option>
+    </select>
 
-            {% for n in range(1, total_pages + 1) %}
-                {% if n == page %}
-                <span class="rounded bg-blue-600 px-3 py-1 text-sm text-white font-bold">{{ n }}</span>
-                {% else %}
-                <a href="/admin/users?q={{ q }}&status={{ status }}&mfa={{ mfa }}&page={{ n }}"
-                   class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
-                    {{ n }}
-                </a>
-                {% endif %}
-            {% endfor %}
+    <p><button class="wf-btn primary" type="submit">Search</button></p>
+  </form>
 
-            {% if page < total_pages %}
-            <a href="/admin/users?q={{ q }}&status={{ status }}&mfa={{ mfa }}&page={{ page + 1 }}"
-               class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
-                Next
-            </a>
-            {% else %}
-            <span class="rounded border border-gray-200 px-3 py-1 text-sm text-gray-300">Next</span>
-            {% endif %}
-        </nav>
-        {% endif %}
+  {% if users %}
+    <table class="wf-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Username</th>
+          <th>Status</th>
+          <th>MFA</th>
+          <th>Registered</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+          <tr>
+            <td><a class="wf-link" href="/admin/users/{{ user.id }}">{{ user.email }}</a></td>
+            <td>{% if user.username %}{{ user.username }}{% else %}&mdash;{% endif %}</td>
+            <td>
+              {% if user.is_active %}
+                <span class="wf-tag ok">Active</span>
+              {% else %}
+                <span class="wf-tag muted">Deactivated</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if user.has_mfa %}
+                <span class="wf-tag ok">Enabled</span>
+              {% else %}
+                <span class="wf-tag muted">&mdash;</span>
+              {% endif %}
+            </td>
+            <td>{{ user.created_at }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
 
+    {% if total_pages > 1 %}
+      <nav>
+        {% if page > 1 %}
+          <a class="wf-btn sm" href="/admin/users?q={{ q }}&amp;status={{ status }}&amp;mfa={{ mfa }}&amp;page={{ page - 1 }}">Previous</a>
         {% else %}
-        <p class="text-sm text-gray-500">No users found.</p>
+          <span class="wf-btn sm" aria-disabled="true">Previous</span>
         {% endif %}
-    </div>
-</div>
+
+        {% for n in range(1, total_pages + 1) %}
+          {% if n == page %}
+            <span class="wf-btn primary sm">{{ n }}</span>
+          {% else %}
+            <a class="wf-btn sm" href="/admin/users?q={{ q }}&amp;status={{ status }}&amp;mfa={{ mfa }}&amp;page={{ n }}">{{ n }}</a>
+          {% endif %}
+        {% endfor %}
+
+        {% if page < total_pages %}
+          <a class="wf-btn sm" href="/admin/users?q={{ q }}&amp;status={{ status }}&amp;mfa={{ mfa }}&amp;page={{ page + 1 }}">Next</a>
+        {% else %}
+          <span class="wf-btn sm" aria-disabled="true">Next</span>
+        {% endif %}
+      </nav>
+    {% endif %}
+  {% else %}
+    <p class="wf-empty">No users found.</p>
+  {% endif %}
 {% endblock %}

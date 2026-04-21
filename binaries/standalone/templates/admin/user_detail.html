@@ -1,180 +1,139 @@
-{% extends "../base.html" %}
+{% extends "_partials/_app_shell.html" %}
 
 {% block title %}{{ user.email }} — allowthem{% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen justify-center px-4 py-12">
-    <div class="w-full max-w-lg space-y-6">
-        <div>
-            <h1 class="text-2xl font-bold text-gray-900">{{ user.email }}</h1>
-            {% if user.username %}
-            <p class="text-sm text-gray-500">@{{ user.username }}</p>
-            {% endif %}
-        </div>
+{% block content %}
+  <h1 class="wf-display-sm">{{ user.email }}</h1>
+  {% if user.username %}<p class="wf-meta">@{{ user.username }}</p>{% endif %}
 
-        {% if error %}
-        <div class="rounded bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-            {{ error }}
-        </div>
-        {% endif %}
-
-        <dl class="space-y-3 text-sm">
-            <div class="flex justify-between border-b border-gray-100 pb-2">
-                <dt class="text-gray-500">Email</dt>
-                <dd class="text-gray-900">{{ user.email }}</dd>
-            </div>
-            <div class="flex justify-between border-b border-gray-100 pb-2">
-                <dt class="text-gray-500">Username</dt>
-                <dd class="text-gray-900">{% if user.username %}{{ user.username }}{% else %}Not set{% endif %}</dd>
-            </div>
-            <div class="flex justify-between border-b border-gray-100 pb-2">
-                <dt class="text-gray-500">Status</dt>
-                <dd>
-                    {% if user.is_active %}
-                    <span class="inline-flex items-center space-x-1">
-                        <span class="inline-block h-2 w-2 rounded-full bg-green-500"></span>
-                        <span class="text-gray-700">Active</span>
-                    </span>
-                    {% else %}
-                    <span class="inline-flex items-center space-x-1">
-                        <span class="inline-block h-2 w-2 rounded-full bg-gray-300"></span>
-                        <span class="text-gray-500">Deactivated</span>
-                    </span>
-                    {% endif %}
-                </dd>
-            </div>
-            <div class="flex justify-between border-b border-gray-100 pb-2">
-                <dt class="text-gray-500">Email verified</dt>
-                <dd class="text-gray-900">{% if user.email_verified %}Yes{% else %}No{% endif %}</dd>
-            </div>
-            <div class="flex justify-between border-b border-gray-100 pb-2">
-                <dt class="text-gray-500">MFA</dt>
-                <dd class="text-gray-900">{% if mfa_enabled %}Enabled{% else %}Not enabled{% endif %}</dd>
-            </div>
-            <div class="flex justify-between border-b border-gray-100 pb-2">
-                <dt class="text-gray-500">Registered</dt>
-                <dd class="text-gray-900">{{ user.created_at }}</dd>
-            </div>
-            <div class="flex justify-between border-b border-gray-100 pb-2">
-                <dt class="text-gray-500">Last login</dt>
-                <dd class="text-gray-900">{% if last_login %}{{ last_login }}{% else %}Never{% endif %}</dd>
-            </div>
-            <div class="flex justify-between pb-2">
-                <dt class="text-gray-500">Updated</dt>
-                <dd class="text-gray-900">{{ user.updated_at }}</dd>
-            </div>
-        </dl>
-
-        <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-gray-900">Roles</h2>
-            {% if roles %}
-            <div class="flex flex-wrap gap-2">
-                {% for role in roles %}
-                <span class="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                    {{ role.name }}
-                </span>
-                {% endfor %}
-            </div>
-            {% else %}
-            <p class="text-sm text-gray-500">No roles assigned</p>
-            {% endif %}
-        </div>
-
-        <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-gray-900">OAuth accounts</h2>
-            {% if oauth_accounts %}
-            <table class="w-full text-sm text-left">
-                <thead class="border-b border-gray-200 text-gray-500 uppercase text-xs">
-                    <tr>
-                        <th class="py-2 pr-4">Provider</th>
-                        <th class="py-2 pr-4">Email</th>
-                        <th class="py-2">Linked</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for acct in oauth_accounts %}
-                    <tr class="border-b border-gray-100">
-                        <td class="py-2 pr-4 text-gray-700">{{ acct.provider }}</td>
-                        <td class="py-2 pr-4 text-gray-700">{{ acct.email }}</td>
-                        <td class="py-2 text-gray-500 text-xs">{{ acct.created_at }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p class="text-sm text-gray-500">No linked accounts</p>
-            {% endif %}
-        </div>
-
-        <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-gray-900">Active sessions</h2>
-            {% if sessions %}
-            <table class="w-full text-sm text-left">
-                <thead class="border-b border-gray-200 text-gray-500 uppercase text-xs">
-                    <tr>
-                        <th class="py-2 pr-4">IP address</th>
-                        <th class="py-2 pr-4">User agent</th>
-                        <th class="py-2 pr-4">Created</th>
-                        <th class="py-2">Expires</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for s in sessions %}
-                    <tr class="border-b border-gray-100">
-                        <td class="py-2 pr-4 text-gray-700">{% if s.ip_address %}{{ s.ip_address }}{% else %}Unknown{% endif %}</td>
-                        <td class="py-2 pr-4 text-gray-600 text-xs max-w-[200px] truncate" title="{% if s.user_agent %}{{ s.user_agent }}{% endif %}">
-                            {% if s.user_agent %}{{ s.user_agent }}{% else %}Unknown{% endif %}
-                        </td>
-                        <td class="py-2 pr-4 text-gray-500 text-xs">{{ s.created_at }}</td>
-                        <td class="py-2 text-gray-500 text-xs">{{ s.expires_at }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p class="text-sm text-gray-500">No active sessions</p>
-            {% endif %}
-        </div>
-
-        <div class="border-t border-gray-200 pt-6 mt-6 flex flex-wrap gap-3">
-            {% if user.is_active %}
-            <form method="POST" action="/admin/users/{{ user.id }}/deactivate">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit"
-                        onclick="return confirm('This will deactivate the user and end all their sessions.')"
-                        class="rounded bg-red-600 px-4 py-2 text-sm text-white font-medium
-                               hover:bg-red-700 focus:outline-none focus:ring-2
-                               focus:ring-red-500 focus:ring-offset-2">
-                    Deactivate
-                </button>
-            </form>
-            <form method="POST" action="/admin/users/{{ user.id }}/force-password-reset">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit"
-                        onclick="return confirm('This will invalidate the user\'s password, end all sessions, and send a password reset email.')"
-                        class="rounded bg-amber-500 px-4 py-2 text-sm text-white font-medium
-                               hover:bg-amber-600 focus:outline-none focus:ring-2
-                               focus:ring-amber-400 focus:ring-offset-2">
-                    Force password reset
-                </button>
-            </form>
-            {% else %}
-            <form method="POST" action="/admin/users/{{ user.id }}/reactivate">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit"
-                        onclick="return confirm('This will reactivate the user account.')"
-                        class="rounded bg-green-600 px-4 py-2 text-sm text-white font-medium
-                               hover:bg-green-700 focus:outline-none focus:ring-2
-                               focus:ring-green-500 focus:ring-offset-2">
-                    Reactivate
-                </button>
-            </form>
-            {% endif %}
-        </div>
-
-        <a href="/admin/users" class="inline-block text-sm text-blue-600 hover:underline">
-            &larr; Back to users
-        </a>
+  {% if error %}
+    <div class="wf-alert err">
+      <span class="wf-bar"></span>
+      <div>{{ error }}</div>
+      <span></span>
     </div>
-</div>
+  {% endif %}
+
+  <dl class="wf-dl">
+    <dt>Email</dt>
+    <dd>{{ user.email }}</dd>
+
+    <dt>Username</dt>
+    <dd>{% if user.username %}{{ user.username }}{% else %}<span class="wf-tag muted">Not set</span>{% endif %}</dd>
+
+    <dt>Status</dt>
+    <dd>
+      {% if user.is_active %}
+        <span class="wf-tag ok">Active</span>
+      {% else %}
+        <span class="wf-tag muted">Deactivated</span>
+      {% endif %}
+    </dd>
+
+    <dt>Email verified</dt>
+    <dd>{% if user.email_verified %}Yes{% else %}No{% endif %}</dd>
+
+    <dt>MFA</dt>
+    <dd>{% if mfa_enabled %}Enabled{% else %}Not enabled{% endif %}</dd>
+
+    <dt>Registered</dt>
+    <dd>{{ user.created_at }}</dd>
+
+    <dt>Last login</dt>
+    <dd>{% if last_login %}{{ last_login }}{% else %}Never{% endif %}</dd>
+
+    <dt>Updated</dt>
+    <dd>{{ user.updated_at }}</dd>
+  </dl>
+
+  <hr class="wf-hr">
+
+  <div class="wf-eyebrow">Roles</div>
+  {% if roles %}
+    <p>
+      {% for role in roles %}
+        <span class="wf-tag accent">{{ role.name }}</span>
+      {% endfor %}
+    </p>
+  {% else %}
+    <p class="wf-empty">No roles assigned</p>
+  {% endif %}
+
+  <hr class="wf-hr">
+
+  <div class="wf-eyebrow">OAuth accounts</div>
+  {% if oauth_accounts %}
+    <table class="wf-table">
+      <thead>
+        <tr><th>Provider</th><th>Email</th><th>Linked</th></tr>
+      </thead>
+      <tbody>
+        {% for acct in oauth_accounts %}
+          <tr>
+            <td>{{ acct.provider }}</td>
+            <td>{{ acct.email }}</td>
+            <td>{{ acct.created_at }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="wf-empty">No linked accounts</p>
+  {% endif %}
+
+  <hr class="wf-hr">
+
+  <div class="wf-eyebrow">Active sessions</div>
+  {% if sessions %}
+    <table class="wf-table">
+      <thead>
+        <tr><th>IP address</th><th>User agent</th><th>Created</th><th>Expires</th></tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+          <tr>
+            <td>{% if s.ip_address %}{{ s.ip_address }}{% else %}Unknown{% endif %}</td>
+            <td title="{% if s.user_agent %}{{ s.user_agent }}{% endif %}">
+              {% if s.user_agent %}{{ s.user_agent }}{% else %}Unknown{% endif %}
+            </td>
+            <td>{{ s.created_at }}</td>
+            <td>{{ s.expires_at }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="wf-empty">No active sessions</p>
+  {% endif %}
+
+  <hr class="wf-hr">
+
+  <p>
+    {% if user.is_active %}
+      <form method="POST" action="/admin/users/{{ user.id }}/deactivate" style="display: inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="wf-btn danger" type="submit"
+                onclick="return confirm('This will deactivate the user and end all their sessions.')">
+          Deactivate
+        </button>
+      </form>
+      <form method="POST" action="/admin/users/{{ user.id }}/force-password-reset" style="display: inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="wf-btn" type="submit"
+                onclick="return confirm('This will invalidate the user\'s password, end all sessions, and send a password reset email.')">
+          Force password reset
+        </button>
+      </form>
+    {% else %}
+      <form method="POST" action="/admin/users/{{ user.id }}/reactivate" style="display: inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="wf-btn primary" type="submit"
+                onclick="return confirm('This will reactivate the user account.')">
+          Reactivate
+        </button>
+      </form>
+    {% endif %}
+  </p>
+
+  <p><a class="wf-link-quiet" href="/admin/users">Back to users</a></p>
 {% endblock %}
