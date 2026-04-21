@@ -14,6 +14,8 @@
   {% if branding and branding.splash_url %}
     <iframe src="{{ branding.splash_url | safe }}"
             sandbox="allow-scripts"
+            referrerpolicy="no-referrer"
+            allow=""
             loading="lazy"
             class="wf-splash-frame"
             title="{{ application_name | default('allowthem') }} splash">

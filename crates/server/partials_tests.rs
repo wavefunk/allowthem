@@ -199,7 +199,30 @@ fn splash_url_wins_and_renders_iframe() {
     assert!(html.contains("<iframe"));
     assert!(html.contains("https://example.com/splash"));
     assert!(html.contains("sandbox=\"allow-scripts\""));
+    assert!(html.contains("referrerpolicy=\"no-referrer\""));
+    assert!(html.contains("allow=\"\""));
     assert!(!html.contains("data-shader-ascii"));
+}
+
+#[test]
+fn splash_empty_branding_falls_back_to_application_name() {
+    // Branding struct present but every splash field is None; no
+    // branding.application_name surfaces in the template — the fallback
+    // is the context-level application_name var.
+    let env = env_with_wrapper(
+        "wrap_splash_empty_branding.html",
+        r#"{% include "_partials/_splash.html" %}"#,
+    );
+    let b = mock_branding();
+    let html = env
+        .get_template("wrap_splash_empty_branding.html")
+        .unwrap()
+        .render(context! { branding => &b, application_name => "immersiq" })
+        .unwrap();
+    assert!(html.contains("data-shape-source=\"text\""));
+    assert!(html.contains("data-shape-text=\"immersiq\""));
+    // branding.application_name ("acme") must NOT leak into the template.
+    assert!(!html.contains("acme"));
 }
 
 #[test]
