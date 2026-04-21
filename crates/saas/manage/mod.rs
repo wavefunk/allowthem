@@ -1,7 +1,9 @@
 pub mod applications;
+pub mod logs;
 pub mod permissions;
 pub mod roles;
 pub mod sessions;
+pub mod usage;
 pub mod users;
 
 use std::num::NonZeroU32;
@@ -225,6 +227,8 @@ pub fn manage_router(state: ManageState) -> axum::Router {
         .nest("/sessions", sessions::session_routes())
         .nest("/roles", roles::role_routes())
         .nest("/permissions", permissions::permission_routes())
+        .nest("/logs", logs::log_routes())
+        .nest("/usage", usage::usage_routes())
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             api_key_auth_middleware,
