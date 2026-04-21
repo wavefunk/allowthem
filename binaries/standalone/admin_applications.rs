@@ -8,7 +8,7 @@ use minijinja::context;
 use serde::Deserialize;
 
 use allowthem_core::AuthError;
-use allowthem_core::applications::UpdateApplication;
+use allowthem_core::applications::{CreateApplicationParams, UpdateApplication};
 use allowthem_core::types::{ApplicationId, ClientType};
 use allowthem_server::{BrowserAdminUser, CsrfToken};
 
@@ -157,15 +157,25 @@ pub async fn create(
     match state
         .ath
         .db()
-        .create_application(
-            name.clone(),
-            ClientType::Confidential,
+        .create_application(CreateApplicationParams {
+            name: name.clone(),
+            client_type: ClientType::Confidential,
             redirect_uris,
             is_trusted,
-            Some(user.id),
+            created_by: Some(user.id),
             logo_url,
             primary_color,
-        )
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
     {
         Ok((app, secret)) => {
@@ -279,6 +289,16 @@ pub async fn update(
         is_active,
         logo_url,
         primary_color,
+        accent_hex: None,
+        accent_ink: None,
+        forced_mode: None,
+        font_css_url: None,
+        font_family: None,
+        splash_text: None,
+        splash_image_url: None,
+        splash_primitive: None,
+        splash_url: None,
+        shader_cell_scale: None,
     };
 
     match state.ath.db().update_application(id, params).await {
@@ -390,6 +410,7 @@ mod tests {
     use chrono::{Duration, Utc};
     use tower::ServiceExt;
 
+    use allowthem_core::applications::CreateApplicationParams;
     use allowthem_core::types::ClientType;
     use allowthem_core::{
         AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, RoleName,
@@ -490,15 +511,25 @@ mod tests {
     async fn list_page_renders_with_apps() {
         let (ath, state, cookie) = setup().await;
         ath.db()
-            .create_application(
-                "Test App".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".to_string()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "Test App".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".to_string()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 
@@ -620,15 +651,25 @@ mod tests {
         let (ath, state, cookie) = setup().await;
         let (created_app, _secret) = ath
             .db()
-            .create_application(
-                "Detail App".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".to_string()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "Detail App".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".to_string()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 
@@ -651,15 +692,25 @@ mod tests {
         let (ath, state, cookie) = setup().await;
         let (created_app, _secret) = ath
             .db()
-            .create_application(
-                "Edit App".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".to_string()],
-                true,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "Edit App".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".to_string()],
+                is_trusted: true,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 
@@ -683,15 +734,25 @@ mod tests {
         let (ath, state, cookie) = setup().await;
         let (created_app, _secret) = ath
             .db()
-            .create_application(
-                "Update App".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".to_string()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "Update App".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".to_string()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 
@@ -730,15 +791,25 @@ mod tests {
         let (ath, state, cookie) = setup().await;
         let (created_app, _secret) = ath
             .db()
-            .create_application(
-                "Regen App".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".to_string()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "Regen App".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".to_string()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 
@@ -777,15 +848,25 @@ mod tests {
         let (ath, state, cookie) = setup().await;
         let (created_app, _secret) = ath
             .db()
-            .create_application(
-                "Delete App".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".to_string()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "Delete App".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".to_string()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 
@@ -923,15 +1004,25 @@ mod tests {
         // Create a trusted application
         let (created_app, _secret) = ath
             .db()
-            .create_application(
-                "Trusted App".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/cb".to_string()],
-                true,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "Trusted App".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".to_string()],
+                is_trusted: true,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
         assert!(created_app.is_trusted);

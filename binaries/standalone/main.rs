@@ -4,6 +4,7 @@ mod admin_sessions;
 mod config;
 mod error;
 mod mock_oauth;
+mod preview;
 mod state;
 mod templates;
 mod test_oauth_routes;
@@ -17,6 +18,8 @@ use eyre::Result;
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
+#[cfg(test)]
+use allowthem_core::applications::CreateApplicationParams;
 #[cfg(test)]
 use allowthem_core::types::ClientType;
 use allowthem_core::{
@@ -52,6 +55,12 @@ async fn main() -> Result<()> {
         None => None,
     };
 
+    // 3c. CSRF key — required by csrf_middleware for pre-auth form GETs.
+    let csrf_key: Option<[u8; 32]> = match &config.csrf_key_hex {
+        Some(hex) => Some(decode_hex_key(hex)?),
+        None => None,
+    };
+
     // 4. AllowThem handle
     let mut builder = AllowThemBuilder::new(&config.database_url)
         .session_ttl(Duration::hours(config.session_ttl_hours as i64))
@@ -63,6 +72,9 @@ async fn main() -> Result<()> {
     }
     if let Some(key) = signing_key {
         builder = builder.signing_key(key);
+    }
+    if let Some(key) = csrf_key {
+        builder = builder.csrf_key(key);
     }
     let ath = builder.build().await?;
 
@@ -139,7 +151,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         ath: ath.clone(),
         auth_client,
-        templates,
+        templates: templates.clone(),
         is_production: config.is_production,
     };
 
@@ -172,6 +184,15 @@ async fn main() -> Result<()> {
     } else {
         app
     };
+
+    // Dev-only: partial gallery for frontend work. Off by default; never
+    // enabled in production. See binaries/standalone/preview.rs.
+    if config.debug_preview {
+        tracing::warn!(
+            "debug_preview is enabled — preview gallery is exposed at /__allowthem/preview"
+        );
+    }
+    let app = preview::mount(app, config.debug_preview, templates.clone());
 
     // 8. Serve
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
@@ -565,6 +586,52 @@ mod tests {
         );
     }
 
+    #[test]
+    fn base_html_has_fouc_free_mode_bootstrap() {
+        let env = crate::templates::build_template_env().unwrap();
+        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, true);
+        let html = result.unwrap().0;
+        assert!(
+            html.contains("allowthem:mode"),
+            "base.html must contain the localStorage key for the FOUC-free mode bootstrap"
+        );
+        assert!(
+            html.contains("data-mode-locked"),
+            "FOUC bootstrap must respect data-mode-locked"
+        );
+        let script_at = html.find("allowthem:mode").unwrap();
+        let css_at = html.find("rel=\"stylesheet\"").unwrap();
+        assert!(script_at < css_at, "bootstrap must precede stylesheets");
+    }
+
+    #[test]
+    fn base_html_renders_unchanged_when_body_content_not_overridden() {
+        let env = crate::templates::build_template_env().unwrap();
+        let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
+            .unwrap()
+            .0;
+        assert_eq!(html.matches("<body").count(), 1, "no nested <body> tags");
+        assert!(html.contains("<html"), "html element present");
+    }
+
+    #[test]
+    fn base_html_without_forced_mode_emits_no_html_attrs() {
+        let env = crate::templates::build_template_env().unwrap();
+        let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
+            .unwrap()
+            .0;
+        assert!(
+            !html.contains("data-mode=\""),
+            "no data-mode attr on <html> when branding.forced_mode is unset"
+        );
+        let html_tag_end = html.find('>').unwrap();
+        let html_tag = &html[..html_tag_end];
+        assert!(
+            !html_tag.contains("data-mode"),
+            "no data-mode attrs on <html> when branding.forced_mode is unset"
+        );
+    }
+
     #[tokio::test]
     async fn static_file_serving() {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -683,15 +750,25 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "html@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "MyTestApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "MyTestApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -722,15 +799,25 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "trusted@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "TrustedApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                true,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "TrustedApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: true,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -752,15 +839,25 @@ mod consent_tests {
         let (ath, state) = consent_test_state().await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "NoAuth".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "NoAuth".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -784,15 +881,25 @@ mod consent_tests {
         let (ath, _state) = consent_test_state().await;
         let result = ath
             .db()
-            .create_application(
-                "HttpLogo".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                Some("http://example.com/logo.png".into()),
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "HttpLogo".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: Some("http://example.com/logo.png".into()),
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await;
         assert!(result.is_err(), "HTTP logo URL should be rejected");
     }
@@ -803,15 +910,25 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "httpslogo@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "HttpsLogo".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                Some("https://cdn.example.com/logo.png".into()),
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "HttpsLogo".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: Some("https://cdn.example.com/logo.png".into()),
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -838,15 +955,25 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "color@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "ColorApp".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                None,
-                Some("#ff6600".into()),
-            )
+            .create_application(CreateApplicationParams {
+                name: "ColorApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: Some("#ff6600".into()),
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -858,7 +985,7 @@ mod consent_tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
-        assert!(body.contains("at-btn-primary"), "themed button class");
+        assert!(body.contains("wf-btn primary"), "themed button class");
         assert!(body.contains("#ff6600"), "accent color in theme");
     }
 
@@ -868,15 +995,25 @@ mod consent_tests {
         let cookie = create_test_session(&ath, "defcolor@test.com").await;
         let (app, _) = ath
             .db()
-            .create_application(
-                "DefaultColor".into(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".into()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "DefaultColor".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
         let router = consent_router(state);
@@ -888,7 +1025,14 @@ mod consent_tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
-        assert!(body.contains("at-btn-primary"), "themed button class");
-        assert!(body.contains("#2563eb"), "default blue accent");
+        assert!(body.contains("wf-btn primary"), "themed button class");
+        assert!(
+            body.contains("--accent: #ffffff"),
+            "default white accent"
+        );
+        assert!(
+            body.contains("--accent-ink: #000000"),
+            "default black ink"
+        );
     }
 }

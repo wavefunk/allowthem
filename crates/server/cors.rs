@@ -112,6 +112,7 @@ fn origin_of(uri: &str) -> Option<String> {
 mod tests {
     use super::*;
     use allowthem_core::AllowThemBuilder;
+    use allowthem_core::applications::CreateApplicationParams;
     use axum::Router;
     use axum::http::StatusCode;
     use axum::routing::get;
@@ -129,15 +130,25 @@ mod tests {
 
         if !redirect_uris.is_empty() {
             ath.db()
-                .create_application(
-                    "TestApp".to_string(),
-                    allowthem_core::ClientType::Confidential,
+                .create_application(CreateApplicationParams {
+                    name: "TestApp".to_string(),
+                    client_type: allowthem_core::ClientType::Confidential,
                     redirect_uris,
-                    false,
-                    None,
-                    None,
-                    None,
-                )
+                    is_trusted: false,
+                    created_by: None,
+                    logo_url: None,
+                    primary_color: None,
+                    accent_hex: None,
+                    accent_ink: None,
+                    forced_mode: None,
+                    font_css_url: None,
+                    font_family: None,
+                    splash_text: None,
+                    splash_image_url: None,
+                    splash_primitive: None,
+                    splash_url: None,
+                    shader_cell_scale: None,
+                })
                 .await
                 .unwrap();
         }

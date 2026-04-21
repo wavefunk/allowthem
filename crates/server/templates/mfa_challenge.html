@@ -1,72 +1,57 @@
-{% extends "base.html" %}
+{% extends "_partials/_auth_shell.html" %}
 
 {% block title %}Two-factor authentication — allowthem{% endblock %}
 
 {% block head %}
-<style>
-    /* CSS-only toggle: hide recovery input by default, show when checkbox checked */
+  {{ super() }}
+  <style>
+    /* CSS-only toggle: hide recovery input by default, show when checkbox checked. */
     #recovery-section { display: none; }
     #totp-section { display: block; }
     #use_recovery:checked ~ #totp-section { display: none; }
     #use_recovery:checked ~ #recovery-section { display: block; }
-</style>
+    /* Hide the actual checkbox — the <label for="use_recovery"> acts as the toggle. */
+    #use_recovery { position: absolute; left: -9999px; }
+  </style>
 {% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen justify-center px-4 py-12">
-    <div class="w-full max-w-md space-y-6">
-        <h1 class="text-2xl font-bold text-gray-900">Two-factor authentication</h1>
+{% block form %}
+  <header>
+    <div class="wf-eyebrow">security</div>
+    <h1 class="wf-display-sm">Two-factor authentication</h1>
+  </header>
 
-        <p class="text-sm text-gray-600">
-            Enter the 6-digit code from your authenticator app to continue.
-        </p>
+  <p class="wf-meta">Enter the 6-digit code from your authenticator app to continue.</p>
 
-        {% if error %}
-        <div class="rounded bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-            {{ error }}
-        </div>
-        {% endif %}
+  {% if error %}
+    {% set flash = { "kind": "err", "message": error } %}
+    {% include "_partials/_flash.html" %}
+  {% endif %}
 
-        <form method="post" action="/mfa/challenge" class="space-y-4">
-            <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
+  <form method="post" action="/mfa/challenge"
+        style="display:flex;flex-direction:column;gap:16px">
+    <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
 
-            {# CSS-only toggle checkbox — must be a sibling of the sections it controls #}
-            <input type="checkbox" id="use_recovery" name="use_recovery" class="hidden peer">
+    {# CSS-only toggle checkbox — must be a sibling of the sections it controls. #}
+    <input type="checkbox" id="use_recovery" name="use_recovery">
 
-            <div id="totp-section">
-                <label for="code" class="block text-sm font-medium text-gray-700">
-                    Authentication code
-                </label>
-                <input type="text" id="code" name="code"
-                       autocomplete="one-time-code" inputmode="numeric"
-                       maxlength="6" pattern="[0-9]{6}"
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-            </div>
-
-            <div id="recovery-section">
-                <label for="recovery_code" class="block text-sm font-medium text-gray-700">
-                    Recovery code
-                </label>
-                <input type="text" id="recovery_code" name="recovery_code"
-                       autocomplete="off"
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-            </div>
-
-            <button type="submit"
-                    class="rounded bg-blue-600 px-4 py-2 text-white font-medium
-                           hover:bg-blue-700 focus:outline-none focus:ring-2
-                           focus:ring-blue-500 focus:ring-offset-2">
-                Verify
-            </button>
-
-            <div class="text-sm">
-                <label for="use_recovery" class="cursor-pointer text-blue-600 hover:text-blue-700">
-                    Use recovery code
-                </label>
-            </div>
-        </form>
+    <div id="totp-section" class="wf-field">
+      <label class="wf-label" for="code">Authentication code</label>
+      <input class="wf-input" type="text" id="code" name="code"
+             autocomplete="one-time-code" inputmode="numeric"
+             maxlength="6" pattern="[0-9]{6}">
     </div>
-</div>
+
+    <div id="recovery-section" class="wf-field">
+      <label class="wf-label" for="recovery_code">Recovery code</label>
+      <input class="wf-input" type="text" id="recovery_code" name="recovery_code"
+             autocomplete="off">
+    </div>
+
+    <button type="submit" class="wf-btn primary">Verify</button>
+
+    <p class="wf-meta">
+      <label for="use_recovery" class="wf-link-quiet" style="cursor:pointer">Use recovery code</label>
+    </p>
+  </form>
 {% endblock %}

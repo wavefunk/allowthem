@@ -1,0 +1,47 @@
+{# _splash.html — left pane of the auth shell.
+
+   Precedence (first non-null wins):
+     1. branding.splash_url        → sandboxed <iframe>
+     2. branding.splash_image_url  → shader canvas with shape source "image"
+     3. branding.splash_primitive  → shader canvas with shape source "primitive"
+     4. else                       → shader canvas with shape source "text"
+
+   Expected context:
+     - branding (optional BrandingConfig)
+     - application_name (optional — used as fallback for splash_text)
+#}
+<aside class="wf-splash" aria-label="application splash">
+  {% if branding and branding.splash_url %}
+    <iframe src="{{ branding.splash_url | safe }}"
+            sandbox="allow-scripts"
+            referrerpolicy="no-referrer"
+            allow=""
+            loading="lazy"
+            class="wf-splash-frame"
+            title="{{ application_name | default('allowthem') }} splash">
+    </iframe>
+  {% elif branding and branding.splash_image_url %}
+    <canvas data-shader-ascii
+            data-cell-scale="{{ branding.shader_cell_scale | default(22) }}"
+            data-shape-source="image"
+            data-shape-image="{{ branding.splash_image_url | safe }}"
+            aria-hidden="true"></canvas>
+    <pre class="ascii" style="display:none">{{ application_name | default("allowthem") }}</pre>
+  {% elif branding and branding.splash_primitive %}
+    <canvas data-shader-ascii
+            data-cell-scale="{{ branding.shader_cell_scale | default(22) }}"
+            data-shape-source="primitive"
+            data-shape-primitive="{{ branding.splash_primitive | lower }}"
+            aria-hidden="true"></canvas>
+    <pre class="ascii" style="display:none">{{ application_name | default("allowthem") }}</pre>
+  {% else %}
+    {% set _text = branding.splash_text if branding and branding.splash_text else application_name | default('allowthem') %}
+    {% set _scale = branding.shader_cell_scale if branding and branding.shader_cell_scale else 22 %}
+    <canvas data-shader-ascii
+            data-cell-scale="{{ _scale }}"
+            data-shape-source="text"
+            data-shape-text="{{ _text }}"
+            aria-hidden="true"></canvas>
+    <pre class="ascii" style="display:none">{{ _text }}</pre>
+  {% endif %}
+</aside>

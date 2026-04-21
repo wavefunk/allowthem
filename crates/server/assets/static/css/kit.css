@@ -1,0 +1,150 @@
+/* Wave Funk UI kit — shared component styles.
+   Imports the design tokens and adds kit-only primitive styles. */
+@import url("./colors_and_type.css");
+
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: var(--font-mono); }
+* { box-sizing: border-box; }
+
+/* Buttons */
+.wf-btn {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  border: 1px solid var(--hairline); background: transparent; color: var(--fg-strong);
+  padding: 0 18px; height: 44px; min-width: 44px; cursor: pointer; border-radius: 0;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background var(--dur-snap) var(--ease-snap), transform var(--dur-snap) var(--ease-snap), border-color var(--dur-snap);
+  text-decoration: none;
+}
+.wf-btn:hover { background: var(--bg-hover); }
+.wf-btn:active { transform: translateY(var(--press-offset)); background: var(--bg-active); }
+.wf-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wf-btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.wf-btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); box-shadow: var(--shadow-accent-sm); transform: translate(-1px, -1px); }
+.wf-btn.primary:active { background: var(--accent-press); border-color: var(--accent-press); box-shadow: none; transform: translate(1px, 1px); }
+.wf-btn.ghost { border-color: transparent; }
+.wf-btn.ghost:hover { border-color: var(--hairline); background: transparent; color: var(--fg-strong); }
+.wf-btn.danger { color: var(--err); border-color: var(--err); }
+.wf-btn.sm { height: 32px; padding: 0 12px; font-size: 11px; }
+.wf-btn.lg { height: 56px; padding: 0 28px; font-size: 13px; }
+.wf-btn[disabled] { color: var(--fg-disabled); border-color: var(--hairline-dim); cursor: not-allowed; background: transparent; }
+
+/* Inputs */
+.wf-input, .wf-select, .wf-textarea {
+  font-family: var(--font-mono); font-size: 13px; color: var(--fg-strong);
+  background: var(--bg-raised); border: 1px solid var(--hairline);
+  padding: 0 12px; height: 44px; border-radius: 0; outline: none; width: 100%;
+  transition: border-color var(--dur-snap);
+}
+.wf-input:hover, .wf-select:hover { border-color: var(--hairline-loud); }
+.wf-input:focus-visible, .wf-select:focus-visible, .wf-textarea:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent);
+}
+.wf-input::placeholder { color: var(--fg-faint); }
+.wf-textarea { height: auto; padding: 12px; resize: vertical; line-height: 1.55; }
+
+.wf-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-muted); display: block; margin-bottom: 4px; }
+
+/* Tag */
+.wf-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 3px 8px; border: 1px solid var(--hairline-dim); color: var(--fg-muted); line-height: 1.4;
+}
+.wf-tag.solid { background: var(--fg-strong); color: var(--bg); border-color: var(--fg-strong); }
+.wf-tag.accent { border-color: var(--accent); color: var(--accent); }
+.wf-tag.ok { border-color: var(--ok); color: var(--ok); }
+.wf-tag.warn { border-color: var(--warn); color: var(--warn); }
+.wf-tag.err { border-color: var(--err); color: var(--err); }
+.wf-tag .dot { width: 6px; height: 6px; background: currentColor; }
+
+/* Meta / eyebrow */
+.wf-eyebrow { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-muted); }
+.wf-meta { font-size: 11px; letter-spacing: 0.04em; color: var(--fg-muted); text-transform: uppercase; }
+
+/* Display type */
+.wf-display {
+  font-family: var(--font-display); font-size: clamp(44px, 8vw, 88px);
+  font-weight: 800; letter-spacing: -0.03em; line-height: 1.0;
+  text-transform: uppercase; color: var(--fg-strong);
+}
+.wf-display-sm { font-size: clamp(32px, 5vw, 44px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; text-transform: uppercase; }
+
+/* Hairline row */
+.wf-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--hairline-dim); }
+.wf-row:first-child { border-top: 1px solid var(--hairline); }
+.wf-row:last-child { border-bottom: 1px solid var(--hairline); }
+
+/* Alert */
+.wf-alert {
+  display: grid; grid-template-columns: 4px 1fr auto; gap: 12px;
+  padding: 10px 12px 10px 0; border: 1px solid var(--hairline); font-size: 12px; align-items: center;
+}
+.wf-alert .wf-bar { align-self: stretch; background: var(--hairline); }
+.wf-alert.ok  { border-color: var(--ok); } .wf-alert.ok .wf-bar { background: var(--ok); }
+.wf-alert.warn{ border-color: var(--warn); } .wf-alert.warn .wf-bar { background: var(--warn); }
+.wf-alert.err { border-color: var(--err); } .wf-alert.err .wf-bar { background: var(--err); }
+.wf-alert.info{ border-color: var(--info); } .wf-alert.info .wf-bar { background: var(--info); }
+
+/* Kbd */
+.wf-kbd {
+  display: inline-block; min-width: 22px; padding: 2px 6px;
+  border: 1px solid var(--hairline); background: var(--bg-raised);
+  color: var(--fg-strong); font-size: 11px; text-align: center;
+}
+
+/* Link — subtle hover: keep the type, just thicken the underline.
+   Color shift via --accent-hover so it works in both modes. */
+.wf-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 80ms linear, text-decoration-color 80ms linear;
+}
+.wf-link:hover {
+  color: var(--accent-hover);
+  text-decoration-thickness: 2px;
+}
+.wf-link:active { color: var(--accent-press); }
+
+/* Quiet link — muted utility links (FORGOT?, CREATE ACCOUNT).
+   Rest: muted, no underline. Hover: just add an underline — no color shift,
+   no background. Used on text-only affordances that sit next to copy and
+   should never visually "pop". */
+a.wf-link-quiet,
+.wf-link-quiet {
+  color: var(--fg-muted) !important;
+  text-decoration: none;
+  transition: text-decoration-color 80ms linear;
+}
+a.wf-link-quiet:hover,
+.wf-link-quiet:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--accent) !important;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+a.wf-link-quiet:active,
+.wf-link-quiet:active { text-decoration-color: var(--fg-strong); }
+
+/* Page shell */
+.wf-page { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
+
+/* Horizontal rule */
+.wf-hr { border: 0; border-top: 1px solid var(--hairline); margin: 0; }
+
+/* Vim-style status bar — dense single row of meta spans.
+   Use at the bottom of any kit to signal online/encryption/version state. */
+.wf-statusbar {
+  border-top: 1px solid var(--hairline);
+  display: flex; align-items: center;
+  height: 28px; padding: 0 12px; gap: 16px;
+  font-size: 10px; color: var(--fg-muted);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+.wf-statusbar .wf-dot {
+  width: 6px; height: 6px;
+  background: var(--ok);
+  display: inline-block; vertical-align: middle;
+}

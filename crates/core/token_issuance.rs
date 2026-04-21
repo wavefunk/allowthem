@@ -7,6 +7,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::applications::Application;
+#[cfg(test)]
+use crate::applications::CreateApplicationParams;
 use crate::authorization::hash_authorization_code;
 use crate::db::Db;
 use crate::error::AuthError;
@@ -840,15 +842,25 @@ mod tests {
             .unwrap();
 
         let (app, _secret) = db
-            .create_application(
-                "ExchangeApp".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".to_string()],
-                false,
-                Some(user.id),
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "ExchangeApp".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".to_string()],
+                is_trusted: false,
+                created_by: Some(user.id),
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 
@@ -1023,15 +1035,25 @@ mod tests {
             .unwrap();
 
         let (app, _) = db
-            .create_application(
-                "ExpiredApp".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".to_string()],
-                false,
-                Some(user.id),
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "ExpiredApp".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".to_string()],
+                is_trusted: false,
+                created_by: Some(user.id),
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 
@@ -1093,15 +1115,25 @@ mod tests {
             .await
             .unwrap();
         let (app_b, _) = db
-            .create_application(
-                "OtherApp".to_string(),
-                ClientType::Confidential,
-                vec!["https://other.example.com/callback".to_string()],
-                false,
-                Some(user_b.id),
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "OtherApp".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://other.example.com/callback".to_string()],
+                is_trusted: false,
+                created_by: Some(user_b.id),
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 
@@ -1476,15 +1508,25 @@ mod tests {
             .await
             .unwrap();
         let (app_b, _) = db
-            .create_application(
-                "OtherRefreshApp".to_string(),
-                ClientType::Confidential,
-                vec!["https://other.example.com/callback".to_string()],
-                false,
-                Some(user_b.id),
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "OtherRefreshApp".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://other.example.com/callback".to_string()],
+                is_trusted: false,
+                created_by: Some(user_b.id),
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 

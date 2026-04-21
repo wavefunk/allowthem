@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
+use allowthem_core::applications::CreateApplicationParams;
 use allowthem_core::types::ClientType;
 use allowthem_core::{AllowThem, ClientSecret};
 
@@ -331,15 +332,25 @@ impl ControlDb {
         // validate_redirect_uris rejects empty slices; use a localhost placeholder.
         let (app, maybe_secret) = ath
             .db()
-            .create_application(
-                "Default OIDC Application".to_string(),
-                ClientType::Confidential,
-                vec!["http://localhost/callback".to_string()],
-                false,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "Default OIDC Application".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["http://localhost/callback".to_string()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await?;
         // ClientType::Confidential always yields Some(ClientSecret).
         let client_secret = maybe_secret.expect("confidential app always has a secret");

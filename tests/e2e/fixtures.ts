@@ -71,9 +71,13 @@ export async function requestPasswordReset(
 
 export async function extractResetToken(email: string): Promise<string> {
   const logPath = path.resolve(__dirname, "server.log");
+  // tracing_subscriber::fmt() emits ANSI colour codes even when tee'd to a pipe,
+  // so the raw line reads "body\x1b[0m\x1b[2m=\x1b[0m\"…". Strip them before
+  // anchoring the regex on body=".
+  const ANSI_ESCAPE = /\x1B\[[0-9;]*m/g;
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    const content = fs.readFileSync(logPath, "utf8");
+    const content = fs.readFileSync(logPath, "utf8").replace(ANSI_ESCAPE, "");
     const lines = content.split("\n").filter((l) => l.includes(email));
     for (const line of lines.reverse()) {
       // Anchor to body=" to avoid matching the html= field (both carry the same URL

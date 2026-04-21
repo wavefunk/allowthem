@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use sqlx::sqlite::SqliteConnectOptions;
 use std::str::FromStr;
 
-use crate::applications::{Application, UpdateApplication};
+use crate::applications::{Application, CreateApplicationParams, UpdateApplication};
 use crate::audit::{AuditEvent, SearchAuditParams};
 use crate::db::Db;
 use crate::error::AuthError;
@@ -11,9 +11,9 @@ use crate::sessions::{
     SessionConfig, generate_token, hash_token, parse_session_cookie, session_cookie,
 };
 use crate::types::{
-    ApplicationId, ClientId, ClientType, Email, PasswordHash, Permission, PermissionId,
-    PermissionName, Role, RoleId, RoleName, RolePermission, Session, SessionId, TokenHash, User,
-    UserId, UserPermission, UserRole, Username,
+    AccentInk, ApplicationId, ClientId, ClientType, Email, Mode, PasswordHash, Permission,
+    PermissionId, PermissionName, Role, RoleId, RoleName, RolePermission, Session, SessionId,
+    SplashPrimitive, TokenHash, User, UserId, UserPermission, UserRole, Username,
 };
 
 async fn test_db() -> Db {
@@ -2401,8 +2401,11 @@ async fn test_application_round_trip() {
     .expect("insert application");
 
     let app = sqlx::query_as::<_, Application>(
-        "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, logo_url, primary_color,
-                is_trusted, created_by, is_active, created_at, updated_at
+        "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
+         logo_url, primary_color, \
+         accent_hex, accent_ink, forced_mode, font_css_url, font_family, \
+         splash_text, splash_image_url, splash_primitive, splash_url, shader_cell_scale, \
+         is_trusted, created_by, is_active, created_at, updated_at \
          FROM allowthem_applications WHERE id = ?",
     )
     .bind(app_id)
@@ -2426,15 +2429,25 @@ async fn create_application_returns_app_and_secret() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, secret) = db
-        .create_application(
-            "My App".to_string(),
-            ClientType::Confidential,
-            uris.clone(),
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "My App".to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: uris.clone(),
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create_application");
 
@@ -2466,15 +2479,25 @@ async fn get_application_by_client_id_finds_app() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application(
-            "App".to_string(),
-            ClientType::Confidential,
-            uris,
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "App".to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: uris,
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create_application");
 
@@ -2500,27 +2523,47 @@ async fn list_applications_ordered_by_created_at() {
     let uris = vec!["https://example.com/callback".to_string()];
 
     let (a, _) = db
-        .create_application(
-            "First".to_string(),
-            ClientType::Confidential,
-            uris.clone(),
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "First".to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: uris.clone(),
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create first");
     let (b, _) = db
-        .create_application(
-            "Second".to_string(),
-            ClientType::Confidential,
-            uris,
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "Second".to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: uris,
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create second");
 
@@ -2538,15 +2581,25 @@ async fn update_application_changes_fields() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application(
-            "Original".to_string(),
-            ClientType::Confidential,
-            uris,
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "Original".to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: uris,
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create_application");
 
@@ -2560,6 +2613,16 @@ async fn update_application_changes_fields() {
             is_active: true,
             logo_url: None,
             primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
         },
     )
     .await
@@ -2577,15 +2640,25 @@ async fn update_application_sets_logo_url_and_primary_color() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application(
-            "App".to_string(),
-            ClientType::Confidential,
-            uris.clone(),
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "App".to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: uris.clone(),
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create_application");
 
@@ -2598,6 +2671,16 @@ async fn update_application_sets_logo_url_and_primary_color() {
             is_active: app.is_active,
             logo_url: Some("https://example.com/logo.png".to_string()),
             primary_color: Some("#ff0000".to_string()),
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
         },
     )
     .await
@@ -2624,6 +2707,16 @@ async fn update_application_not_found() {
                 is_active: true,
                 logo_url: None,
                 primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
             },
         )
         .await
@@ -2636,15 +2729,25 @@ async fn regenerate_client_secret_returns_new_secret() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, original_secret) = db
-        .create_application(
-            "App".to_string(),
-            ClientType::Confidential,
-            uris,
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "App".to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: uris,
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create_application");
 
@@ -2685,15 +2788,25 @@ async fn regenerate_client_secret_rejects_public_client() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application(
-            "PublicApp".to_string(),
-            ClientType::Public,
-            uris,
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "PublicApp".to_string(),
+            client_type: ClientType::Public,
+            redirect_uris: uris,
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create_application");
 
@@ -2709,15 +2822,25 @@ async fn delete_application_removes_row() {
     let db = test_db().await;
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application(
-            "App".to_string(),
-            ClientType::Confidential,
-            uris,
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "App".to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: uris,
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create_application");
 
@@ -2768,15 +2891,25 @@ async fn authz_fixtures(db: &Db) -> (UserId, Application) {
 
     let uris = vec!["https://example.com/callback".to_string()];
     let (app, _) = db
-        .create_application(
-            "AuthzApp".to_string(),
-            ClientType::Confidential,
-            uris,
-            false,
-            Some(user_id),
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "AuthzApp".to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: uris,
+            is_trusted: false,
+            created_by: Some(user_id),
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .expect("create test application");
     (user_id, app)
@@ -2987,15 +3120,25 @@ async fn create_authorization_code_with_nonce() {
 async fn get_branding_returns_config_for_active_app() {
     let db = test_db().await;
     let (app, _secret) = db
-        .create_application(
-            "Branded".into(),
-            ClientType::Confidential,
-            vec!["https://example.com/cb".into()],
-            false,
-            None,
-            Some("https://example.com/logo.png".into()),
-            Some("#3B82F6".into()),
-        )
+        .create_application(CreateApplicationParams {
+            name: "Branded".into(),
+            client_type: ClientType::Confidential,
+            redirect_uris: vec!["https://example.com/cb".into()],
+            is_trusted: false,
+            created_by: None,
+            logo_url: Some("https://example.com/logo.png".into()),
+            primary_color: Some("#3B82F6".into()),
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .unwrap();
     let branding = db.get_branding_by_client_id(&app.client_id).await.unwrap();
@@ -3010,15 +3153,25 @@ async fn get_branding_returns_config_for_active_app() {
 async fn get_branding_returns_none_for_inactive_app() {
     let db = test_db().await;
     let (app, _secret) = db
-        .create_application(
-            "Inactive".into(),
-            ClientType::Confidential,
-            vec!["https://example.com/cb".into()],
-            false,
-            None,
-            None,
-            None,
-        )
+        .create_application(CreateApplicationParams {
+            name: "Inactive".into(),
+            client_type: ClientType::Confidential,
+            redirect_uris: vec!["https://example.com/cb".into()],
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
         .await
         .unwrap();
     db.update_application(
@@ -3030,6 +3183,16 @@ async fn get_branding_returns_none_for_inactive_app() {
             is_active: false,
             logo_url: None,
             primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
         },
     )
     .await
@@ -3044,6 +3207,44 @@ async fn get_branding_returns_none_for_missing_app() {
     let fake_id = ClientId::new_unchecked("ath_doesnotexistXXXXXXXXXXXXXX".into());
     let branding = db.get_branding_by_client_id(&fake_id).await.unwrap();
     assert!(branding.is_none());
+}
+
+#[tokio::test]
+async fn create_and_fetch_application_with_branding() {
+    let db = test_db().await;
+    let (app, _secret) = db
+        .create_application(CreateApplicationParams {
+            name: "test".into(),
+            client_type: ClientType::Confidential,
+            redirect_uris: vec!["https://example.com/cb".into()],
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: Some("#ff6b35".into()),
+            accent_ink: Some(AccentInk::Black),
+            forced_mode: Some(Mode::Dark),
+            font_css_url: None,
+            font_family: None,
+            splash_text: Some("TESTCORP".into()),
+            splash_image_url: None,
+            splash_primitive: Some(SplashPrimitive::Wordmark),
+            splash_url: None,
+            shader_cell_scale: Some(22),
+        })
+        .await
+        .unwrap();
+    let branding = db
+        .get_branding_by_client_id(&app.client_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(branding.accent_hex.as_deref(), Some("#ff6b35"));
+    assert_eq!(branding.accent_ink, Some(AccentInk::Black));
+    assert_eq!(branding.forced_mode, Some(Mode::Dark));
+    assert_eq!(branding.splash_text.as_deref(), Some("TESTCORP"));
+    assert_eq!(branding.splash_primitive, Some(SplashPrimitive::Wordmark));
+    assert_eq!(branding.shader_cell_scale, Some(22));
 }
 
 // --- Custom data CRUD tests ---

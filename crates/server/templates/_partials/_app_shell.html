@@ -1,0 +1,91 @@
+{# _app_shell.html — sidebar + main + status bar for post-auth pages.
+
+   Inheritance chain:
+     base.html
+       └── _partials/_app_shell.html   (this file)
+             └── settings.html, admin/applications_*, admin/users_*,
+                 admin/sessions_list.html, admin/audit_log.html  (M4 migrates)
+
+   Child responsibility:
+     - fill {% block content %} with the page body.
+     - fill {% block sidebar_nav %} with role-filtered nav links (M4).
+
+   Block overrides this shell sets on base.html:
+     - html_attrs    data-mode / data-mode-locked when branding.forced_mode is set
+     - body_class    "at-app-shell"
+     - body_content  sidebar + main + status-bar (no second <body> tag)
+     - scripts       mode-toggle.js (super() preserves HTMX)
+
+   Expected context:
+     - branding (optional BrandingConfig; forced_mode drives html_attrs)
+     - application_name (optional string)
+     - status_* keys (optional; see _status_bar.html)
+     - csrf_token, is_production (from the renderer)
+
+   Sidebar 240px left, main content, status bar spanning the bottom.
+   Collapses to a top-bar + hamburger overlay below 900px.
+#}
+{% extends "base.html" %}
+
+{% block html_attrs %}{% if branding and branding.forced_mode %}data-mode="{{ branding.forced_mode }}" data-mode-locked{% endif %}{% endblock %}
+
+{% block body_class %}at-app-shell{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <style>
+    body.at-app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      grid-template-rows: 1fr auto;
+    }
+    body.at-app-shell .wf-statusbar { grid-column: 1 / -1; }
+    body.at-app-shell .at-sidebar {
+      background: var(--bg-elev);
+      border-right: 1px solid var(--hairline);
+      padding: 24px 16px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    body.at-app-shell .at-main {
+      padding: 32px 48px;
+      overflow-y: auto;
+    }
+    body.at-app-shell .at-hamburger { display: none; }
+    @media (max-width: 900px) {
+      body.at-app-shell { grid-template-columns: 1fr; }
+      body.at-app-shell .at-sidebar {
+        position: fixed; inset: 0 auto 0 0;
+        width: 240px; transform: translateX(-100%);
+        transition: transform 80ms ease;
+        z-index: 10;
+      }
+      body.at-app-shell[data-nav-open] .at-sidebar { transform: translateX(0); }
+      body.at-app-shell .at-hamburger { display: inline-flex; }
+    }
+  </style>
+{% endblock %}
+
+{% block body_content %}
+  <aside class="at-sidebar" aria-label="primary navigation">
+    <div class="wf-eyebrow">{{ application_name | default("allowthem") }}</div>
+    <nav>
+      {% block sidebar_nav %}{% endblock %}
+    </nav>
+  </aside>
+  <main class="at-main">
+    <button type="button" class="wf-btn ghost at-hamburger"
+            aria-label="toggle navigation"
+            onclick="document.body.toggleAttribute('data-nav-open')">
+      <span class="wf-kbd">≡</span>
+    </button>
+    {% include "_partials/_flash.html" %}
+    {% block content %}{% endblock %}
+  </main>
+  {% include "_partials/_status_bar.html" %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="/__allowthem/static/js/mode-toggle.js" defer></script>
+{% endblock %}

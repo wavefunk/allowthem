@@ -7,7 +7,10 @@ use url::Url;
 
 use crate::db::Db;
 use crate::error::AuthError;
-use crate::types::{ApplicationId, ClientId, ClientSecret, ClientType, PasswordHash, UserId};
+use crate::types::{
+    AccentInk, ApplicationId, ClientId, ClientSecret, ClientType, Mode, PasswordHash,
+    SplashPrimitive, UserId,
+};
 
 /// An OIDC client application registered with allowthem.
 ///
@@ -24,6 +27,17 @@ pub struct Application {
     pub redirect_uris: String, // JSON array, parsed at the call site
     pub logo_url: Option<String>,
     pub primary_color: Option<String>,
+    // Wave Funk branding fields (all optional).
+    pub accent_hex: Option<String>,
+    pub accent_ink: Option<AccentInk>,
+    pub forced_mode: Option<Mode>,
+    pub font_css_url: Option<String>,
+    pub font_family: Option<String>,
+    pub splash_text: Option<String>,
+    pub splash_image_url: Option<String>,
+    pub splash_primitive: Option<SplashPrimitive>,
+    pub splash_url: Option<String>,
+    pub shader_cell_scale: Option<i64>,
     pub is_trusted: bool,
     pub created_by: Option<UserId>,
     pub is_active: bool,
@@ -44,6 +58,16 @@ pub struct BrandingConfig {
     pub application_name: String,
     pub logo_url: Option<String>,
     pub primary_color: Option<String>,
+    pub accent_hex: Option<String>,
+    pub accent_ink: Option<AccentInk>,
+    pub forced_mode: Option<Mode>,
+    pub font_css_url: Option<String>,
+    pub font_family: Option<String>,
+    pub splash_text: Option<String>,
+    pub splash_image_url: Option<String>,
+    pub splash_primitive: Option<SplashPrimitive>,
+    pub splash_url: Option<String>,
+    pub shader_cell_scale: Option<i64>,
 }
 
 /// Generate a new `client_id`: `ath_` + 24 random bytes base64url-encoded.
@@ -92,6 +116,16 @@ impl Application {
             application_name: self.name.clone(),
             logo_url: self.logo_url.clone(),
             primary_color: self.primary_color.clone(),
+            accent_hex: self.accent_hex.clone(),
+            accent_ink: self.accent_ink,
+            forced_mode: self.forced_mode,
+            font_css_url: self.font_css_url.clone(),
+            font_family: self.font_family.clone(),
+            splash_text: self.splash_text.clone(),
+            splash_image_url: self.splash_image_url.clone(),
+            splash_primitive: self.splash_primitive,
+            splash_url: self.splash_url.clone(),
+            shader_cell_scale: self.shader_cell_scale,
         }
     }
 }
@@ -153,6 +187,27 @@ impl ApplicationCursor {
     }
 }
 
+/// Parameters for registering a new OIDC application via [`Db::create_application`].
+pub struct CreateApplicationParams {
+    pub name: String,
+    pub client_type: ClientType,
+    pub redirect_uris: Vec<String>,
+    pub is_trusted: bool,
+    pub created_by: Option<UserId>,
+    pub logo_url: Option<String>,
+    pub primary_color: Option<String>,
+    pub accent_hex: Option<String>,
+    pub accent_ink: Option<AccentInk>,
+    pub forced_mode: Option<Mode>,
+    pub font_css_url: Option<String>,
+    pub font_family: Option<String>,
+    pub splash_text: Option<String>,
+    pub splash_image_url: Option<String>,
+    pub splash_primitive: Option<SplashPrimitive>,
+    pub splash_url: Option<String>,
+    pub shader_cell_scale: Option<i64>,
+}
+
 /// Parameters for updating an application's mutable fields.
 ///
 /// All fields are required. Fetch the current application first
@@ -164,6 +219,16 @@ pub struct UpdateApplication {
     pub is_active: bool,
     pub logo_url: Option<String>,
     pub primary_color: Option<String>,
+    pub accent_hex: Option<String>,
+    pub accent_ink: Option<AccentInk>,
+    pub forced_mode: Option<Mode>,
+    pub font_css_url: Option<String>,
+    pub font_family: Option<String>,
+    pub splash_text: Option<String>,
+    pub splash_image_url: Option<String>,
+    pub splash_primitive: Option<SplashPrimitive>,
+    pub splash_url: Option<String>,
+    pub shader_cell_scale: Option<i64>,
 }
 
 /// Validate a list of redirect URIs for registration (create or update).
@@ -239,24 +304,67 @@ pub fn validate_logo_url(url: &str) -> Result<(), AuthError> {
     ))
 }
 
-/// Validate a primary color for branding.
+/// Validate a font CSS URL. Must be an HTTPS URL (no loopback exception —
+/// production asset URL).
+pub fn validate_font_css_url(url: &str) -> Result<(), AuthError> {
+    validate_https_url(url, "font_css_url")
+}
+
+/// Validate a splash image URL. Must be an HTTPS URL (no loopback exception).
+pub fn validate_splash_image_url(url: &str) -> Result<(), AuthError> {
+    validate_https_url(url, "splash_image_url")
+}
+
+/// Validate a splash URL. Must be an HTTPS URL (no loopback exception).
+pub fn validate_splash_url(url: &str) -> Result<(), AuthError> {
+    validate_https_url(url, "splash_url")
+}
+
+/// Shared HTTPS-only URL validator used by branding asset URL fields.
+///
+/// Unlike `validate_logo_url`, no loopback exception — these fields are
+/// intended for production assets only.
+fn validate_https_url(url: &str, field: &str) -> Result<(), AuthError> {
+    let parsed = Url::parse(url)
+        .map_err(|_| AuthError::Validation(format!("{field} must be a valid absolute URL")))?;
+    if parsed.scheme() != "https" {
+        return Err(AuthError::Validation(format!(
+            "{field} must be an HTTPS URL"
+        )));
+    }
+    Ok(())
+}
+
+/// Shared hex color validator used by branding color fields.
+///
+/// Accepts `#RRGGBB` (7 chars: `#` + 6 hex digits). Safe for injection
+/// into CSS `color` / `background` declarations without escaping.
+fn validate_hex_color(color: &str, field: &str) -> Result<(), AuthError> {
+    let bytes = color.as_bytes();
+    if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AuthError::Validation(format!(
+            "{field} must be a hex color (#RRGGBB)"
+        )));
+    }
+    Ok(())
+}
+
+/// Validate a primary color for Wave Funk branding.
 ///
 /// Must be a 7-character CSS hex color: `#` followed by exactly 6 hex
 /// digits (e.g., `#3B82F6`). This format is safe for injection into
 /// HTML `style` attributes without escaping.
 pub fn validate_primary_color(color: &str) -> Result<(), AuthError> {
-    let bytes = color.as_bytes();
-    if bytes.len() != 7 || bytes[0] != b'#' {
-        return Err(AuthError::Validation(
-            "primary_color must be a hex color (#RRGGBB)".into(),
-        ));
-    }
-    if !bytes[1..].iter().all(|b| b.is_ascii_hexdigit()) {
-        return Err(AuthError::Validation(
-            "primary_color must be a hex color (#RRGGBB)".into(),
-        ));
-    }
-    Ok(())
+    validate_hex_color(color, "primary_color")
+}
+
+/// Validate an accent color for Wave Funk branding.
+///
+/// Same format as `validate_primary_color` — `#RRGGBB` (7 chars, `#` + 6 hex
+/// digits). Safe for injection into CSS `color` / `background` declarations
+/// without escaping.
+pub fn validate_accent_hex(color: &str) -> Result<(), AuthError> {
+    validate_hex_color(color, "accent_hex")
 }
 
 impl Db {
@@ -269,23 +377,47 @@ impl Db {
     ///
     /// Validates `redirect_uris` before inserting. Returns `AuthError::InvalidRedirectUri`
     /// if any URI fails validation.
-    #[allow(clippy::too_many_arguments)]
     pub async fn create_application(
         &self,
-        name: String,
-        client_type: ClientType,
-        redirect_uris: Vec<String>,
-        is_trusted: bool,
-        created_by: Option<UserId>,
-        logo_url: Option<String>,
-        primary_color: Option<String>,
+        params: CreateApplicationParams,
     ) -> Result<(Application, Option<ClientSecret>), AuthError> {
+        let CreateApplicationParams {
+            name,
+            client_type,
+            redirect_uris,
+            is_trusted,
+            created_by,
+            logo_url,
+            primary_color,
+            accent_hex,
+            accent_ink,
+            forced_mode,
+            font_css_url,
+            font_family,
+            splash_text,
+            splash_image_url,
+            splash_primitive,
+            splash_url,
+            shader_cell_scale,
+        } = params;
         validate_redirect_uris(&redirect_uris)?;
         if let Some(ref url) = logo_url {
             validate_logo_url(url)?;
         }
         if let Some(ref color) = primary_color {
             validate_primary_color(color)?;
+        }
+        if let Some(ref hex) = accent_hex {
+            validate_accent_hex(hex)?;
+        }
+        if let Some(ref url) = font_css_url {
+            validate_font_css_url(url)?;
+        }
+        if let Some(ref url) = splash_image_url {
+            validate_splash_image_url(url)?;
+        }
+        if let Some(ref url) = splash_url {
+            validate_splash_url(url)?;
         }
         let id = ApplicationId::new();
         let client_id = generate_client_id();
@@ -303,8 +435,15 @@ impl Db {
         sqlx::query(
             "INSERT INTO allowthem_applications \
              (id, name, client_id, client_type, client_secret_hash, redirect_uris, logo_url, \
-              primary_color, is_trusted, created_by, is_active, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?11)",
+              primary_color, \
+              accent_hex, accent_ink, forced_mode, font_css_url, font_family, \
+              splash_text, splash_image_url, splash_primitive, splash_url, shader_cell_scale, \
+              is_trusted, created_by, is_active, created_at, updated_at) \
+             VALUES \
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \
+              ?9, ?10, ?11, ?12, ?13, \
+              ?14, ?15, ?16, ?17, ?18, \
+              ?19, ?20, 1, ?21, ?21)",
         )
         .bind(id)
         .bind(&name)
@@ -314,6 +453,16 @@ impl Db {
         .bind(&redirect_uris_json)
         .bind(&logo_url)
         .bind(&primary_color)
+        .bind(&accent_hex)
+        .bind(accent_ink.map(|v| v.as_str()))
+        .bind(forced_mode.map(|v| v.as_str()))
+        .bind(&font_css_url)
+        .bind(&font_family)
+        .bind(&splash_text)
+        .bind(&splash_image_url)
+        .bind(splash_primitive.map(|v| v.as_str()))
+        .bind(&splash_url)
+        .bind(shader_cell_scale)
         .bind(is_trusted)
         .bind(created_by)
         .bind(&now)
@@ -329,8 +478,10 @@ impl Db {
     pub async fn get_application(&self, id: ApplicationId) -> Result<Application, AuthError> {
         sqlx::query_as::<_, Application>(
             "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
-             logo_url, primary_color, is_trusted, created_by, is_active, \
-             created_at, updated_at \
+             logo_url, primary_color, \
+             accent_hex, accent_ink, forced_mode, font_css_url, font_family, \
+             splash_text, splash_image_url, splash_primitive, splash_url, shader_cell_scale, \
+             is_trusted, created_by, is_active, created_at, updated_at \
              FROM allowthem_applications WHERE id = ?",
         )
         .bind(id)
@@ -348,8 +499,10 @@ impl Db {
     ) -> Result<Application, AuthError> {
         sqlx::query_as::<_, Application>(
             "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
-             logo_url, primary_color, is_trusted, created_by, is_active, \
-             created_at, updated_at \
+             logo_url, primary_color, \
+             accent_hex, accent_ink, forced_mode, font_css_url, font_family, \
+             splash_text, splash_image_url, splash_primitive, splash_url, shader_cell_scale, \
+             is_trusted, created_by, is_active, created_at, updated_at \
              FROM allowthem_applications WHERE client_id = ?",
         )
         .bind(client_id)
@@ -368,7 +521,9 @@ impl Db {
         client_id: &ClientId,
     ) -> Result<Option<BrandingConfig>, AuthError> {
         sqlx::query_as::<_, BrandingConfig>(
-            "SELECT name AS application_name, logo_url, primary_color \
+            "SELECT name AS application_name, logo_url, primary_color, \
+             accent_hex, accent_ink, forced_mode, font_css_url, font_family, \
+             splash_text, splash_image_url, splash_primitive, splash_url, shader_cell_scale \
              FROM allowthem_applications \
              WHERE client_id = ? AND is_active = 1",
         )
@@ -382,8 +537,10 @@ impl Db {
     pub async fn list_applications(&self) -> Result<Vec<Application>, AuthError> {
         sqlx::query_as::<_, Application>(
             "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
-             logo_url, primary_color, is_trusted, created_by, is_active, \
-             created_at, updated_at \
+             logo_url, primary_color, \
+             accent_hex, accent_ink, forced_mode, font_css_url, font_family, \
+             splash_text, splash_image_url, splash_primitive, splash_url, shader_cell_scale, \
+             is_trusted, created_by, is_active, created_at, updated_at \
              FROM allowthem_applications ORDER BY created_at ASC",
         )
         .fetch_all(self.pool())
@@ -403,8 +560,10 @@ impl Db {
         match cursor {
             None => sqlx::query_as::<_, Application>(
                 "SELECT id, name, client_id, client_type, client_secret_hash, \
-                 redirect_uris, logo_url, primary_color, is_trusted, created_by, \
-                 is_active, created_at, updated_at \
+                 redirect_uris, logo_url, primary_color, \
+                 accent_hex, accent_ink, forced_mode, font_css_url, font_family, \
+                 splash_text, splash_image_url, splash_primitive, splash_url, shader_cell_scale, \
+                 is_trusted, created_by, is_active, created_at, updated_at \
                  FROM allowthem_applications \
                  ORDER BY created_at ASC, id ASC LIMIT ?1",
             )
@@ -418,8 +577,10 @@ impl Db {
                 let ca = cur.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
                 sqlx::query_as::<_, Application>(
                     "SELECT id, name, client_id, client_type, client_secret_hash, \
-                     redirect_uris, logo_url, primary_color, is_trusted, created_by, \
-                     is_active, created_at, updated_at \
+                     redirect_uris, logo_url, primary_color, \
+                     accent_hex, accent_ink, forced_mode, font_css_url, font_family, \
+                     splash_text, splash_image_url, splash_primitive, splash_url, shader_cell_scale, \
+                     is_trusted, created_by, is_active, created_at, updated_at \
                      FROM allowthem_applications \
                      WHERE (created_at > ?1 OR (created_at = ?1 AND id > ?2)) \
                      ORDER BY created_at ASC, id ASC LIMIT ?3",
@@ -436,7 +597,7 @@ impl Db {
 
     /// Update an application's mutable fields.
     ///
-    /// Validates `redirect_uris`, serializes them to JSON, and writes all six
+    /// Validates `redirect_uris`, serializes them to JSON, and writes all
     /// mutable fields atomically. Caller is responsible for fetching the current
     /// application and populating unchanged fields.
     ///
@@ -454,6 +615,18 @@ impl Db {
         if let Some(ref color) = params.primary_color {
             validate_primary_color(color)?;
         }
+        if let Some(ref hex) = params.accent_hex {
+            validate_accent_hex(hex)?;
+        }
+        if let Some(ref url) = params.font_css_url {
+            validate_font_css_url(url)?;
+        }
+        if let Some(ref url) = params.splash_image_url {
+            validate_splash_image_url(url)?;
+        }
+        if let Some(ref url) = params.splash_url {
+            validate_splash_url(url)?;
+        }
         let redirect_uris_json =
             serde_json::to_string(&params.redirect_uris).expect("Vec<String> serializes to JSON");
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
@@ -461,8 +634,13 @@ impl Db {
         let result = sqlx::query(
             "UPDATE allowthem_applications \
              SET name = ?1, redirect_uris = ?2, is_trusted = ?3, is_active = ?4, \
-                 logo_url = ?5, primary_color = ?6, updated_at = ?7 \
-             WHERE id = ?8",
+                 logo_url = ?5, primary_color = ?6, \
+                 accent_hex = ?7, accent_ink = ?8, forced_mode = ?9, \
+                 font_css_url = ?10, font_family = ?11, \
+                 splash_text = ?12, splash_image_url = ?13, splash_primitive = ?14, \
+                 splash_url = ?15, shader_cell_scale = ?16, \
+                 updated_at = ?17 \
+             WHERE id = ?18",
         )
         .bind(&params.name)
         .bind(&redirect_uris_json)
@@ -470,6 +648,16 @@ impl Db {
         .bind(params.is_active)
         .bind(&params.logo_url)
         .bind(&params.primary_color)
+        .bind(&params.accent_hex)
+        .bind(params.accent_ink.map(|v| v.as_str()))
+        .bind(params.forced_mode.map(|v| v.as_str()))
+        .bind(&params.font_css_url)
+        .bind(&params.font_family)
+        .bind(&params.splash_text)
+        .bind(&params.splash_image_url)
+        .bind(params.splash_primitive.map(|v| v.as_str()))
+        .bind(&params.splash_url)
+        .bind(params.shader_cell_scale)
         .bind(&now)
         .bind(id)
         .execute(self.pool())
@@ -682,6 +870,16 @@ mod tests {
                 .to_string(),
             logo_url: None,
             primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
             is_trusted: false,
             created_by: None,
             is_active: true,
@@ -710,6 +908,16 @@ mod tests {
             redirect_uris: "not valid json".to_string(),
             logo_url: None,
             primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
             is_trusted: false,
             created_by: None,
             is_active: true,
@@ -813,6 +1021,16 @@ mod tests {
             redirect_uris: r#"["https://example.com/cb"]"#.to_string(),
             logo_url: Some("https://example.com/logo.png".to_string()),
             primary_color: Some("#3B82F6".to_string()),
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
             is_trusted: false,
             created_by: None,
             is_active: true,
@@ -823,6 +1041,71 @@ mod tests {
         assert_eq!(b.application_name, "My App");
         assert_eq!(b.logo_url.as_deref(), Some("https://example.com/logo.png"));
         assert_eq!(b.primary_color.as_deref(), Some("#3B82F6"));
+    }
+
+    // validate_https_url tests (via public wrappers)
+
+    #[test]
+    fn https_url_accepts_https() {
+        assert!(validate_font_css_url("https://example.com/x.css").is_ok());
+    }
+
+    #[test]
+    fn https_url_rejects_http() {
+        let err = validate_font_css_url("http://example.com/x.css").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn https_url_rejects_invalid() {
+        let err = validate_font_css_url("not a url").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn logo_url_loopback_hostname_accepted() {
+        assert!(validate_logo_url("http://localhost/logo.png").is_ok());
+    }
+
+    #[test]
+    fn logo_url_loopback_ip_accepted() {
+        assert!(validate_logo_url("http://127.0.0.1/logo.png").is_ok());
+    }
+
+    #[test]
+    fn font_css_url_rejects_localhost() {
+        let err = validate_font_css_url("http://localhost/font.css").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    // validate_accent_hex tests
+
+    #[test]
+    fn accent_hex_valid() {
+        assert!(validate_accent_hex("#ff6b35").is_ok());
+    }
+
+    #[test]
+    fn accent_hex_rejects_named_color() {
+        let err = validate_accent_hex("red").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn accent_hex_rejects_shorthand() {
+        let err = validate_accent_hex("#fff").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn accent_hex_rejects_non_hex_chars() {
+        let err = validate_accent_hex("#gggggg").unwrap_err();
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[test]
+    fn primary_color_still_valid_after_refactor() {
+        assert!(validate_primary_color("#3B82F6").is_ok());
     }
 
     #[test]
@@ -837,6 +1120,16 @@ mod tests {
             redirect_uris: r#"["https://example.com/callback"]"#.to_string(),
             logo_url: None,
             primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
             is_trusted: false,
             created_by: None,
             is_active: true,

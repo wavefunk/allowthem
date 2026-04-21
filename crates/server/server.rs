@@ -20,11 +20,16 @@ pub mod mfa_routes;
 pub mod middleware;
 pub mod oauth_bearer;
 pub mod oauth_routes;
+#[cfg(test)]
+mod auth_template_guard_tests;
+#[cfg(test)]
+mod partials_tests;
 pub mod password_reset_page_routes;
 pub mod password_reset_routes;
 pub mod rate_limit;
 pub mod register_routes;
 pub mod settings_routes;
+pub mod static_routes;
 pub mod token_route;
 pub mod userinfo_route;
 pub mod well_known_routes;
@@ -35,7 +40,7 @@ pub use authorize_routes::{
     authorize_post, check_authorization,
 };
 pub use bearer::BearerAuthUser;
-pub use branding::{compute_accent_variants, default_accents, lookup_branding};
+pub use branding::{DEFAULT_ACCENT_HEX, derive_ink, lookup_branding, resolve_accent};
 pub use browser_error::BrowserError;
 pub use browser_templates::{build_default_browser_env, render as render_template};
 pub use consent_routes::consent_routes;
@@ -56,6 +61,7 @@ pub use password_reset_routes::password_reset_routes;
 pub use rate_limit::{AuthRateLimiter, Quota, extract_client_ip};
 pub use register_routes::register_routes;
 pub use settings_routes::settings_routes;
+pub use static_routes::router as static_router;
 pub use token_route::token_route;
 pub use userinfo_route::userinfo_route;
 pub use well_known_routes::well_known_routes;

@@ -6,11 +6,11 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::Query;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::Router;
 use dashmap::DashMap;
 use eyre::Result;
 use serde::Deserialize;
@@ -19,8 +19,8 @@ use tracing_subscriber::EnvFilter;
 use allowthem_core::LogEmailSender;
 use allowthem_saas::control_db::ControlDb;
 use allowthem_saas::{
-    HandleCache, ManageState, SlugCache, TenantBuilderConfig, TenantRouterState,
-    manage_router, pre_warm, tenant_router_middleware,
+    HandleCache, ManageState, SlugCache, TenantBuilderConfig, TenantRouterState, manage_router,
+    pre_warm, tenant_router_middleware,
 };
 use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 
@@ -171,13 +171,13 @@ fn decode_hex_key(hex: &str) -> Result<[u8; 32]> {
 
 #[cfg(test)]
 mod tests {
+    use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use axum::routing::get;
-    use axum::Router;
     use tower::ServiceExt;
 
-    use super::{health, VerifyParams};
+    use super::{VerifyParams, health};
 
     #[tokio::test]
     async fn health_returns_ok() {
@@ -238,13 +238,15 @@ mod tests {
     fn make_verify_app(base: &'static str) -> Router {
         Router::new().route(
             "/internal/verify-domain",
-            get(move |axum::extract::Query(p): axum::extract::Query<VerifyParams>| async move {
-                if p.domain.ends_with(&format!(".{base}")) || p.domain == base {
-                    StatusCode::OK
-                } else {
-                    StatusCode::NOT_FOUND
-                }
-            }),
+            get(
+                move |axum::extract::Query(p): axum::extract::Query<VerifyParams>| async move {
+                    if p.domain.ends_with(&format!(".{base}")) || p.domain == base {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::NOT_FOUND
+                    }
+                },
+            ),
         )
     }
 }

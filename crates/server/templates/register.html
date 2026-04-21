@@ -1,135 +1,117 @@
-{% extends "base.html" %}
+{% extends "_partials/_auth_shell.html" %}
 
 {% block title %}Register{% if app_name %} for {{ app_name }}{% endif %} — allowthem{% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen items-center justify-center px-4">
-    <div class="w-full max-w-md">
-        {% if logo_url and logo_url is startingwith("https://") %}
-        <img src="{{ logo_url }}" alt="{{ app_name }}"
-             class="mx-auto h-16 w-16 rounded-lg object-contain mb-4">
-        {% endif %}
+{% block form %}
+  {% if logo_url and logo_url is startingwith("https://") %}
+    <img src="{{ logo_url }}" alt="{{ app_name }}"
+         style="height:64px;width:64px;object-fit:contain;display:block;margin-bottom:24px">
+  {% endif %}
 
-        <h1 class="text-2xl font-bold text-center text-gray-900 mb-8">
-            Create an account{% if app_name %} for {{ app_name }}{% endif %}
-        </h1>
+  <header>
+    <div class="wf-eyebrow">{% if app_name %}{{ app_name }}{% else %}allowthem{% endif %}</div>
+    <h1 class="wf-display-sm">Create an account</h1>
+  </header>
 
-        {% if error %}
-        <div class="mb-4 rounded bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-            {{ error }}
-        </div>
-        {% endif %}
+  {% if error %}
+    {% set flash = { "kind": "err", "message": error } %}
+    {% include "_partials/_flash.html" %}
+  {% endif %}
 
-        <form method="post" action="/register" class="space-y-4">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <form method="post" action="/register"
+        style="display:flex;flex-direction:column;gap:16px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-            <div>
-                <label for="email" class="block text-sm font-medium text-gray-700">
-                    Email
-                </label>
-                <input type="email" id="email" name="email"
-                       value="{{ email }}"
-                       required autocomplete="email"
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 at-input-focus">
-            </div>
-
-            <div>
-                <label for="username" class="block text-sm font-medium text-gray-700">
-                    Username <span class="text-gray-400">(optional)</span>
-                </label>
-                <input type="text" id="username" name="username"
-                       value="{{ username }}"
-                       autocomplete="username"
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 at-input-focus">
-            </div>
-
-            {% if custom_fields %}
-            {% for field in custom_fields %}
-            <div>
-                <label for="custom_data_{{ field.name }}" class="block text-sm font-medium text-gray-700">
-                    {{ field.label }}{% if not field.required %} <span class="text-gray-400">(optional)</span>{% endif %}
-                </label>
-                {% if field.field_type == "textarea" %}
-                <textarea id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
-                          {% if field.required %}required{% endif %}
-                          {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
-                          {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}
-                          class="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-gray-900 at-input-focus"
-                          >{{ custom_values[field.name] | default("", true) }}</textarea>
-                {% elif field.field_type == "select" %}
-                <select id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
-                        {% if field.required %}required{% endif %}
-                        class="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-gray-900 at-input-focus">
-                    <option value="">Select...</option>
-                    {% for opt in field.enum_values %}
-                    <option value="{{ opt }}" {% if custom_values[field.name] == opt ~ "" %}selected{% endif %}>{{ opt }}</option>
-                    {% endfor %}
-                </select>
-                {% elif field.field_type == "checkbox" %}
-                <div class="mt-1 flex items-center">
-                    <input type="checkbox" id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
-                           value="true"
-                           {% if custom_values[field.name] == "true" %}checked{% endif %}
-                           class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                    {% if field.help_text %}
-                    <span class="ml-2 text-sm text-gray-500">{{ field.help_text }}</span>
-                    {% endif %}
-                </div>
-                {% elif field.field_type == "number" %}
-                <input type="number" id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
-                       value="{{ custom_values[field.name] | default(field.default_value | default("", true), true) }}"
-                       {% if field.required %}required{% endif %}
-                       {% if field.minimum is defined and field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
-                       {% if field.maximum is defined and field.maximum is not none %}max="{{ field.maximum }}"{% endif %}
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-gray-900 at-input-focus">
-                {% else %}
-                <input type="{{ field.field_type }}" id="custom_data_{{ field.name }}" name="custom_data[{{ field.name }}]"
-                       value="{{ custom_values[field.name] | default(field.default_value | default("", true), true) }}"
-                       {% if field.required %}required{% endif %}
-                       {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
-                       {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-gray-900 at-input-focus">
-                {% endif %}
-                {% if field.help_text and field.field_type != "checkbox" %}
-                <p class="mt-1 text-sm text-gray-500">{{ field.help_text }}</p>
-                {% endif %}
-            </div>
-            {% endfor %}
-            {% endif %}
-
-            <div>
-                <label for="password" class="block text-sm font-medium text-gray-700">
-                    Password
-                </label>
-                <input type="password" id="password" name="password"
-                       required minlength="8" autocomplete="new-password"
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 at-input-focus">
-            </div>
-
-            <div>
-                <label for="password_confirm" class="block text-sm font-medium text-gray-700">
-                    Confirm password
-                </label>
-                <input type="password" id="password_confirm" name="password_confirm"
-                       required minlength="8" autocomplete="new-password"
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 at-input-focus">
-            </div>
-
-            <button type="submit"
-                    class="at-btn-primary w-full rounded px-4 py-2 text-white font-medium
-                           focus:outline-none focus:ring-2 focus:ring-offset-2">
-                Register
-            </button>
-        </form>
-
-        <p class="mt-6 text-center text-sm text-gray-600">
-            Already have an account?
-            <a href="/login{% if client_id %}?client_id={{ client_id }}{% endif %}" class="at-link">Sign in</a>
-        </p>
+    <div class="wf-field">
+      <label class="wf-label" for="email">Email</label>
+      <input class="wf-input" id="email" name="email" type="email"
+             value="{{ email }}" required autocomplete="email">
     </div>
-</div>
+
+    <div class="wf-field">
+      <label class="wf-label" for="username">
+        Username <span class="wf-meta">(optional)</span>
+      </label>
+      <input class="wf-input" id="username" name="username" type="text"
+             value="{{ username }}" autocomplete="username">
+    </div>
+
+    {% if custom_fields %}
+      {% for field in custom_fields %}
+        <div class="wf-field">
+          <label class="wf-label" for="custom_data_{{ field.name }}">
+            {{ field.label }}{% if not field.required %} <span class="wf-meta">(optional)</span>{% endif %}
+          </label>
+          {% if field.field_type == "textarea" %}
+            <textarea class="wf-textarea"
+                      id="custom_data_{{ field.name }}"
+                      name="custom_data[{{ field.name }}]"
+                      {% if field.required %}required{% endif %}
+                      {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
+                      {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}
+                      >{{ custom_values[field.name] | default("", true) }}</textarea>
+          {% elif field.field_type == "select" %}
+            <select class="wf-select"
+                    id="custom_data_{{ field.name }}"
+                    name="custom_data[{{ field.name }}]"
+                    {% if field.required %}required{% endif %}>
+              <option value="">Select...</option>
+              {% for opt in field.enum_values %}
+                <option value="{{ opt }}" {% if custom_values[field.name] == opt ~ "" %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+          {% elif field.field_type == "checkbox" %}
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+              <input type="checkbox"
+                     id="custom_data_{{ field.name }}"
+                     name="custom_data[{{ field.name }}]"
+                     value="true"
+                     {% if custom_values[field.name] == "true" %}checked{% endif %}>
+              {% if field.help_text %}
+                <span class="wf-meta">{{ field.help_text }}</span>
+              {% endif %}
+            </div>
+          {% elif field.field_type == "number" %}
+            <input class="wf-input" type="number"
+                   id="custom_data_{{ field.name }}"
+                   name="custom_data[{{ field.name }}]"
+                   value="{{ custom_values[field.name] | default(field.default_value | default('', true), true) }}"
+                   {% if field.required %}required{% endif %}
+                   {% if field.minimum is defined and field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
+                   {% if field.maximum is defined and field.maximum is not none %}max="{{ field.maximum }}"{% endif %}>
+          {% else %}
+            <input class="wf-input" type="{{ field.field_type }}"
+                   id="custom_data_{{ field.name }}"
+                   name="custom_data[{{ field.name }}]"
+                   value="{{ custom_values[field.name] | default(field.default_value | default('', true), true) }}"
+                   {% if field.required %}required{% endif %}
+                   {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
+                   {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}>
+          {% endif %}
+          {% if field.help_text and field.field_type != "checkbox" %}
+            <p class="wf-meta" style="margin-top:4px">{{ field.help_text }}</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+
+    <div class="wf-field">
+      <label class="wf-label" for="password">Password</label>
+      <input class="wf-input" id="password" name="password" type="password"
+             required minlength="8" autocomplete="new-password">
+    </div>
+
+    <div class="wf-field">
+      <label class="wf-label" for="password_confirm">Confirm password</label>
+      <input class="wf-input" id="password_confirm" name="password_confirm" type="password"
+             required minlength="8" autocomplete="new-password">
+    </div>
+
+    <button type="submit" class="wf-btn primary">Register</button>
+  </form>
+
+  <p class="wf-meta" style="margin-top:16px">
+    Already have an account?
+    <a class="wf-link" href="/login{% if client_id %}?client_id={{ client_id }}{% endif %}">Sign in</a>
+  </p>
 {% endblock %}

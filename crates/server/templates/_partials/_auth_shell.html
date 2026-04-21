@@ -1,0 +1,88 @@
+{# _auth_shell.html — 2-column layout for pre-auth / mid-flow pages.
+
+   Inheritance chain:
+     base.html
+       └── _partials/_auth_shell.html   (this file)
+             └── login.html, register.html, consent.html, forgot_password.html,
+                 reset_password.html, mfa_*.html  (M3 migrates)
+
+   Child responsibility: fill {% block form %}. Each child includes
+   `_partials/_flash.html` itself when it needs to surface flash messages.
+   Optional: override {% block head %} for page-specific <title> or <meta>
+   — must call {{ super() }} to keep the shell's styles.
+
+   Block overrides this shell sets on base.html:
+     - html_attrs    data-mode / data-mode-locked when branding.forced_mode is set
+     - body_class    "at-auth-shell"
+     - body_content  splash + form + status-bar (no second <body> tag)
+     - scripts       mode-toggle.js + shader-ascii.js (super() preserves HTMX)
+
+   Expected context:
+     - branding (optional BrandingConfig; forced_mode drives html_attrs)
+     - application_name (optional string)
+     - status_mode / status_env / status_session / status_hint (for the status bar)
+     - csrf_token, is_production (from the renderer)
+
+   Layout: two columns at >= 900px (splash 50% / form 50%); splash hidden
+   below 900px; status bar always spans both columns.
+#}
+{% extends "base.html" %}
+
+{% block html_attrs %}{% if branding and branding.forced_mode %}data-mode="{{ branding.forced_mode }}" data-mode-locked{% endif %}{% endblock %}
+
+{% block body_class %}at-auth-shell{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <style>
+    body.at-auth-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr auto;
+    }
+    body.at-auth-shell .wf-statusbar { grid-column: 1 / -1; }
+    body.at-auth-shell .wf-splash {
+      background: var(--bg-splash);
+      border-right: 1px solid var(--hairline);
+      padding: 32px;
+      overflow: hidden;
+      position: relative;
+    }
+    body.at-auth-shell .wf-splash canvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      display: block;
+    }
+    body.at-auth-shell .wf-splash-frame {
+      width: 100%; height: 100%;
+      border: 0;
+    }
+    body.at-auth-shell .at-form-pane {
+      padding: 32px 48px;
+      display: flex; flex-direction: column;
+      overflow-y: auto;
+    }
+    body.at-auth-shell .at-form-wrap { margin: auto 0; max-width: 440px; width: 100%; }
+    @media (max-width: 900px) {
+      body.at-auth-shell { grid-template-columns: 1fr; }
+      body.at-auth-shell .wf-splash { display: none; }
+    }
+  </style>
+{% endblock %}
+
+{% block body_content %}
+  {% include "_partials/_splash.html" %}
+  <main class="at-form-pane">
+    <div class="at-form-wrap">
+      {% block form %}{% endblock %}
+    </div>
+  </main>
+  {% include "_partials/_status_bar.html" %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="/__allowthem/static/js/mode-toggle.js" defer></script>
+  <script src="/__allowthem/static/js/shader-ascii.js" defer></script>
+{% endblock %}

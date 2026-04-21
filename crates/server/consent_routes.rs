@@ -11,7 +11,7 @@ use serde::Serialize;
 use allowthem_core::AllowThem;
 
 use crate::authorize_routes::{AuthorizeOutcome, AuthorizeParams, check_authorization};
-use crate::branding::{compute_accent_variants, default_accents};
+use crate::branding::resolve_accent;
 use crate::browser_error::BrowserError;
 use crate::browser_templates::render;
 use crate::csrf::CsrfToken;
@@ -58,11 +58,7 @@ async fn get_authorize(
             let scope_items = build_scope_items(&data.context.scopes);
 
             let branding = &data.context.branding;
-            let (accent, accent_hover, accent_ring) = branding
-                .primary_color
-                .as_deref()
-                .map(compute_accent_variants)
-                .unwrap_or_else(default_accents);
+            let (accent_hex, accent_ink_hex) = resolve_accent(Some(branding));
 
             let html = render(
                 &config.templates,
@@ -70,9 +66,8 @@ async fn get_authorize(
                 context! {
                     application_name => branding.application_name.clone(),
                     logo_url => branding.logo_url.clone(),
-                    accent,
-                    accent_hover,
-                    accent_ring,
+                    accent => accent_hex,
+                    accent_ink => accent_ink_hex,
                     scope_items => scope_items,
                     client_id => data.params.application.client_id.as_str(),
                     redirect_uri => data.params.redirect_uri,

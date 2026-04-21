@@ -7,6 +7,8 @@ use serde::Deserialize;
 use serde_json::json;
 use url::Url;
 
+#[cfg(test)]
+use allowthem_core::applications::CreateApplicationParams;
 use allowthem_core::applications::{Application, BrandingConfig, validate_redirect_uri};
 use allowthem_core::authorization::{
     generate_authorization_code, hash_authorization_code, validate_scopes,
@@ -556,15 +558,25 @@ mod tests {
 
         let (app, _) = ath
             .db()
-            .create_application(
-                "TestApp".to_string(),
-                ClientType::Confidential,
-                vec!["https://example.com/callback".to_string()],
-                false,
-                Some(user.id),
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "TestApp".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".to_string()],
+                is_trusted: false,
+                created_by: Some(user.id),
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
         app
@@ -796,15 +808,25 @@ mod tests {
 
         let (trusted_app, _) = ath
             .db()
-            .create_application(
-                "TrustedApp".to_string(),
-                ClientType::Confidential,
-                vec!["https://trusted.example.com/callback".to_string()],
-                true,
-                None,
-                None,
-                None,
-            )
+            .create_application(CreateApplicationParams {
+                name: "TrustedApp".to_string(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://trusted.example.com/callback".to_string()],
+                is_trusted: true,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
             .await
             .unwrap();
 

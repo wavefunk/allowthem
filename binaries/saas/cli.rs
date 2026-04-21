@@ -3,8 +3,8 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use eyre::Result;
 
-use allowthem_saas::{ApiKeyScope, HandleCache, TenantBuilderConfig};
 use allowthem_saas::control_db::ControlDb;
+use allowthem_saas::{ApiKeyScope, HandleCache, TenantBuilderConfig};
 
 use crate::config::SaasConfig;
 
@@ -142,14 +142,7 @@ mod tests {
         let cfg = test_saas_cfg();
         let config = test_config();
 
-        let result = super::run(
-            super::Commands::ListTenants,
-            &db,
-            &cache,
-            &config,
-            &cfg,
-        )
-        .await;
+        let result = super::run(super::Commands::ListTenants, &db, &cache, &config, &cfg).await;
         assert!(result.is_ok());
     }
 

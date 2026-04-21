@@ -459,9 +459,11 @@ impl AllRoutesBuilder {
 
         // Apply CSRF middleware to browser routes, then merge non-CSRF routes.
         // Both csrf_middleware and all handlers read AllowThem from extensions.
+        // Static assets are merged unconditionally and bypass all middleware.
         Ok(csrf_protected
             .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
-            .merge(non_csrf))
+            .merge(non_csrf)
+            .merge(crate::static_routes::router()))
     }
 
     /// Build routes for standalone mode. Wraps `build_inner` with the inject
