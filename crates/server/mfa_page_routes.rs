@@ -512,7 +512,6 @@ mod tests {
                 ath.clone(),
                 crate::cors::inject_ath_into_extensions,
             ))
-
     }
 
     async fn create_session(ath: &AllowThem) -> (allowthem_core::types::UserId, String) {

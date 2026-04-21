@@ -97,12 +97,9 @@ mod tests {
     }
 
     fn test_app(ath: AllowThem) -> Router {
-        Router::new()
-            .route("/bearer", get(bearer_handler))
-            .layer(axum::middleware::from_fn_with_state(
-                ath,
-                crate::cors::inject_ath_into_extensions,
-            ))
+        Router::new().route("/bearer", get(bearer_handler)).layer(
+            axum::middleware::from_fn_with_state(ath, crate::cors::inject_ath_into_extensions),
+        )
     }
 
     async fn bearer_handler(BearerAuthUser(user): BearerAuthUser) -> Json<serde_json::Value> {

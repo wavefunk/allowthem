@@ -98,7 +98,10 @@ mod tests {
             .unwrap();
 
         let routes = well_known_routes("https://auth.example.com".into());
-        let app = routes.layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app)
     }
 

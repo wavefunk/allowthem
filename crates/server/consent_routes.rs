@@ -91,10 +91,7 @@ async fn get_authorize(
     }
 }
 
-pub fn consent_routes(
-    templates: Arc<Environment<'static>>,
-    is_production: bool,
-) -> Router<()> {
+pub fn consent_routes(templates: Arc<Environment<'static>>, is_production: bool) -> Router<()> {
     let cfg = ConsentConfig {
         templates,
         is_production,

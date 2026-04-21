@@ -224,7 +224,10 @@ struct VerifyBody {
 /// On success: creates a session and sets the session cookie.
 /// On wrong code: returns 401 (the challenge token is NOT consumed, allowing retry).
 /// On invalid/expired token: returns 401.
-async fn verify_mfa(Extension(ath): Extension<AllowThem>, Json(body): Json<VerifyBody>) -> Response {
+async fn verify_mfa(
+    Extension(ath): Extension<AllowThem>,
+    Json(body): Json<VerifyBody>,
+) -> Response {
     let user_id = match ath.db().validate_mfa_challenge(&body.mfa_token).await {
         Ok(Some(uid)) => uid,
         Ok(None) => {
@@ -465,7 +468,10 @@ mod tests {
             .unwrap();
 
         let routes = mfa_routes("allowthem-test".into());
-        let app = routes.layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app)
     }
 
@@ -848,7 +854,10 @@ mod tests {
         // Try to recover with the same consumed code
         let mfa_token = ath.db().create_mfa_challenge(user_id).await.unwrap();
 
-        let app = mfa_routes("allowthem-test".into()).layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
+        let app = mfa_routes("allowthem-test".into()).layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         let req = Request::builder()
             .method("POST")
             .uri("/auth/mfa/recover")
@@ -960,7 +969,10 @@ mod tests {
             .unwrap();
 
         // Check count again (need a new app since oneshot consumed it)
-        let app2 = mfa_routes("allowthem-test".into()).layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
+        let app2 = mfa_routes("allowthem-test".into()).layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         let req2 = Request::builder()
             .method("GET")
             .uri("/mfa/recovery-codes/count")

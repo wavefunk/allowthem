@@ -665,7 +665,10 @@ mod tests {
         providers.insert("mock".to_string(), Box::new(MockOAuthProvider));
 
         let routes = oauth_routes(providers, "https://example.com".into(), None);
-        let app = routes.layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app)
     }
 
@@ -1156,7 +1159,10 @@ mod tests {
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let routes = oauth_routes(providers, "https://example.com".into(), Some(tx));
-        let app = routes.layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app, rx)
     }
 

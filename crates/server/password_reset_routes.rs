@@ -35,10 +35,7 @@ struct PasswordResetConfig {
 ///     .merge(reset_routes)
 ///     .with_state(ath);
 /// ```
-pub fn password_reset_routes(
-    email_sender: Arc<dyn EmailSender>,
-    base_url: String,
-) -> Router<()> {
+pub fn password_reset_routes(email_sender: Arc<dyn EmailSender>, base_url: String) -> Router<()> {
     let config = PasswordResetConfig {
         email_sender,
         base_url,
@@ -173,7 +170,10 @@ mod tests {
 
         let sender: Arc<dyn EmailSender> = Arc::new(LogEmailSender);
         let routes = password_reset_routes(sender, "https://example.com".into());
-        let app = routes.layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app)
     }
 

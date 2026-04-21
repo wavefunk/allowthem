@@ -351,7 +351,10 @@ mod tests {
         ath.db().activate_signing_key(key.id).await.unwrap();
 
         let routes = token_route();
-        let app = routes.layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app)
     }
 

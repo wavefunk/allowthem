@@ -128,7 +128,10 @@ mod tests {
             .await
             .unwrap();
 
-        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(ath.clone(), crate::cors::inject_ath_into_extensions));
+        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
 
         (ath, app, user.id)
     }
@@ -196,7 +199,10 @@ mod tests {
             .unwrap();
 
         let jwt = sign_jwt(&ath, &user.id, "openid profile", 300).await;
-        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(ath, crate::cors::inject_ath_into_extensions));
+        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(
+            ath,
+            crate::cors::inject_ath_into_extensions,
+        ));
 
         let resp = app.oneshot(bearer_request(&jwt)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -272,7 +278,10 @@ mod tests {
             .unwrap();
 
         let jwt = sign_jwt(&ath, &user.id, "openid profile", 300).await;
-        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(ath, crate::cors::inject_ath_into_extensions));
+        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(
+            ath,
+            crate::cors::inject_ath_into_extensions,
+        ));
 
         let resp = app.oneshot(bearer_request(&jwt)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -302,7 +311,10 @@ mod tests {
             .unwrap();
 
         let jwt = sign_jwt(&ath, &user.id, "openid email", 300).await;
-        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(ath, crate::cors::inject_ath_into_extensions));
+        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(
+            ath,
+            crate::cors::inject_ath_into_extensions,
+        ));
 
         let resp = app.oneshot(bearer_request(&jwt)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);

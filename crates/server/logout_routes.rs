@@ -125,7 +125,10 @@ mod tests {
     }
 
     fn test_app(ath: allowthem_core::AllowThem) -> Router {
-        logout_routes().layer(axum::middleware::from_fn_with_state(ath, crate::cors::inject_ath_into_extensions))
+        logout_routes().layer(axum::middleware::from_fn_with_state(
+            ath,
+            crate::cors::inject_ath_into_extensions,
+        ))
     }
 
     #[tokio::test]
