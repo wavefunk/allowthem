@@ -7,8 +7,6 @@ use minijinja::{Environment, context, path_loader};
 
 use crate::error::AppError;
 
-const PREVIEW_HTML: &str = include_str!("templates/preview.html");
-
 /// Build the template environment.
 ///
 /// Base/browser templates are embedded in the `allowthem-server` crate via
@@ -21,8 +19,6 @@ const PREVIEW_HTML: &str = include_str!("templates/preview.html");
 pub fn build_template_env() -> Result<Arc<Environment<'static>>> {
     let mut env = Environment::new();
     add_default_browser_templates(&mut env);
-    env.add_template_owned("preview.html", PREVIEW_HTML)
-        .expect("preview.html");
     env.set_loader(path_loader(admin_template_dir()));
     env.get_template("base.html")?;
     Ok(Arc::new(env))
