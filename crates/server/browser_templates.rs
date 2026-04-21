@@ -15,6 +15,10 @@ const RESET_PASSWORD_HTML: &str = include_str!("templates/reset_password.html");
 const MFA_SETUP_HTML: &str = include_str!("templates/mfa_setup.html");
 const MFA_RECOVERY_HTML: &str = include_str!("templates/mfa_recovery.html");
 const MFA_CHALLENGE_HTML: &str = include_str!("templates/mfa_challenge.html");
+const STATUS_BAR_PARTIAL: &str = include_str!("templates/_partials/_status_bar.html");
+const MODE_TOGGLE_PARTIAL: &str = include_str!("templates/_partials/_mode_toggle.html");
+const FLASH_PARTIAL: &str = include_str!("templates/_partials/_flash.html");
+const FORM_FIELD_PARTIAL: &str = include_str!("templates/_partials/_form_field.html");
 
 /// Register the default browser templates into an existing environment.
 ///
@@ -41,6 +45,14 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
         .expect("mfa_recovery.html");
     env.add_template_owned("mfa_challenge.html", MFA_CHALLENGE_HTML)
         .expect("mfa_challenge.html");
+    env.add_template_owned("_partials/_status_bar.html", STATUS_BAR_PARTIAL)
+        .expect("_partials/_status_bar.html");
+    env.add_template_owned("_partials/_mode_toggle.html", MODE_TOGGLE_PARTIAL)
+        .expect("_partials/_mode_toggle.html");
+    env.add_template_owned("_partials/_flash.html", FLASH_PARTIAL)
+        .expect("_partials/_flash.html");
+    env.add_template_owned("_partials/_form_field.html", FORM_FIELD_PARTIAL)
+        .expect("_partials/_form_field.html");
 }
 
 pub fn build_default_browser_env() -> Arc<Environment<'static>> {
@@ -77,6 +89,10 @@ mod tests {
             "mfa_setup.html",
             "mfa_recovery.html",
             "mfa_challenge.html",
+            "_partials/_status_bar.html",
+            "_partials/_mode_toggle.html",
+            "_partials/_flash.html",
+            "_partials/_form_field.html",
         ] {
             assert!(
                 env.get_template(name).is_ok(),

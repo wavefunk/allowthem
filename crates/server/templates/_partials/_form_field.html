@@ -1,0 +1,23 @@
+{# _form_field.html — label + input + optional error.
+   Expected context keys:
+     - field.name      : string (required)
+     - field.label     : string (required)
+     - field.type      : string (default "text")
+     - field.value     : string (default "")
+     - field.required  : bool   (default false)
+     - field.autocomplete : string (default "")
+     - field.error     : string (optional — surfaces below input)
+#}
+<div class="wf-field">
+  <label class="wf-label" for="fld-{{ field.name }}">{{ field.label }}</label>
+  <input class="wf-input"
+         id="fld-{{ field.name }}"
+         name="{{ field.name }}"
+         type="{{ field.type | default('text') }}"
+         value="{{ field.value | default('') }}"
+         {% if field.required | default(false) %}required{% endif %}
+         {% if field.autocomplete %}autocomplete="{{ field.autocomplete }}"{% endif %}>
+  {% if field.error %}
+    <div class="wf-alert wf-alert--err" role="alert">{{ field.error }}</div>
+  {% endif %}
+</div>

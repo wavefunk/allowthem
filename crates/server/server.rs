@@ -20,6 +20,8 @@ pub mod mfa_routes;
 pub mod middleware;
 pub mod oauth_bearer;
 pub mod oauth_routes;
+#[cfg(test)]
+mod partials_tests;
 pub mod password_reset_page_routes;
 pub mod password_reset_routes;
 pub mod rate_limit;
