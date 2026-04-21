@@ -1,6 +1,8 @@
+pub mod api_keys;
 pub mod cache;
 pub mod control_db;
 pub mod error;
+pub mod manage;
 pub mod router;
 pub mod tenants;
 
