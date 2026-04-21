@@ -328,6 +328,150 @@ pub struct ApiTokenInfo {
     pub created_at: DateTime<Utc>,
 }
 
+/// Text-on-accent color. Must pair AAA against the accent fill.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "TEXT", rename_all = "lowercase")]
+pub enum AccentInk {
+    Black,
+    White,
+}
+
+impl AccentInk {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Black => "black",
+            Self::White => "white",
+        }
+    }
+
+    /// Hex color for inline CSS emission.
+    pub fn as_hex(&self) -> &'static str {
+        match self {
+            Self::Black => "#000000",
+            Self::White => "#ffffff",
+        }
+    }
+}
+
+impl std::str::FromStr for AccentInk {
+    type Err = crate::error::AuthError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "black" => Ok(Self::Black),
+            "white" => Ok(Self::White),
+            _ => Err(crate::error::AuthError::Validation(
+                "accent_ink must be 'black' or 'white'".into(),
+            )),
+        }
+    }
+}
+
+/// UI color mode — dark is the Wave Funk default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "TEXT", rename_all = "lowercase")]
+pub enum Mode {
+    Dark,
+    Light,
+}
+
+impl Mode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+        }
+    }
+}
+
+impl std::str::FromStr for Mode {
+    type Err = crate::error::AuthError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "dark" => Ok(Self::Dark),
+            "light" => Ok(Self::Light),
+            _ => Err(crate::error::AuthError::Validation(
+                "forced_mode must be 'dark' or 'light'".into(),
+            )),
+        }
+    }
+}
+
+/// Built-in splash-shape variants rendered by the default shader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "TEXT", rename_all = "lowercase")]
+pub enum SplashPrimitive {
+    Wordmark,
+    Circle,
+    Grid,
+    Wave,
+}
+
+impl SplashPrimitive {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Wordmark => "wordmark",
+            Self::Circle => "circle",
+            Self::Grid => "grid",
+            Self::Wave => "wave",
+        }
+    }
+}
+
+impl std::str::FromStr for SplashPrimitive {
+    type Err = crate::error::AuthError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "wordmark" => Ok(Self::Wordmark),
+            "circle" => Ok(Self::Circle),
+            "grid" => Ok(Self::Grid),
+            "wave" => Ok(Self::Wave),
+            _ => Err(crate::error::AuthError::Validation(
+                "splash_primitive must be one of wordmark|circle|grid|wave".into(),
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod wavefunk_enum_tests {
+    use super::*;
+
+    #[test]
+    fn accent_ink_round_trip() {
+        assert_eq!(AccentInk::Black.as_str(), "black");
+        assert_eq!(AccentInk::White.as_str(), "white");
+        assert_eq!("black".parse::<AccentInk>().unwrap(), AccentInk::Black);
+        assert_eq!("white".parse::<AccentInk>().unwrap(), AccentInk::White);
+        assert!("gray".parse::<AccentInk>().is_err());
+    }
+
+    #[test]
+    fn mode_round_trip() {
+        assert_eq!(Mode::Dark.as_str(), "dark");
+        assert_eq!(Mode::Light.as_str(), "light");
+        assert_eq!("dark".parse::<Mode>().unwrap(), Mode::Dark);
+        assert_eq!("light".parse::<Mode>().unwrap(), Mode::Light);
+        assert!("auto".parse::<Mode>().is_err());
+    }
+
+    #[test]
+    fn splash_primitive_round_trip() {
+        for (s, v) in [
+            ("wordmark", SplashPrimitive::Wordmark),
+            ("circle", SplashPrimitive::Circle),
+            ("grid", SplashPrimitive::Grid),
+            ("wave", SplashPrimitive::Wave),
+        ] {
+            assert_eq!(v.as_str(), s);
+            assert_eq!(s.parse::<SplashPrimitive>().unwrap(), v);
+        }
+        assert!("square".parse::<SplashPrimitive>().is_err());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
