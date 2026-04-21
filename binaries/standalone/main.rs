@@ -1018,11 +1018,11 @@ mod consent_tests {
         let body = read_body(resp).await;
         assert!(body.contains("at-btn-primary"), "themed button class");
         assert!(
-            body.contains("--at-accent: #ffffff"),
+            body.contains("--accent: #ffffff"),
             "default white accent"
         );
         assert!(
-            body.contains("--at-accent-ink: #000000"),
+            body.contains("--accent-ink: #000000"),
             "default black ink"
         );
     }

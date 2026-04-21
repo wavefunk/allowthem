@@ -911,11 +911,11 @@ mod tests {
         assert!(html.contains("BrandedRegApp"), "should show app name");
         assert!(html.contains("<img"), "should show logo");
         assert!(
-            html.contains("--at-accent: #ff6600"),
-            "primary_color should flow to --at-accent"
+            html.contains("--accent: #ff6600"),
+            "primary_color should flow to --accent"
         );
         assert!(
-            html.contains("--at-accent-ink:"),
+            html.contains("--accent-ink:"),
             "accent_ink should be emitted in template"
         );
     }
@@ -937,11 +937,11 @@ mod tests {
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(!html.contains("<img"), "no logo without client_id");
         assert!(
-            html.contains("--at-accent: #ffffff"),
+            html.contains("--accent: #ffffff"),
             "should have default white accent"
         );
         assert!(
-            html.contains("--at-accent-ink: #000000"),
+            html.contains("--accent-ink: #000000"),
             "should have default black ink"
         );
     }

@@ -54,32 +54,19 @@
     {% block theme %}
     <style>
         :root {
-            --at-accent: {{ accent | default("#ffffff") }};
-            --at-accent-ink: {{ accent_ink | default("#000000") }};
-            --at-accent-hover: color-mix(in oklch, var(--at-accent), black 15%);
-            --at-accent-ring: color-mix(in oklch, var(--at-accent), white 25%);
+            --accent: {{ accent | default("#ffffff") }};
+            --accent-ink: {{ accent_ink | default("#000000") }};
+            --accent-hover: color-mix(in oklch, var(--accent), black 15%);
+            --accent-press: color-mix(in oklch, var(--accent), black 25%);
+            --accent-ring:  color-mix(in oklch, var(--accent), white 25%);
         }
-        .at-btn-primary {
-            background-color: var(--at-accent);
-            color: var(--at-accent-ink);
-        }
-        .at-btn-primary:hover {
-            background-color: var(--at-accent-hover);
-        }
-        .at-btn-primary:focus-visible {
-            outline: 2px solid var(--at-accent-ring);
-            outline-offset: 2px;
-        }
-        .at-input-focus:focus {
-            border-color: var(--at-accent);
-            box-shadow: 0 0 0 1px var(--at-accent-ring);
-        }
-        .at-link {
-            color: var(--at-accent);
-        }
-        .at-link:hover {
-            color: var(--at-accent-hover);
-        }
+        /* Legacy at-* classes — removed in M3 Task 8 once all pages migrate off. */
+        .at-btn-primary { background-color: var(--accent); color: var(--accent-ink); }
+        .at-btn-primary:hover { background-color: var(--accent-hover); }
+        .at-btn-primary:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+        .at-input-focus:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-ring); }
+        .at-link { color: var(--accent); }
+        .at-link:hover { color: var(--accent-hover); }
     </style>
     {% endblock %}
 
