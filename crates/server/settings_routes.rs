@@ -444,10 +444,7 @@ async fn post_change_password(
     Ok(([(axum::http::header::SET_COOKIE, cookie)], html).into_response())
 }
 
-pub fn settings_routes(
-    templates: Arc<Environment<'static>>,
-    is_production: bool,
-) -> Router<()> {
+pub fn settings_routes(templates: Arc<Environment<'static>>, is_production: bool) -> Router<()> {
     let cfg = SettingsConfig {
         templates,
         is_production,
@@ -460,8 +457,6 @@ pub fn settings_routes(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};

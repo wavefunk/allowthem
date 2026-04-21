@@ -190,6 +190,17 @@ impl ControlDb {
         .await?;
         Ok(rows)
     }
+
+    pub async fn list_tenants(&self) -> Result<Vec<Tenant>, SaasError> {
+        let rows = sqlx::query_as::<_, Tenant>(
+            "SELECT id, name, slug, owner_email, plan_id, status, db_path, \
+             last_seen_at, created_at, updated_at \
+             FROM tenants WHERE status != 'deleted' ORDER BY created_at ASC",
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows)
+    }
 }
 
 // ---------------------------------------------------------------------------
