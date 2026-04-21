@@ -1,6 +1,6 @@
 /* Wave Funk UI kit — shared component styles.
    Imports the design tokens and adds kit-only primitive styles. */
-@import url("../../colors_and_type.css?v=splash");
+@import url("./colors_and_type.css");
 
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: var(--font-mono); }
 * { box-sizing: border-box; }
