@@ -59,6 +59,10 @@
     </div>
   </main>
   {% include "_partials/_status_bar.html" %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
   <script src="/__allowthem/static/js/mode-toggle.js" defer></script>
   <script src="/__allowthem/static/js/shader-ascii.js" defer></script>
 {% endblock %}
