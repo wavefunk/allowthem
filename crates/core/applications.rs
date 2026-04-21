@@ -106,6 +106,49 @@ fn map_unique_violation(err: sqlx::Error) -> AuthError {
     AuthError::Database(err)
 }
 
+/// Opaque keyset cursor for paginating `list_applications_paginated`.
+///
+/// Encodes `(created_at, id)` as a base64url-encoded JSON blob. Callers
+/// treat the encoded string as opaque and pass it back verbatim.
+pub struct ApplicationCursor {
+    pub created_at: DateTime<Utc>,
+    pub id: ApplicationId,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RawCursor {
+    ca: String,
+    id: String,
+}
+
+impl ApplicationCursor {
+    pub fn from_app(app: &Application) -> Self {
+        Self {
+            created_at: app.created_at,
+            id: app.id,
+        }
+    }
+
+    pub fn encode(&self) -> String {
+        let raw = RawCursor {
+            ca: self.created_at.to_rfc3339(),
+            id: self.id.to_string(),
+        };
+        let json = serde_json::to_string(&raw).expect("RawCursor serializes");
+        Base64UrlUnpadded::encode_string(json.as_bytes())
+    }
+
+    pub fn decode(s: &str) -> Option<Self> {
+        let bytes = Base64UrlUnpadded::decode_vec(s).ok()?;
+        let raw: RawCursor = serde_json::from_slice(&bytes).ok()?;
+        let created_at = chrono::DateTime::parse_from_rfc3339(&raw.ca)
+            .ok()?
+            .with_timezone(&Utc);
+        let id = raw.id.parse::<uuid::Uuid>().ok().map(ApplicationId::from_uuid)?;
+        Some(Self { created_at, id })
+    }
+}
+
 /// Parameters for updating an application's mutable fields.
 ///
 /// All fields are required. Fetch the current application first
@@ -342,6 +385,52 @@ impl Db {
         .fetch_all(self.pool())
         .await
         .map_err(AuthError::Database)
+    }
+
+    /// Paginated list of applications using a `(created_at, id)` keyset cursor.
+    ///
+    /// Limits are capped at 200. Pass `None` for cursor to start from the beginning.
+    pub async fn list_applications_paginated(
+        &self,
+        limit: u32,
+        cursor: Option<&ApplicationCursor>,
+    ) -> Result<Vec<Application>, AuthError> {
+        let limit = (limit as i64).min(200);
+        match cursor {
+            None => sqlx::query_as::<_, Application>(
+                "SELECT id, name, client_id, client_type, client_secret_hash, \
+                 redirect_uris, logo_url, primary_color, is_trusted, created_by, \
+                 is_active, created_at, updated_at \
+                 FROM allowthem_applications \
+                 ORDER BY created_at ASC, id ASC LIMIT ?1",
+            )
+            .bind(limit)
+            .fetch_all(self.pool())
+            .await
+            .map_err(AuthError::Database),
+            Some(cur) => {
+                // Bind created_at as TEXT matching the schema format so that
+                // lexicographic comparison produces the correct ordering.
+                let ca = cur
+                    .created_at
+                    .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                    .to_string();
+                sqlx::query_as::<_, Application>(
+                    "SELECT id, name, client_id, client_type, client_secret_hash, \
+                     redirect_uris, logo_url, primary_color, is_trusted, created_by, \
+                     is_active, created_at, updated_at \
+                     FROM allowthem_applications \
+                     WHERE (created_at > ?1 OR (created_at = ?1 AND id > ?2)) \
+                     ORDER BY created_at ASC, id ASC LIMIT ?3",
+                )
+                .bind(&ca)
+                .bind(cur.id)
+                .bind(limit)
+                .fetch_all(self.pool())
+                .await
+                .map_err(AuthError::Database)
+            }
+        }
     }
 
     /// Update an application's mutable fields.

@@ -1,3 +1,5 @@
+pub mod applications;
+
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -200,7 +202,8 @@ impl<S: Send + Sync> FromRequestParts<S> for AdminKey {
 }
 
 pub fn manage_router(state: ManageState) -> axum::Router {
-    axum::Router::new()
+    axum::Router::<ManageState>::new()
+        .nest("/applications", applications::application_routes())
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             api_key_auth_middleware,
