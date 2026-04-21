@@ -1,152 +1,101 @@
-{% extends "base.html" %}
+{% extends "_partials/_app_shell.html" %}
 
 {% block title %}Edit {{ app.name }} — allowthem{% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen justify-center px-4 py-12">
-    <div class="w-full max-w-lg space-y-6">
-        <h1 class="text-2xl font-bold text-gray-900">Edit {{ app.name }}</h1>
+{% block content %}
+  <h1 class="wf-display-sm">Edit {{ app.name }}</h1>
 
-        {% if error %}
-        <div class="rounded bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-            {{ error }}
-        </div>
-        {% endif %}
-
-        <form method="post" action="/admin/applications/{{ app.id }}" class="space-y-4">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-            <div>
-                <label for="name" class="block text-sm font-medium text-gray-700">
-                    Name
-                </label>
-                <input type="text" id="name" name="name" required
-                       value="{{ app.name }}"
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-            </div>
-
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">
-                    Redirect URIs
-                </label>
-                <div id="uri-list" class="space-y-2">
-                    {% for uri in redirect_uris %}
-                    <div class="flex gap-2">
-                        <input type="text" name="redirect_uris"
-                               value="{{ uri }}"
-                               placeholder="https://example.com/callback"
-                               class="block w-full rounded border border-gray-300 px-3 py-2
-                                      text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                        <button type="button" onclick="removeUri(this)"
-                                class="remove-btn shrink-0 rounded border border-gray-300 px-3 py-2
-                                       text-gray-600 hover:bg-gray-50 text-sm">
-                            Remove
-                        </button>
-                    </div>
-                    {% endfor %}
-                </div>
-                <button type="button" onclick="addUri()"
-                        class="mt-2 text-sm text-blue-600 hover:underline">
-                    Add URI
-                </button>
-            </div>
-
-            <div class="flex items-center space-x-2">
-                <input type="checkbox" id="is_trusted" name="is_trusted"
-                       {% if app.is_trusted %}checked{% endif %}
-                       class="h-4 w-4 rounded border-gray-300 text-blue-600
-                              focus:ring-blue-500">
-                <label for="is_trusted" class="text-sm text-gray-700">
-                    Trusted (skip consent screen)
-                </label>
-            </div>
-
-            <div class="flex items-center space-x-2">
-                <input type="checkbox" id="is_active" name="is_active"
-                       {% if app.is_active %}checked{% endif %}
-                       class="h-4 w-4 rounded border-gray-300 text-blue-600
-                              focus:ring-blue-500">
-                <label for="is_active" class="text-sm text-gray-700">
-                    Active
-                </label>
-            </div>
-
-            <div>
-                <label for="logo_url" class="block text-sm font-medium text-gray-700">
-                    Logo URL <span class="text-gray-400">(optional)</span>
-                </label>
-                <input type="text" id="logo_url" name="logo_url"
-                       value="{{ app.logo_url }}"
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-            </div>
-
-            <div>
-                <label for="primary_color" class="block text-sm font-medium text-gray-700">
-                    Primary color <span class="text-gray-400">(optional)</span>
-                </label>
-                <input type="text" id="primary_color" name="primary_color"
-                       value="{{ app.primary_color }}"
-                       placeholder="#3B82F6"
-                       class="mt-1 block w-full rounded border border-gray-300 px-3 py-2
-                              text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-            </div>
-
-            <div class="flex items-center space-x-3">
-                <button type="submit"
-                        class="rounded bg-blue-600 px-4 py-2 text-white font-medium
-                               hover:bg-blue-700 focus:outline-none focus:ring-2
-                               focus:ring-blue-500 focus:ring-offset-2">
-                    Save changes
-                </button>
-                <a href="/admin/applications/{{ app.id }}"
-                   class="text-sm text-gray-500 hover:underline">
-                    Cancel
-                </a>
-            </div>
-        </form>
+  {% if error %}
+    <div class="wf-alert err">
+      <span class="wf-bar"></span>
+      <div>{{ error }}</div>
+      <span></span>
     </div>
-</div>
+  {% endif %}
+
+  <form method="post" action="/admin/applications/{{ app.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <label class="wf-label" for="name">Name</label>
+    <input class="wf-input" type="text" id="name" name="name" required value="{{ app.name }}">
+
+    <label class="wf-label">Redirect URIs</label>
+    <div id="uri-list">
+      {% for uri in redirect_uris %}
+        <div style="display: flex; gap: 8px;">
+          <input class="wf-input" type="text" name="redirect_uris"
+                 value="{{ uri }}" placeholder="https://example.com/callback">
+          <button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>
+        </div>
+      {% endfor %}
+    </div>
+    <p><button class="wf-btn ghost sm" type="button" onclick="addUri()">Add URI</button></p>
+
+    <p>
+      <input type="checkbox" id="is_trusted" name="is_trusted"
+             {% if app.is_trusted %}checked{% endif %}>
+      <label for="is_trusted">Trusted (skip consent screen)</label>
+    </p>
+
+    <p>
+      <input type="checkbox" id="is_active" name="is_active"
+             {% if app.is_active %}checked{% endif %}>
+      <label for="is_active">Active</label>
+    </p>
+
+    <label class="wf-label" for="logo_url">Logo URL (optional)</label>
+    <input class="wf-input" type="text" id="logo_url" name="logo_url" value="{{ app.logo_url }}">
+
+    <label class="wf-label" for="primary_color">Primary color (optional)</label>
+    <input class="wf-input" type="text" id="primary_color" name="primary_color"
+           value="{{ app.primary_color }}" placeholder="#3B82F6">
+
+    <p>
+      <button class="wf-btn primary" type="submit">Save changes</button>
+      <a class="wf-link-quiet" href="/admin/applications/{{ app.id }}">Cancel</a>
+    </p>
+  </form>
 {% endblock %}
 
 {% block scripts %}
-<script>
-function addUri() {
-    var container = document.getElementById('uri-list');
-    var div = document.createElement('div');
-    div.className = 'flex gap-2';
+  {{ super() }}
+  <script>
+    function addUri() {
+      var container = document.getElementById('uri-list');
+      var div = document.createElement('div');
+      div.style.display = 'flex';
+      div.style.gap = '8px';
 
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.name = 'redirect_uris';
-    input.placeholder = 'https://example.com/callback';
-    input.className = 'block w-full rounded border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500';
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.name = 'redirect_uris';
+      input.placeholder = 'https://example.com/callback';
+      input.className = 'wf-input';
 
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = 'Remove';
-    btn.className = 'remove-btn shrink-0 rounded border border-gray-300 px-3 py-2 text-gray-600 hover:bg-gray-50 text-sm';
-    btn.addEventListener('click', function() { removeUri(this); });
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Remove';
+      btn.className = 'wf-btn ghost sm remove-btn';
+      btn.addEventListener('click', function () { removeUri(this); });
 
-    div.appendChild(input);
-    div.appendChild(btn);
-    container.appendChild(div);
-    updateRemoveButtons();
-}
-
-function removeUri(btn) {
-    btn.parentElement.remove();
-    updateRemoveButtons();
-}
-
-function updateRemoveButtons() {
-    var buttons = document.querySelectorAll('#uri-list .remove-btn');
-    for (var i = 0; i < buttons.length; i++) {
-        buttons[i].style.display = buttons.length <= 1 ? 'none' : '';
+      div.appendChild(input);
+      div.appendChild(btn);
+      container.appendChild(div);
+      updateRemoveButtons();
     }
-}
 
-updateRemoveButtons();
-</script>
+    function removeUri(btn) {
+      btn.parentElement.remove();
+      updateRemoveButtons();
+    }
+
+    function updateRemoveButtons() {
+      var buttons = document.querySelectorAll('#uri-list .remove-btn');
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].style.display = buttons.length <= 1 ? 'none' : '';
+      }
+    }
+
+    updateRemoveButtons();
+  </script>
 {% endblock %}

@@ -1,6 +1,10 @@
 // allowthem-server: HTTP routes, middleware, and extractors
 
 pub mod all_routes;
+#[cfg(test)]
+mod all_server_templates_guard_tests;
+#[cfg(test)]
+mod auth_template_guard_tests;
 pub mod authorize_routes;
 pub mod bearer;
 pub mod branding;
@@ -18,10 +22,9 @@ pub mod logout_routes;
 pub mod mfa_page_routes;
 pub mod mfa_routes;
 pub mod middleware;
+pub mod nav;
 pub mod oauth_bearer;
 pub mod oauth_routes;
-#[cfg(test)]
-mod auth_template_guard_tests;
 #[cfg(test)]
 mod partials_tests;
 pub mod password_reset_page_routes;
@@ -29,6 +32,7 @@ pub mod password_reset_routes;
 pub mod rate_limit;
 pub mod register_routes;
 pub mod settings_routes;
+pub mod shell_context;
 pub mod static_routes;
 pub mod token_route;
 pub mod userinfo_route;
@@ -54,6 +58,7 @@ pub use logout_routes::logout_routes;
 pub use mfa_page_routes::{mfa_challenge_routes, mfa_setup_routes};
 pub use mfa_routes::mfa_routes;
 pub use middleware::{require_auth, require_permission, require_role};
+pub use nav::{NavGroup, NavItem, nav_items_for};
 pub use oauth_bearer::{OAuthBearerError, OAuthBearerToken};
 pub use oauth_routes::oauth_routes;
 pub use password_reset_page_routes::password_reset_page_routes;
@@ -61,6 +66,7 @@ pub use password_reset_routes::password_reset_routes;
 pub use rate_limit::{AuthRateLimiter, Quota, extract_client_ip};
 pub use register_routes::register_routes;
 pub use settings_routes::settings_routes;
+pub use shell_context::ShellContext;
 pub use static_routes::router as static_router;
 pub use token_route::token_route;
 pub use userinfo_route::userinfo_route;

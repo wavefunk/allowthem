@@ -4,10 +4,14 @@ mod admin_sessions;
 mod config;
 mod error;
 mod mock_oauth;
-mod preview;
 mod state;
 mod templates;
 mod test_oauth_routes;
+
+#[cfg(test)]
+mod admin_template_render_tests;
+#[cfg(test)]
+mod all_standalone_templates_guard_tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -184,15 +188,6 @@ async fn main() -> Result<()> {
     } else {
         app
     };
-
-    // Dev-only: partial gallery for frontend work. Off by default; never
-    // enabled in production. See binaries/standalone/preview.rs.
-    if config.debug_preview {
-        tracing::warn!(
-            "debug_preview is enabled — preview gallery is exposed at /__allowthem/preview"
-        );
-    }
-    let app = preview::mount(app, config.debug_preview, templates.clone());
 
     // 8. Serve
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
@@ -516,32 +511,22 @@ mod tests {
     }
 
     #[test]
-    fn base_html_renders_dev_mode() {
+    fn base_html_renders_without_tailwind() {
         let env = crate::templates::build_template_env().unwrap();
-        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, false);
-        let html = result.unwrap().0;
+        let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
+            .unwrap()
+            .0;
         assert!(
-            html.contains("@tailwindcss/browser@4"),
-            "dev mode should include Tailwind CDN"
+            !html.contains("tailwindcss"),
+            "Tailwind references must be gone"
         );
         assert!(
             !html.contains("/static/css/style.css"),
-            "dev mode should not link compiled CSS"
-        );
-    }
-
-    #[test]
-    fn base_html_renders_production_mode() {
-        let env = crate::templates::build_template_env().unwrap();
-        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, true);
-        let html = result.unwrap().0;
-        assert!(
-            html.contains("/static/css/style.css"),
-            "prod mode should link compiled CSS"
+            "prod-only CSS path must be gone"
         );
         assert!(
-            !html.contains("@tailwindcss/browser@4"),
-            "prod mode should not include CDN"
+            html.contains("/__allowthem/static/css/kit.css"),
+            "kit CSS still served"
         );
     }
 

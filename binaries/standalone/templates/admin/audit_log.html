@@ -1,177 +1,126 @@
-{% extends "base.html" %}
+{% extends "_partials/_app_shell.html" %}
 
 {% block title %}Audit log — allowthem{% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen justify-center px-4 py-12">
-    <div class="w-full max-w-6xl space-y-6">
-        <div class="flex items-center justify-between">
-            <h1 class="text-2xl font-bold text-gray-900">Audit log</h1>
-            <span class="text-sm text-gray-500">{{ total }} event{% if total != 1 %}s{% endif %}</span>
-        </div>
+{% block content %}
+  <h1 class="wf-display-sm">Audit log</h1>
+  <p class="wf-meta">{{ total }} event{% if total != 1 %}s{% endif %}</p>
 
-        <form method="GET" action="/admin/audit"
-              class="flex flex-wrap gap-3 items-end">
-            <div class="min-w-[200px]">
-                <input type="text" name="user" value="{{ user }}"
-                       placeholder="User ID…"
-                       class="w-full rounded border border-gray-300 px-3 py-2 text-sm
-                              focus:border-blue-500 focus:outline-none
-                              focus:ring-1 focus:ring-blue-500">
-            </div>
-            <div>
-                <select name="event"
-                        class="rounded border border-gray-300 px-3 py-2 text-sm
-                               focus:border-blue-500 focus:outline-none
-                               focus:ring-1 focus:ring-blue-500">
-                    <option value="">All events</option>
-                    <option value="login" {% if event == "login" %}selected{% endif %}>Login</option>
-                    <option value="login_failed" {% if event == "login_failed" %}selected{% endif %}>Login failed</option>
-                    <option value="logout" {% if event == "logout" %}selected{% endif %}>Logout</option>
-                    <option value="register" {% if event == "register" %}selected{% endif %}>Register</option>
-                    <option value="password_change" {% if event == "password_change" %}selected{% endif %}>Password change</option>
-                    <option value="password_reset" {% if event == "password_reset" %}selected{% endif %}>Password reset</option>
-                    <option value="role_assigned" {% if event == "role_assigned" %}selected{% endif %}>Role assigned</option>
-                    <option value="role_unassigned" {% if event == "role_unassigned" %}selected{% endif %}>Role unassigned</option>
-                    <option value="permission_assigned" {% if event == "permission_assigned" %}selected{% endif %}>Permission assigned</option>
-                    <option value="permission_unassigned" {% if event == "permission_unassigned" %}selected{% endif %}>Permission unassigned</option>
-                    <option value="session_created" {% if event == "session_created" %}selected{% endif %}>Session created</option>
-                    <option value="session_expired" {% if event == "session_expired" %}selected{% endif %}>Session expired</option>
-                    <option value="user_updated" {% if event == "user_updated" %}selected{% endif %}>User updated</option>
-                    <option value="user_deleted" {% if event == "user_deleted" %}selected{% endif %}>User deleted</option>
-                </select>
-            </div>
-            <div>
-                <select name="outcome"
-                        class="rounded border border-gray-300 px-3 py-2 text-sm
-                               focus:border-blue-500 focus:outline-none
-                               focus:ring-1 focus:ring-blue-500">
-                    <option value="">All</option>
-                    <option value="success" {% if outcome == "success" %}selected{% endif %}>Success</option>
-                    <option value="failure" {% if outcome == "failure" %}selected{% endif %}>Failure</option>
-                </select>
-            </div>
-            <div>
-                <input type="date" name="from" value="{{ from }}"
-                       class="rounded border border-gray-300 px-3 py-2 text-sm
-                              focus:border-blue-500 focus:outline-none
-                              focus:ring-1 focus:ring-blue-500">
-            </div>
-            <div>
-                <input type="date" name="to" value="{{ to }}"
-                       class="rounded border border-gray-300 px-3 py-2 text-sm
-                              focus:border-blue-500 focus:outline-none
-                              focus:ring-1 focus:ring-blue-500">
-            </div>
-            <button type="submit"
-                    class="rounded bg-blue-600 px-4 py-2 text-sm text-white font-medium
-                           hover:bg-blue-700 focus:outline-none focus:ring-2
-                           focus:ring-blue-500 focus:ring-offset-2">
-                Search
-            </button>
-            {% if total > 0 %}
-            <a href="/admin/audit?user={{ user }}&event={{ event }}&outcome={{ outcome }}&from={{ from }}&to={{ to }}&format=csv"
-               class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-600
-                      hover:bg-gray-50">
-                CSV
-            </a>
-            <a href="/admin/audit?user={{ user }}&event={{ event }}&outcome={{ outcome }}&from={{ from }}&to={{ to }}&format=json"
-               class="rounded border border-gray-300 px-3 py-2 text-sm text-gray-600
-                      hover:bg-gray-50">
-                JSON
-            </a>
-            {% endif %}
-        </form>
+  <form method="GET" action="/admin/audit">
+    <label class="wf-label" for="user">User ID</label>
+    <input class="wf-input" type="text" id="user" name="user" value="{{ user }}" placeholder="User ID…">
 
-        {% if entries %}
-        <table class="w-full text-sm text-left">
-            <thead class="border-b border-gray-200 text-gray-500 uppercase text-xs">
-                <tr>
-                    <th class="py-3 pr-4">Time</th>
-                    <th class="py-3 pr-4">Event</th>
-                    <th class="py-3 pr-4">User</th>
-                    <th class="py-3 pr-4">IP</th>
-                    <th class="py-3">Detail</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for entry in entries %}
-                <tr class="border-b border-gray-100 hover:bg-gray-50">
-                    <td class="py-3 pr-4 text-xs text-gray-500 whitespace-nowrap">
-                        {{ entry.created_at }}
-                    </td>
-                    <td class="py-3 pr-4 whitespace-nowrap">
-                        {% if entry.is_failure %}
-                        <span class="text-red-600 font-medium">{{ entry.event_label }}</span>
-                        {% else %}
-                        <span class="text-gray-700">{{ entry.event_label }}</span>
-                        {% endif %}
-                    </td>
-                    <td class="py-3 pr-4">
-                        {% if entry.user_email %}
-                        <a href="/admin/users/{{ entry.user_id }}"
-                           class="text-blue-600 hover:underline">
-                            {{ entry.user_email }}
-                        </a>
-                        {% elif entry.user_id %}
-                        <span class="text-gray-400 text-xs" title="{{ entry.user_id }}">{{ entry.user_id | truncate(length=12) }}</span>
-                        {% else %}
-                        <span class="text-gray-400">&mdash;</span>
-                        {% endif %}
-                    </td>
-                    <td class="py-3 pr-4 text-xs text-gray-500">
-                        {% if entry.ip_address %}{{ entry.ip_address }}{% else %}&mdash;{% endif %}
-                    </td>
-                    <td class="py-3 text-xs">
-                        {% if entry.detail %}
-                        <code class="text-gray-600">{{ entry.detail }}</code>
-                        {% else %}
-                        <span class="text-gray-400">&mdash;</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <label class="wf-label" for="event">Event</label>
+    <select class="wf-select" id="event" name="event">
+      <option value="">All events</option>
+      <option value="login" {% if event == "login" %}selected{% endif %}>Login</option>
+      <option value="login_failed" {% if event == "login_failed" %}selected{% endif %}>Login failed</option>
+      <option value="logout" {% if event == "logout" %}selected{% endif %}>Logout</option>
+      <option value="register" {% if event == "register" %}selected{% endif %}>Register</option>
+      <option value="password_change" {% if event == "password_change" %}selected{% endif %}>Password change</option>
+      <option value="password_reset" {% if event == "password_reset" %}selected{% endif %}>Password reset</option>
+      <option value="role_assigned" {% if event == "role_assigned" %}selected{% endif %}>Role assigned</option>
+      <option value="role_unassigned" {% if event == "role_unassigned" %}selected{% endif %}>Role unassigned</option>
+      <option value="permission_assigned" {% if event == "permission_assigned" %}selected{% endif %}>Permission assigned</option>
+      <option value="permission_unassigned" {% if event == "permission_unassigned" %}selected{% endif %}>Permission unassigned</option>
+      <option value="session_created" {% if event == "session_created" %}selected{% endif %}>Session created</option>
+      <option value="session_expired" {% if event == "session_expired" %}selected{% endif %}>Session expired</option>
+      <option value="user_updated" {% if event == "user_updated" %}selected{% endif %}>User updated</option>
+      <option value="user_deleted" {% if event == "user_deleted" %}selected{% endif %}>User deleted</option>
+    </select>
 
-        {% if total_pages > 1 %}
-        <nav class="flex items-center justify-center space-x-2 pt-4">
-            {% if page > 1 %}
-            <a href="/admin/audit?user={{ user }}&event={{ event }}&outcome={{ outcome }}&from={{ from }}&to={{ to }}&page={{ page - 1 }}"
-               class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
-                Previous
-            </a>
-            {% else %}
-            <span class="rounded border border-gray-200 px-3 py-1 text-sm text-gray-300">Previous</span>
-            {% endif %}
+    <label class="wf-label" for="outcome">Outcome</label>
+    <select class="wf-select" id="outcome" name="outcome">
+      <option value="">All</option>
+      <option value="success" {% if outcome == "success" %}selected{% endif %}>Success</option>
+      <option value="failure" {% if outcome == "failure" %}selected{% endif %}>Failure</option>
+    </select>
 
-            {% for n in page_numbers %}
-                {% if n == 0 %}
-                <span class="px-1 text-gray-400">&hellip;</span>
-                {% elif n == page %}
-                <span class="rounded bg-blue-600 px-3 py-1 text-sm text-white font-bold">{{ n }}</span>
-                {% else %}
-                <a href="/admin/audit?user={{ user }}&event={{ event }}&outcome={{ outcome }}&from={{ from }}&to={{ to }}&page={{ n }}"
-                   class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
-                    {{ n }}
-                </a>
-                {% endif %}
-            {% endfor %}
+    <label class="wf-label" for="from">From</label>
+    <input class="wf-input" type="date" id="from" name="from" value="{{ from }}">
 
-            {% if page < total_pages %}
-            <a href="/admin/audit?user={{ user }}&event={{ event }}&outcome={{ outcome }}&from={{ from }}&to={{ to }}&page={{ page + 1 }}"
-               class="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
-                Next
-            </a>
-            {% else %}
-            <span class="rounded border border-gray-200 px-3 py-1 text-sm text-gray-300">Next</span>
-            {% endif %}
-        </nav>
-        {% endif %}
+    <label class="wf-label" for="to">To</label>
+    <input class="wf-input" type="date" id="to" name="to" value="{{ to }}">
 
+    <p>
+      <button class="wf-btn primary" type="submit">Search</button>
+      {% if total > 0 %}
+        <a class="wf-btn ghost" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;format=csv">CSV</a>
+        <a class="wf-btn ghost" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;format=json">JSON</a>
+      {% endif %}
+    </p>
+  </form>
+
+  {% if entries %}
+    <table class="wf-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Event</th>
+          <th>User</th>
+          <th>IP</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+          <tr>
+            <td>{{ entry.created_at }}</td>
+            <td>
+              {% if entry.is_failure %}
+                <span class="wf-tag err">{{ entry.event_label }}</span>
+              {% else %}
+                {{ entry.event_label }}
+              {% endif %}
+            </td>
+            <td>
+              {% if entry.user_email %}
+                <a class="wf-link" href="/admin/users/{{ entry.user_id }}">{{ entry.user_email }}</a>
+              {% elif entry.user_id %}
+                <span title="{{ entry.user_id }}">{{ entry.user_id | truncate(length=12) }}</span>
+              {% else %}
+                &mdash;
+              {% endif %}
+            </td>
+            <td>{% if entry.ip_address %}{{ entry.ip_address }}{% else %}&mdash;{% endif %}</td>
+            <td>
+              {% if entry.detail %}
+                <code>{{ entry.detail }}</code>
+              {% else %}
+                &mdash;
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if total_pages > 1 %}
+      <nav>
+        {% if page > 1 %}
+          <a class="wf-btn sm" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;page={{ page - 1 }}">Previous</a>
         {% else %}
-        <p class="text-sm text-gray-500">No audit events found.</p>
+          <span class="wf-btn sm" aria-disabled="true">Previous</span>
         {% endif %}
-    </div>
-</div>
+
+        {% for n in page_numbers %}
+          {% if n == 0 %}
+            <span>&hellip;</span>
+          {% elif n == page %}
+            <span class="wf-btn primary sm">{{ n }}</span>
+          {% else %}
+            <a class="wf-btn sm" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;page={{ n }}">{{ n }}</a>
+          {% endif %}
+        {% endfor %}
+
+        {% if page < total_pages %}
+          <a class="wf-btn sm" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;page={{ page + 1 }}">Next</a>
+        {% else %}
+          <span class="wf-btn sm" aria-disabled="true">Next</span>
+        {% endif %}
+      </nav>
+    {% endif %}
+  {% else %}
+    <p class="wf-empty">No audit events found.</p>
+  {% endif %}
 {% endblock %}

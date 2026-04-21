@@ -10,12 +10,14 @@ use axum::routing::{get, post};
 use minijinja::{Environment, context};
 use serde::Deserialize;
 
-use allowthem_core::types::User;
+use allowthem_core::types::{RoleName, User};
 use allowthem_core::{AllowThem, AuditEvent, AuthError, Email, OAuthAccountInfo, Username};
+use minijinja::value::Value;
 
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 use crate::error::BrowserAuthRedirect;
+use crate::shell_context::ShellContext;
 
 const MIN_PASSWORD_LEN: usize = 8;
 
@@ -53,6 +55,7 @@ struct SettingsContext {
     oauth_accounts: Vec<OAuthAccountInfo>,
     mfa_enabled: bool,
     mfa_recovery_remaining: i64,
+    is_admin: bool,
 }
 
 fn render_settings(
@@ -60,11 +63,13 @@ fn render_settings(
     csrf_token: &str,
     ctx: &SettingsContext,
 ) -> Result<Html<String>, BrowserError> {
+    let shell = ShellContext::new(ctx.is_admin, "/settings", "allowthem");
     crate::browser_templates::render(
         &config.templates,
         "settings.html",
         context! {
             csrf_token,
+            shell => Value::from_serialize(&shell),
             email => &ctx.email,
             username => &ctx.username,
             profile_error => &ctx.profile_error,
@@ -155,6 +160,8 @@ async fn get_settings(
         Err(redirect) => return Ok(redirect),
     };
 
+    let is_admin = ath.db().has_role(&user.id, &RoleName::new("admin")).await?;
+
     let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
         fetch_account_data(&ath, user.id).await?;
 
@@ -171,6 +178,7 @@ async fn get_settings(
         oauth_accounts,
         mfa_enabled,
         mfa_recovery_remaining,
+        is_admin,
     };
     let html = render_settings(&config, csrf.as_str(), &ctx)?;
     Ok(html.into_response())
@@ -190,6 +198,8 @@ async fn post_settings(
         Err(redirect) => return Ok(redirect),
     };
 
+    let is_admin = ath.db().has_role(&user.id, &RoleName::new("admin")).await?;
+
     // 1. Parse email
     let email = match Email::new(form.email.clone()) {
         Ok(e) => e,
@@ -206,6 +216,7 @@ async fn post_settings(
                 oauth_accounts,
                 mfa_enabled,
                 mfa_recovery_remaining,
+                is_admin,
             };
             return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
         }
@@ -236,6 +247,7 @@ async fn post_settings(
                     oauth_accounts,
                     mfa_enabled,
                     mfa_recovery_remaining,
+                    is_admin,
                 };
                 return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
             }
@@ -265,6 +277,7 @@ async fn post_settings(
                     oauth_accounts,
                     mfa_enabled,
                     mfa_recovery_remaining,
+                    is_admin,
                 };
                 return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
             }
@@ -300,6 +313,7 @@ async fn post_settings(
         oauth_accounts,
         mfa_enabled,
         mfa_recovery_remaining,
+        is_admin,
     };
     Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response())
 }
@@ -317,6 +331,8 @@ async fn post_change_password(
         Ok(u) => u,
         Err(redirect) => return Ok(redirect),
     };
+
+    let is_admin = ath.db().has_role(&user.id, &RoleName::new("admin")).await?;
 
     let ip = client_ip(&headers);
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
@@ -338,6 +354,7 @@ async fn post_change_password(
             oauth_accounts,
             mfa_enabled,
             mfa_recovery_remaining,
+            is_admin,
         };
         return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
     }
@@ -359,6 +376,7 @@ async fn post_change_password(
             oauth_accounts,
             mfa_enabled,
             mfa_recovery_remaining,
+            is_admin,
         };
         return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
     }
@@ -389,6 +407,7 @@ async fn post_change_password(
             oauth_accounts,
             mfa_enabled,
             mfa_recovery_remaining,
+            is_admin,
         };
         return Ok(render_settings(&config, csrf.as_str(), &ctx)?.into_response());
     }
@@ -438,6 +457,7 @@ async fn post_change_password(
         oauth_accounts,
         mfa_enabled,
         mfa_recovery_remaining,
+        is_admin,
     };
     let html = render_settings(&config, csrf.as_str(), &ctx)?;
 
@@ -462,6 +482,7 @@ mod tests {
     use axum::http::{Request, StatusCode, header};
     use tower::ServiceExt;
 
+    use allowthem_core::types::RoleName;
     use allowthem_core::{
         AllowThem, AllowThemBuilder, AuditEvent, Email, Username, generate_token, hash_token,
         parse_session_cookie,
@@ -601,6 +622,49 @@ mod tests {
         assert!(html.contains("user@example.com"));
         assert!(html.contains("testuser"));
         assert!(html.contains("Settings"));
+        assert!(html.contains("at-app-shell"));
+        assert!(html.contains("&#x2f;logout"));
+    }
+
+    #[tokio::test]
+    async fn get_settings_admin_user_sees_admin_nav() {
+        let (ath, config, cookie) = setup().await;
+
+        // Grant admin role to the seeded user
+        let email = Email::new("user@example.com".into()).unwrap();
+        let user = ath.db().get_user_by_email(&email).await.unwrap();
+        let role_name = RoleName::new("admin");
+        let role = ath.db().create_role(&role_name, None).await.unwrap();
+        ath.db().assign_role(&user.id, &role.id).await.unwrap();
+
+        let app = test_app(ath, config);
+        let req = Request::builder()
+            .uri("/settings")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(html.contains("&#x2f;admin&#x2f;applications"));
+        assert!(html.contains("&#x2f;admin&#x2f;sessions"));
+        assert!(html.contains("&#x2f;admin&#x2f;audit"));
+        // Users admin route is not yet wired; must not appear.
+        assert!(!html.contains("&#x2f;admin&#x2f;users"));
+    }
+
+    #[tokio::test]
+    async fn get_settings_non_admin_user_has_no_admin_nav() {
+        let (ath, config, cookie) = setup().await;
+        let app = test_app(ath, config);
+        let req = Request::builder()
+            .uri("/settings")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let html = body_string(resp).await;
+        assert!(!html.contains("&#x2f;admin&#x2f;applications"));
     }
 
     #[tokio::test]

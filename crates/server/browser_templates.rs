@@ -22,6 +22,7 @@ const FORM_FIELD_PARTIAL: &str = include_str!("templates/_partials/_form_field.h
 const SPLASH_PARTIAL: &str = include_str!("templates/_partials/_splash.html");
 const AUTH_SHELL_PARTIAL: &str = include_str!("templates/_partials/_auth_shell.html");
 const APP_SHELL_PARTIAL: &str = include_str!("templates/_partials/_app_shell.html");
+const SIDEBAR_NAV_PARTIAL: &str = include_str!("templates/_partials/_sidebar_nav.html");
 
 /// Register the default browser templates into an existing environment.
 ///
@@ -62,6 +63,8 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
         .expect("_partials/_auth_shell.html");
     env.add_template_owned("_partials/_app_shell.html", APP_SHELL_PARTIAL)
         .expect("_partials/_app_shell.html");
+    env.add_template_owned("_partials/_sidebar_nav.html", SIDEBAR_NAV_PARTIAL)
+        .expect("_partials/_sidebar_nav.html");
 }
 
 pub fn build_default_browser_env() -> Arc<Environment<'static>> {
@@ -105,6 +108,7 @@ mod tests {
             "_partials/_splash.html",
             "_partials/_auth_shell.html",
             "_partials/_app_shell.html",
+            "_partials/_sidebar_nav.html",
         ] {
             assert!(
                 env.get_template(name).is_ok(),

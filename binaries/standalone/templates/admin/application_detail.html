@@ -1,142 +1,91 @@
-{% extends "base.html" %}
+{% extends "_partials/_app_shell.html" %}
 
 {% block title %}{{ app.name }} — allowthem{% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen justify-center px-4 py-12">
-    <div class="w-full max-w-lg space-y-6">
-        <h1 class="text-2xl font-bold text-gray-900">{{ app.name }}</h1>
+{% block content %}
+  <h1 class="wf-display-sm">{{ app.name }}</h1>
 
-        {% if client_secret %}
-        <div class="rounded bg-amber-50 border border-amber-200 p-4 space-y-2">
-            <p class="text-sm font-medium text-amber-800">
-                Client secret (copy now — it will not be shown again):
-            </p>
-            <code class="block text-sm text-amber-900 bg-amber-100 rounded px-3 py-2
-                         font-mono break-all"
-                  style="user-select: all">{{ client_secret }}</code>
-        </div>
-        {% endif %}
-
-        <dl class="space-y-4">
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Client ID</dt>
-                <dd class="mt-1 font-mono text-sm text-gray-900 break-all">{{ app.client_id }}</dd>
-            </div>
-
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Status</dt>
-                <dd class="mt-1">
-                    {% if app.is_active %}
-                    <span class="inline-flex items-center space-x-1">
-                        <span class="inline-block h-2 w-2 rounded-full bg-green-500"></span>
-                        <span class="text-sm text-gray-700">Active</span>
-                    </span>
-                    {% else %}
-                    <span class="inline-flex items-center space-x-1">
-                        <span class="inline-block h-2 w-2 rounded-full bg-gray-300"></span>
-                        <span class="text-sm text-gray-500">Inactive</span>
-                    </span>
-                    {% endif %}
-                </dd>
-            </div>
-
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Trusted</dt>
-                <dd class="mt-1 text-sm text-gray-900">
-                    {% if app.is_trusted %}Yes{% else %}No{% endif %}
-                </dd>
-            </div>
-
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Redirect URIs</dt>
-                <dd class="mt-1">
-                    {% if redirect_uris %}
-                    <ul class="list-disc list-inside text-sm text-gray-900 space-y-1">
-                        {% for uri in redirect_uris %}
-                        <li class="break-all">{{ uri }}</li>
-                        {% endfor %}
-                    </ul>
-                    {% else %}
-                    <span class="text-sm text-gray-400">None</span>
-                    {% endif %}
-                </dd>
-            </div>
-
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Logo URL</dt>
-                <dd class="mt-1 text-sm text-gray-900">
-                    {% if app.logo_url %}{{ app.logo_url }}{% else %}<span class="text-gray-400">Not set</span>{% endif %}
-                </dd>
-            </div>
-
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Primary color</dt>
-                <dd class="mt-1 text-sm text-gray-900">
-                    {% if app.primary_color %}
-                    <span class="inline-flex items-center space-x-2">
-                        <span class="inline-block h-4 w-4 rounded border border-gray-200"
-                              style="background-color: {{ app.primary_color }}"></span>
-                        <span>{{ app.primary_color }}</span>
-                    </span>
-                    {% else %}
-                    <span class="text-gray-400">Not set</span>
-                    {% endif %}
-                </dd>
-            </div>
-
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Created by</dt>
-                <dd class="mt-1 text-sm text-gray-900">
-                    {% if app.created_by %}{{ app.created_by }}{% else %}<span class="text-gray-400">Unknown</span>{% endif %}
-                </dd>
-            </div>
-
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Created</dt>
-                <dd class="mt-1 text-sm text-gray-900">{{ app.created_at }}</dd>
-            </div>
-
-            <div>
-                <dt class="text-sm font-medium text-gray-500">Updated</dt>
-                <dd class="mt-1 text-sm text-gray-900">{{ app.updated_at }}</dd>
-            </div>
-        </dl>
-
-        <div class="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
-            <a href="/admin/applications/{{ app.id }}/edit"
-               class="rounded bg-blue-600 px-4 py-2 text-white font-medium text-sm
-                      hover:bg-blue-700 focus:outline-none focus:ring-2
-                      focus:ring-blue-500 focus:ring-offset-2">
-                Edit
-            </a>
-
-            <form method="post" action="/admin/applications/{{ app.id }}/regenerate-secret"
-                  onsubmit="return confirm('Regenerate client secret? The old secret will be permanently invalidated and all integrations using it will break.')">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit"
-                        class="rounded border border-gray-300 px-4 py-2 text-gray-700 font-medium text-sm
-                               hover:bg-gray-50 focus:outline-none focus:ring-2
-                               focus:ring-blue-500 focus:ring-offset-2">
-                    Regenerate secret
-                </button>
-            </form>
-
-            <form method="post" action="/admin/applications/{{ app.id }}/delete"
-                  onsubmit="return confirm('Permanently delete this application? This will revoke all associated authorization codes, refresh tokens, and consents.')">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit"
-                        class="rounded bg-red-600 px-4 py-2 text-white font-medium text-sm
-                               hover:bg-red-700 focus:outline-none focus:ring-2
-                               focus:ring-red-500 focus:ring-offset-2">
-                    Delete
-                </button>
-            </form>
-        </div>
-
-        <a href="/admin/applications" class="text-sm text-gray-500 hover:underline">
-            Back to applications
-        </a>
+  {% if client_secret %}
+    <div class="wf-alert warn">
+      <span class="wf-bar"></span>
+      <div>
+        <div class="wf-eyebrow">Client secret (copy now — it will not be shown again)</div>
+        <code style="user-select: all; word-break: break-all;">{{ client_secret }}</code>
+      </div>
+      <span></span>
     </div>
-</div>
+  {% endif %}
+
+  <dl class="wf-dl">
+    <dt>Client ID</dt>
+    <dd><code>{{ app.client_id }}</code></dd>
+
+    <dt>Status</dt>
+    <dd>
+      {% if app.is_active %}
+        <span class="wf-tag ok">Active</span>
+      {% else %}
+        <span class="wf-tag muted">Inactive</span>
+      {% endif %}
+    </dd>
+
+    <dt>Trusted</dt>
+    <dd>{% if app.is_trusted %}Yes{% else %}No{% endif %}</dd>
+
+    <dt>Redirect URIs</dt>
+    <dd>
+      {% if redirect_uris %}
+        <ul>
+          {% for uri in redirect_uris %}
+            <li>{{ uri }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <span class="wf-tag muted">None</span>
+      {% endif %}
+    </dd>
+
+    <dt>Logo URL</dt>
+    <dd>{% if app.logo_url %}{{ app.logo_url }}{% else %}<span class="wf-tag muted">Not set</span>{% endif %}</dd>
+
+    <dt>Primary color</dt>
+    <dd>
+      {% if app.primary_color %}
+        {{ app.primary_color }}
+      {% else %}
+        <span class="wf-tag muted">Not set</span>
+      {% endif %}
+    </dd>
+
+    <dt>Created by</dt>
+    <dd>{% if app.created_by %}{{ app.created_by }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</dd>
+
+    <dt>Created</dt>
+    <dd>{{ app.created_at }}</dd>
+
+    <dt>Updated</dt>
+    <dd>{{ app.updated_at }}</dd>
+  </dl>
+
+  <hr class="wf-hr">
+
+  <p>
+    <a class="wf-btn primary" href="/admin/applications/{{ app.id }}/edit">Edit</a>
+
+    <form method="post" action="/admin/applications/{{ app.id }}/regenerate-secret"
+          style="display: inline;"
+          onsubmit="return confirm('Regenerate client secret? The old secret will be permanently invalidated and all integrations using it will break.')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="wf-btn ghost" type="submit">Regenerate secret</button>
+    </form>
+
+    <form method="post" action="/admin/applications/{{ app.id }}/delete"
+          style="display: inline;"
+          onsubmit="return confirm('Permanently delete this application? This will revoke all associated authorization codes, refresh tokens, and consents.')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="wf-btn danger" type="submit">Delete</button>
+    </form>
+  </p>
+
+  <p><a class="wf-link-quiet" href="/admin/applications">Back to applications</a></p>
 {% endblock %}

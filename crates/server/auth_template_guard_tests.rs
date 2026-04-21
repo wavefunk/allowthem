@@ -50,6 +50,12 @@ const REQUIRED_SUBSTRINGS: &[&str] = &[
 use std::collections::BTreeMap;
 use minijinja::Value;
 
+/// Non-default accent fixture used by the accent-vars tests below. Pairs
+/// a Catppuccin Mauve hex with black ink; no bearing on production branding.
+fn non_default_accent_fixture() -> (&'static str, &'static str) {
+    ("#cba6f7", "#000000")
+}
+
 /// Build a merged context from a set of `(name, Value)` pairs on top of a
 /// base map that carries every optional `{% if ... %}` key the auth
 /// templates branch on. Strict-undefined (if enabled in
@@ -175,4 +181,113 @@ fn check_template(name: &'static str, ctx: Value) {
             "{name}: contains forbidden substring `{needle}` — kit migration regressed"
         );
     }
+}
+
+/// Render `template_name` with the non-default accent fixture merged onto
+/// `extra_ctx`, then assert base.html's <style> block emitted the pair
+/// verbatim. Shields against a template accidentally overriding
+/// `{% block theme %}` and swallowing the accent vars.
+fn assert_accent_vars_render(template_name: &'static str, extra_ctx: Value) {
+    let (accent, accent_ink) = non_default_accent_fixture();
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    let ctx = minijinja::context! {
+        accent => accent,
+        accent_ink => accent_ink,
+        ..extra_ctx
+    };
+    let html = env
+        .get_template(template_name)
+        .unwrap_or_else(|e| panic!("load {template_name}: {e}"))
+        .render(ctx)
+        .unwrap_or_else(|e| panic!("render {template_name}: {e}"));
+    assert!(
+        html.contains(&format!("--accent: {accent};")),
+        "{template_name}: missing `--accent: {accent};` in rendered output"
+    );
+    assert!(
+        html.contains(&format!("--accent-ink: {accent_ink};")),
+        "{template_name}: missing `--accent-ink: {accent_ink};` in rendered output"
+    );
+}
+
+#[test]
+fn login_emits_non_default_accent_vars() {
+    assert_accent_vars_render(
+        "login.html",
+        ctx_with(&[
+            ("identifier", Value::from("")),
+            ("oauth_providers", Value::from(Vec::<String>::new())),
+        ]),
+    );
+}
+
+#[test]
+fn register_emits_non_default_accent_vars() {
+    assert_accent_vars_render(
+        "register.html",
+        ctx_with(&[
+            ("email", Value::from("")),
+            ("username", Value::from("")),
+            ("custom_fields", Value::from(Vec::<Value>::new())),
+            ("custom_values", Value::from_serialize(&BTreeMap::<String, String>::new())),
+        ]),
+    );
+}
+
+#[test]
+fn forgot_password_emits_non_default_accent_vars() {
+    assert_accent_vars_render("forgot_password.html", ctx_with(&[]));
+}
+
+#[test]
+fn reset_password_emits_non_default_accent_vars() {
+    assert_accent_vars_render(
+        "reset_password.html",
+        ctx_with(&[("token", Value::from("reset-token-abc"))]),
+    );
+}
+
+#[test]
+fn mfa_challenge_emits_non_default_accent_vars() {
+    assert_accent_vars_render(
+        "mfa_challenge.html",
+        ctx_with(&[("mfa_token", Value::from("mfa-token-abc"))]),
+    );
+}
+
+#[test]
+fn mfa_setup_emits_non_default_accent_vars() {
+    assert_accent_vars_render(
+        "mfa_setup.html",
+        ctx_with(&[
+            ("totp_uri", Value::from("otpauth://totp/foo")),
+            ("secret", Value::from("JBSWY3DPEHPK3PXP")),
+        ]),
+    );
+}
+
+#[test]
+fn mfa_recovery_emits_non_default_accent_vars() {
+    assert_accent_vars_render(
+        "mfa_recovery.html",
+        ctx_with(&[("recovery_codes", Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]))]),
+    );
+}
+
+#[test]
+fn consent_emits_non_default_accent_vars() {
+    assert_accent_vars_render(
+        "consent.html",
+        ctx_with(&[
+            ("application_name", Value::from("Test App")),
+            ("scope_items", Value::from(Vec::<Value>::new())),
+            ("redirect_uri", Value::from("https://example.com/cb")),
+            ("response_type", Value::from("code")),
+            ("scope", Value::from("openid")),
+            ("state_param", Value::from("state")),
+            ("code_challenge", Value::from("chal")),
+            ("code_challenge_method", Value::from("S256")),
+        ]),
+    );
 }

@@ -25,5 +25,15 @@ export default defineConfig({
       testMatch: "**/auth-rate-limit.spec.ts",
       dependencies: ["main"],
     },
+    {
+      name: "firefox",
+      use: { browserName: "firefox" },
+      testIgnore: "**/auth-rate-limit.spec.ts",
+    },
+    {
+      name: "webkit",
+      use: { browserName: "webkit" },
+      testIgnore: "**/auth-rate-limit.spec.ts",
+    },
   ],
 });

@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use allowthem_core::audit::{AuditEvent, AuditListEntry, SearchAuditParams};
 use allowthem_core::types::UserId;
-use allowthem_server::BrowserAdminUser;
+use allowthem_server::{BrowserAdminUser, ShellContext};
+use minijinja::value::Value;
 
 use crate::error::AppError;
 use crate::state::AppState;
@@ -257,10 +258,12 @@ async fn list(
             let entries = to_entry_display(result.entries);
             let pn = page_numbers(page, total_pages);
 
+            let shell = ShellContext::new(true, "/admin/audit", "allowthem");
             let html = crate::templates::render(
                 &state.templates,
                 "admin/audit_log.html",
                 context! {
+                    shell => Value::from_serialize(&shell),
                     entries,
                     total => result.total,
                     page,
@@ -466,6 +469,7 @@ mod tests {
         let body = read_body_string(resp).await;
         assert!(body.contains("Login"));
         assert!(body.contains("user@example.com"));
+        assert!(body.contains("at-app-shell"));
     }
 
     #[tokio::test]
