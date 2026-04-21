@@ -158,10 +158,8 @@ impl ControlDb {
         }
 
         let expires_at: Option<DateTime<Utc>> = row.try_get("expires_at")?;
-        if let Some(exp) = expires_at {
-            if exp <= Utc::now() {
-                return Ok(None);
-            }
+        if expires_at.is_some_and(|exp| exp <= Utc::now()) {
+            return Ok(None);
         }
 
         let id_bytes: Vec<u8> = row.try_get("id")?;
