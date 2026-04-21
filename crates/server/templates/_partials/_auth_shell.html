@@ -1,6 +1,26 @@
-{# _auth_shell.html — shared layout for login / register / consent /
-   forgot / reset / mfa templates. Extends base.html; child templates
-   fill the {% block form %} and optionally the splash context.
+{# _auth_shell.html — 2-column layout for pre-auth / mid-flow pages.
+
+   Inheritance chain:
+     base.html
+       └── _partials/_auth_shell.html   (this file)
+             └── login.html, register.html, consent.html, forgot_password.html,
+                 reset_password.html, mfa_*.html  (M3 migrates)
+
+   Child responsibility: fill {% block form %}. Optional: override {% block head %}
+   for page-specific <title> or <meta> — must call {{ super() }} to keep the
+   shell's styles.
+
+   Block overrides this shell sets on base.html:
+     - html_attrs    data-mode / data-mode-locked when branding.forced_mode is set
+     - body_class    "at-auth-shell"
+     - body_content  splash + form + status-bar (no second <body> tag)
+     - scripts       mode-toggle.js + shader-ascii.js (super() preserves HTMX)
+
+   Expected context:
+     - branding (optional BrandingConfig; forced_mode drives html_attrs)
+     - application_name (optional string)
+     - status_mode / status_env / status_session / status_hint (for the status bar)
+     - csrf_token, is_production (from the renderer)
 
    Layout: two columns at >= 900px (splash 50% / form 50%); splash hidden
    below 900px; status bar always spans both columns.

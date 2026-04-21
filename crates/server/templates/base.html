@@ -1,3 +1,31 @@
+{# base.html — shared <head> and <body> skeleton.
+
+   Inheritance chain (M2):
+     - existing pages (login.html, register.html, ...) extend base.html directly
+       and override the inner {% block body %} — backward-compatible; M3 migrates
+       them onto the shells below.
+     - _partials/_auth_shell.html    extends base.html   (overrides body_content + body_class + html_attrs)
+     - _partials/_app_shell.html     extends base.html   (overrides body_content + body_class + html_attrs)
+
+   Blocks exposed (for shell authors):
+     - html_attrs      attributes on <html> (shells emit data-mode / data-mode-locked from branding.forced_mode)
+     - body_class      class attribute on <body> (shells stamp at-auth-shell / at-app-shell)
+     - body_content    outer <body> content (wraps the legacy inner `body` block for backward compat)
+     - body            legacy inner block — existing pages still override this directly through M2
+     - head, theme, title, scripts   as before
+
+   Expected context keys:
+     - is_production (bool)
+     - accent, accent_ink (hex strings; M1's branding pipeline emits these)
+     - branding (optional BrandingConfig — shells use branding.forced_mode for html_attrs)
+
+   The FOUC-free mode bootstrap is the first <script> in <head> — it runs
+   before the stylesheets load and applies data-mode from localStorage so
+   dark/light CSS keys apply on first paint.
+
+   DO NOT remove the Tailwind CDN link until M3 — existing pages still rely
+   on utility classes like `bg-gray-50`.
+#}
 <!DOCTYPE html>
 <html lang="en" {% block html_attrs %}{% endblock %}>
 <head>

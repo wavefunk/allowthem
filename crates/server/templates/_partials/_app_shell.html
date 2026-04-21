@@ -1,10 +1,29 @@
-{# _app_shell.html — shared layout for settings + 8 admin pages.
+{# _app_shell.html — sidebar + main + status bar for post-auth pages.
+
+   Inheritance chain:
+     base.html
+       └── _partials/_app_shell.html   (this file)
+             └── settings.html, admin/applications_*, admin/users_*,
+                 admin/sessions_list.html, admin/audit_log.html  (M4 migrates)
+
+   Child responsibility:
+     - fill {% block content %} with the page body.
+     - fill {% block sidebar_nav %} with role-filtered nav links (M4).
+
+   Block overrides this shell sets on base.html:
+     - html_attrs    data-mode / data-mode-locked when branding.forced_mode is set
+     - body_class    "at-app-shell"
+     - body_content  sidebar + main + status-bar (no second <body> tag)
+     - scripts       mode-toggle.js (super() preserves HTMX)
+
+   Expected context:
+     - branding (optional BrandingConfig; forced_mode drives html_attrs)
+     - application_name (optional string)
+     - status_* keys (optional; see _status_bar.html)
+     - csrf_token, is_production (from the renderer)
+
    Sidebar 240px left, main content, status bar spanning the bottom.
    Collapses to a top-bar + hamburger overlay below 900px.
-
-   Child templates extend this and fill:
-     {% block content %}     main pane body
-     {% block sidebar_nav %} nav items (M4 populates with role-based items)
 #}
 {% extends "base.html" %}
 
