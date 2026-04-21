@@ -6,9 +6,10 @@
              └── login.html, register.html, consent.html, forgot_password.html,
                  reset_password.html, mfa_*.html  (M3 migrates)
 
-   Child responsibility: fill {% block form %}. Optional: override {% block head %}
-   for page-specific <title> or <meta> — must call {{ super() }} to keep the
-   shell's styles.
+   Child responsibility: fill {% block form %}. Each child includes
+   `_partials/_flash.html` itself when it needs to surface flash messages.
+   Optional: override {% block head %} for page-specific <title> or <meta>
+   — must call {{ super() }} to keep the shell's styles.
 
    Block overrides this shell sets on base.html:
      - html_attrs    data-mode / data-mode-locked when branding.forced_mode is set
@@ -74,7 +75,6 @@
   {% include "_partials/_splash.html" %}
   <main class="at-form-pane">
     <div class="at-form-wrap">
-      {% include "_partials/_flash.html" %}
       {% block form %}{% endblock %}
     </div>
   </main>

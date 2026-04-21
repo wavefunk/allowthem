@@ -89,7 +89,8 @@ fn flash_renders_error_variant() {
             flash => context! { kind => "err", message => "bad password" },
         })
         .unwrap();
-    assert!(html.contains("wf-alert--err"));
+    assert!(html.contains("wf-alert"));
+    assert!(html.contains(" err\""), "expected ' err\"' variant token in class attr");
     assert!(html.contains("bad password"));
     assert!(html.contains("role=\"alert\""));
 }
@@ -154,11 +155,29 @@ fn form_field_surfaces_error_below_input() {
             },
         })
         .unwrap();
-    assert!(html.contains("wf-alert--err"));
+    assert!(html.contains("wf-alert"));
+    assert!(html.contains(" err\""), "expected ' err\"' variant token in class attr");
     assert!(html.contains("not a valid email"));
     assert!(html.contains("aria-describedby=\"fld-email-err\""));
     assert!(html.contains("aria-invalid=\"true\""));
     assert!(html.contains("id=\"fld-email-err\""));
+}
+
+#[test]
+fn flash_partial_reads_locally_set_flash_from_including_template() {
+    // Contract check for M3 auth templates: `{% set flash = {...} %} {% include "_partials/_flash.html" %}`
+    // must surface the message. If this breaks, every migrated auth page silently drops errors.
+    let env = env_with_wrapper(
+        "wrap_local_flash.html",
+        r#"{% set flash = {"kind": "err", "message": "local error"} %}{% include "_partials/_flash.html" %}"#,
+    );
+    let html = env
+        .get_template("wrap_local_flash.html")
+        .unwrap()
+        .render(context! {})
+        .unwrap();
+    assert!(html.contains("local error"), "_flash.html did not see locally-set flash: {html}");
+    assert!(html.contains("wf-alert"));
 }
 
 fn mock_branding() -> BrandingConfig {

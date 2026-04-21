@@ -5,7 +5,7 @@
    Renders nothing when `flash` is undefined or unset.
 #}
 {%- if flash is defined and flash %}
-<div class="wf-alert wf-alert--{{ flash.kind | default('err') }}" role="alert">
+<div class="wf-alert {{ flash.kind | default('err') }}" role="alert">
   {{ flash.message }}
 </div>
 {% endif -%}
