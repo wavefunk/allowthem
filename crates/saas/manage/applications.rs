@@ -1,8 +1,8 @@
+use axum::Router;
 use axum::extract::{Extension, Json, Path, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -55,9 +55,8 @@ pub async fn list_applications(
     let cursor = match q.cursor {
         None => None,
         Some(ref s) => {
-            let cur = ApplicationCursor::decode(s).ok_or_else(|| {
-                ManageError::Internal("invalid cursor".into())
-            })?;
+            let cur = ApplicationCursor::decode(s)
+                .ok_or_else(|| ManageError::Internal("invalid cursor".into()))?;
             Some(cur)
         }
     };

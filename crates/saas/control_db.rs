@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+use serde::Serialize;
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
@@ -6,6 +8,14 @@ use allowthem_core::error::AuthError;
 use crate::cache::TenantMeta;
 use crate::error::SaasError;
 use crate::tenants::{TenantId, TenantStatus};
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct TenantUsage {
+    pub period: String,
+    pub mau_count: i64,
+    pub limit_reached_at: Option<DateTime<Utc>>,
+    pub notified_at: Option<DateTime<Utc>>,
+}
 
 pub struct ControlDb {
     pool: SqlitePool,
@@ -73,6 +83,22 @@ impl ControlDb {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    pub async fn usage_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+    ) -> Result<Vec<TenantUsage>, SaasError> {
+        let rows = sqlx::query_as::<_, TenantUsage>(
+            "SELECT period, mau_count, limit_reached_at, notified_at \
+             FROM tenant_usage \
+             WHERE tenant_id = ?1 \
+             ORDER BY period DESC",
+        )
+        .bind(tenant_id.as_bytes())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
     }
 }
 
@@ -177,6 +203,43 @@ pub(crate) mod tests {
         .execute(db.pool())
         .await;
         assert!(res.is_err(), "invalid role should be rejected by CHECK");
+    }
+
+    #[tokio::test]
+    async fn usage_for_tenant_returns_records() {
+        let pool = test_pool().await;
+        let db = ControlDb::new(pool).await.unwrap();
+        let row = sqlx::query("SELECT id FROM tenant_plans LIMIT 1")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        let plan_id: Vec<u8> = row.get("id");
+        let tid = uuid::Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO tenants (id, name, slug, owner_email, plan_id, status, db_path) \
+             VALUES (?, 'U', 'usagetest', 'u@u.com', ?, 'active', 'u.db')",
+        )
+        .bind(tid.as_bytes().as_ref())
+        .bind(&plan_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+        let uid = uuid::Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO tenant_usage (id, tenant_id, period, mau_count) \
+             VALUES (?, ?, '2026-04', 42)",
+        )
+        .bind(uid.as_bytes().as_ref())
+        .bind(tid.as_bytes().as_ref())
+        .execute(db.pool())
+        .await
+        .unwrap();
+        let tenant_id = TenantId::from(tid);
+        let usage = db.usage_for_tenant(&tenant_id).await.unwrap();
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage[0].period, "2026-04");
+        assert_eq!(usage[0].mau_count, 42);
+        assert!(usage[0].limit_reached_at.is_none());
     }
 
     #[tokio::test]

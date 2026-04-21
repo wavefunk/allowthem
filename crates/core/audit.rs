@@ -1,3 +1,4 @@
+use base64ct::{Base64UrlUnpadded, Encoding};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -136,6 +137,52 @@ pub struct SearchAuditResult {
     pub total: u32,
 }
 
+/// Opaque keyset cursor for paginating `list_audit_paginated`.
+///
+/// Encodes `(created_at, id)` as a base64url-encoded JSON blob.
+pub struct AuditCursor {
+    pub created_at: DateTime<Utc>,
+    pub id: AuditEntryId,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RawAuditCursor {
+    ca: String,
+    id: String,
+}
+
+impl AuditCursor {
+    pub fn from_entry(entry: &AuditListEntry) -> Self {
+        Self {
+            created_at: entry.created_at,
+            id: entry.id,
+        }
+    }
+
+    pub fn encode(&self) -> String {
+        let raw = RawAuditCursor {
+            ca: self.created_at.to_rfc3339(),
+            id: self.id.to_string(),
+        };
+        let json = serde_json::to_string(&raw).expect("RawAuditCursor serializes");
+        Base64UrlUnpadded::encode_string(json.as_bytes())
+    }
+
+    pub fn decode(s: &str) -> Option<Self> {
+        let bytes = Base64UrlUnpadded::decode_vec(s).ok()?;
+        let raw: RawAuditCursor = serde_json::from_slice(&bytes).ok()?;
+        let created_at = chrono::DateTime::parse_from_rfc3339(&raw.ca)
+            .ok()?
+            .with_timezone(&Utc);
+        let id = raw
+            .id
+            .parse::<uuid::Uuid>()
+            .ok()
+            .map(AuditEntryId::from_uuid)?;
+        Some(Self { created_at, id })
+    }
+}
+
 impl Db {
     /// Record an audit event.
     ///
@@ -249,6 +296,50 @@ impl Db {
         .map_err(AuthError::Database)
     }
 
+    /// Paginated list of audit entries using a `(created_at, id)` keyset cursor.
+    ///
+    /// Ordered newest-first. Pass `None` for cursor to start from the beginning.
+    /// Limits are capped at 200.
+    pub async fn list_audit_paginated(
+        &self,
+        limit: u32,
+        cursor: Option<&AuditCursor>,
+    ) -> Result<Vec<AuditListEntry>, AuthError> {
+        let limit = (limit as i64).min(200);
+        match cursor {
+            None => sqlx::query_as::<_, AuditListEntry>(
+                "SELECT a.id, a.event_type, a.user_id, u.email AS user_email, \
+                 a.target_id, a.ip_address, a.user_agent, a.detail, a.created_at \
+                 FROM allowthem_audit_log a \
+                 LEFT JOIN allowthem_users u ON a.user_id = u.id \
+                 ORDER BY a.created_at DESC, a.id DESC \
+                 LIMIT ?",
+            )
+            .bind(limit)
+            .fetch_all(self.pool())
+            .await
+            .map_err(AuthError::Database),
+            Some(c) => {
+                let ca = c.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+                sqlx::query_as::<_, AuditListEntry>(
+                    "SELECT a.id, a.event_type, a.user_id, u.email AS user_email, \
+                     a.target_id, a.ip_address, a.user_agent, a.detail, a.created_at \
+                     FROM allowthem_audit_log a \
+                     LEFT JOIN allowthem_users u ON a.user_id = u.id \
+                     WHERE (a.created_at < ?1 OR (a.created_at = ?1 AND a.id < ?2)) \
+                     ORDER BY a.created_at DESC, a.id DESC \
+                     LIMIT ?3",
+                )
+                .bind(&ca)
+                .bind(c.id)
+                .bind(limit)
+                .fetch_all(self.pool())
+                .await
+                .map_err(AuthError::Database)
+            }
+        }
+    }
+
     /// Search and filter audit log entries with pagination.
     ///
     /// Builds a dynamic query with optional filters for user, event type,
@@ -345,5 +436,71 @@ impl Db {
             .map_err(AuthError::Database)?;
 
         Ok(SearchAuditResult { entries, total })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handle::{AllowThem, AllowThemBuilder};
+
+    async fn setup() -> AllowThem {
+        AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap()
+    }
+
+    async fn log_event(db: &Db, tag: u32) {
+        db.log_audit(
+            AuditEvent::Login,
+            None,
+            Some(&format!("target-{tag}")),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn audit_cursor_encode_decode_roundtrip() {
+        let ath = setup().await;
+        let db = ath.db();
+        log_event(db, 1).await;
+        let entries = db.list_audit_paginated(10, None).await.unwrap();
+        assert_eq!(entries.len(), 1);
+        let cursor = AuditCursor::from_entry(&entries[0]);
+        let encoded = cursor.encode();
+        let decoded = AuditCursor::decode(&encoded).unwrap();
+        assert_eq!(decoded.id, entries[0].id);
+    }
+
+    #[tokio::test]
+    async fn list_audit_paginated_returns_first_page() {
+        let ath = setup().await;
+        let db = ath.db();
+        for i in 0..5 {
+            log_event(db, i).await;
+        }
+        let page = db.list_audit_paginated(3, None).await.unwrap();
+        assert_eq!(page.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn list_audit_paginated_cursor_advances() {
+        let ath = setup().await;
+        let db = ath.db();
+        for i in 0..5 {
+            log_event(db, i + 10).await;
+        }
+        let page1 = db.list_audit_paginated(3, None).await.unwrap();
+        assert_eq!(page1.len(), 3);
+        let cursor = AuditCursor::from_entry(page1.last().unwrap());
+        let page2 = db.list_audit_paginated(3, Some(&cursor)).await.unwrap();
+        assert_eq!(page2.len(), 2);
+        assert!(!page2.iter().any(|e| page1.iter().any(|f| f.id == e.id)));
     }
 }

@@ -14,6 +14,7 @@ use governor::RateLimiter;
 use governor::clock::{DefaultClock, QuantaInstant};
 use governor::middleware::NoOpMiddleware;
 use governor::state::keyed::DashMapStateStore;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::api_keys::{ApiKey, ApiKeyScope};
@@ -37,6 +38,10 @@ pub enum ManageError {
     TenantNotFound,
     #[error("not found")]
     NotFound,
+    #[error("conflict")]
+    Conflict,
+    #[error("invalid request: {0}")]
+    InvalidRequest(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -55,9 +60,17 @@ impl IntoResponse for ManageError {
             }
             ManageError::TenantNotFound => StatusCode::NOT_FOUND.into_response(),
             ManageError::NotFound => StatusCode::NOT_FOUND.into_response(),
+            ManageError::Conflict => StatusCode::CONFLICT.into_response(),
+            ManageError::InvalidRequest(_) => StatusCode::BAD_REQUEST.into_response(),
             ManageError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         }
     }
+}
+
+#[derive(Serialize)]
+pub struct ListResponse<T: Serialize> {
+    pub items: Vec<T>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Clone)]
@@ -214,14 +227,37 @@ pub fn manage_router(state: ManageState) -> axum::Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::Router;
     use axum::http::{Request, StatusCode};
     use axum::routing::get;
-    use axum::Router;
     use tower::ServiceExt;
     use uuid::Uuid;
 
     use crate::api_keys::ApiKeyScope;
     use crate::tenants::TenantId;
+
+    #[test]
+    fn manage_error_conflict_is_409() {
+        let resp = ManageError::Conflict.into_response();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn manage_error_invalid_request_is_400() {
+        let resp = ManageError::InvalidRequest("bad input".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn list_response_serializes_correctly() {
+        let r: ListResponse<i32> = ListResponse {
+            items: vec![1, 2, 3],
+            next_cursor: Some("tok".into()),
+        };
+        let json = serde_json::to_value(&r).unwrap();
+        assert_eq!(json["items"], serde_json::json!([1, 2, 3]));
+        assert_eq!(json["next_cursor"], "tok");
+    }
 
     async fn make_state(rpm: u32) -> ManageState {
         use std::str::FromStr;
@@ -338,5 +374,4 @@ mod tests {
         let result = AdminKey::from_request_parts(&mut parts, &()).await;
         assert!(matches!(result.unwrap_err(), ManageError::Unauthorized));
     }
-
 }

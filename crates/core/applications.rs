@@ -144,7 +144,11 @@ impl ApplicationCursor {
         let created_at = chrono::DateTime::parse_from_rfc3339(&raw.ca)
             .ok()?
             .with_timezone(&Utc);
-        let id = raw.id.parse::<uuid::Uuid>().ok().map(ApplicationId::from_uuid)?;
+        let id = raw
+            .id
+            .parse::<uuid::Uuid>()
+            .ok()
+            .map(ApplicationId::from_uuid)?;
         Some(Self { created_at, id })
     }
 }
@@ -411,10 +415,7 @@ impl Db {
             Some(cur) => {
                 // Bind created_at as TEXT matching the schema format so that
                 // lexicographic comparison produces the correct ordering.
-                let ca = cur
-                    .created_at
-                    .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                    .to_string();
+                let ca = cur.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
                 sqlx::query_as::<_, Application>(
                     "SELECT id, name, client_id, client_type, client_secret_hash, \
                      redirect_uris, logo_url, primary_color, is_trusted, created_by, \

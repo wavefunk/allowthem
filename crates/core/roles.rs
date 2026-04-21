@@ -67,6 +67,29 @@ impl Db {
         .map_err(AuthError::Database)
     }
 
+    /// Update a role's name and description. Returns the updated role.
+    ///
+    /// Returns `AuthError::NotFound` if no role with `id` exists.
+    /// Returns `AuthError::Conflict` if `name` is already taken by another role.
+    pub async fn update_role(
+        &self,
+        id: &RoleId,
+        name: &RoleName,
+        description: Option<&str>,
+    ) -> Result<Role, AuthError> {
+        sqlx::query_as::<_, Role>(
+            "UPDATE allowthem_roles SET name = ?1, description = ?2 WHERE id = ?3 \
+             RETURNING id, name, description, created_at",
+        )
+        .bind(name)
+        .bind(description)
+        .bind(*id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(map_unique_violation)?
+        .ok_or(AuthError::NotFound)
+    }
+
     /// Delete a role by ID. Returns `true` if a row was deleted, `false` if not found.
     ///
     /// Cascades to `allowthem_user_roles` and `allowthem_role_permissions`.
@@ -191,6 +214,32 @@ mod tests {
             .build()
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn update_role_changes_name_and_description() {
+        let ath = setup().await;
+        let db = ath.db();
+        let rn = RoleName::new("old-name");
+        let role = db.create_role(&rn, Some("old desc")).await.unwrap();
+        let new_name = RoleName::new("new-name");
+        let updated = db
+            .update_role(&role.id, &new_name, Some("new desc"))
+            .await
+            .unwrap();
+        assert_eq!(updated.name.as_str(), "new-name");
+        assert_eq!(updated.description.as_deref(), Some("new desc"));
+        assert_eq!(updated.id, role.id);
+    }
+
+    #[tokio::test]
+    async fn update_role_not_found_returns_error() {
+        let ath = setup().await;
+        let db = ath.db();
+        let missing = RoleId::new();
+        let name = RoleName::new("x");
+        let err = db.update_role(&missing, &name, None).await.unwrap_err();
+        assert!(matches!(err, AuthError::NotFound));
     }
 
     #[tokio::test]
