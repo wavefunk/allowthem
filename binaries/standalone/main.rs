@@ -178,13 +178,12 @@ async fn main() -> Result<()> {
 
     // Dev-only: partial gallery for frontend work. Off by default; never
     // enabled in production. See binaries/standalone/preview.rs.
-    let app = if config.debug_preview {
-        app.merge(preview::routes(preview::PreviewState {
-            templates: templates.clone(),
-        }))
-    } else {
-        app
-    };
+    if config.debug_preview {
+        tracing::warn!(
+            "debug_preview is enabled — preview gallery is exposed at /__allowthem/preview"
+        );
+    }
+    let app = preview::mount(app, config.debug_preview, templates.clone());
 
     // 8. Serve
     let listener = tokio::net::TcpListener::bind(config.bind).await?;

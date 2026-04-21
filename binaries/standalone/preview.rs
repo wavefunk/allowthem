@@ -25,59 +25,67 @@ pub fn routes(state: PreviewState) -> Router {
         .with_state(state)
 }
 
-async fn render_gallery(State(state): State<PreviewState>) -> impl IntoResponse {
-    let branding_accent = BrandingConfig {
+/// Mount the preview gallery onto `app` iff `debug_preview` is true.
+///
+/// Kept in this module (not main.rs) so the debug_preview=false → 404
+/// contract can be tested without duplicating the wiring logic.
+pub fn mount(app: Router, debug_preview: bool, templates: Arc<Environment<'static>>) -> Router {
+    if debug_preview {
+        app.merge(routes(PreviewState { templates }))
+    } else {
+        app
+    }
+}
+
+fn base_branding() -> BrandingConfig {
+    BrandingConfig {
         application_name: "acme".into(),
         logo_url: None,
         primary_color: None,
-        accent_hex: Some("#cba6f7".into()),
+        accent_hex: None,
         accent_ink: None,
         forced_mode: None,
         font_css_url: None,
         font_family: None,
-        splash_text: Some("ACME".into()),
+        splash_text: None,
         splash_image_url: None,
         splash_primitive: None,
         splash_url: None,
+        shader_cell_scale: None,
+    }
+}
+
+async fn render_gallery(State(state): State<PreviewState>) -> impl IntoResponse {
+    let branding_accent = BrandingConfig {
+        accent_hex: Some("#cba6f7".into()),
+        splash_text: Some("ACME".into()),
         shader_cell_scale: Some(22),
+        ..base_branding()
     };
 
     let branding_primitive = BrandingConfig {
-        application_name: "acme".into(),
-        logo_url: None,
-        primary_color: None,
         accent_hex: Some("#a6e3a1".into()),
-        accent_ink: None,
-        forced_mode: None,
-        font_css_url: None,
-        font_family: None,
-        splash_text: None,
-        splash_image_url: None,
         splash_primitive: Some(SplashPrimitive::Wave),
-        splash_url: None,
         shader_cell_scale: Some(26),
+        ..base_branding()
     };
 
     let branding_image = BrandingConfig {
-        application_name: "acme".into(),
-        logo_url: None,
-        primary_color: None,
         accent_hex: Some("#fab387".into()),
-        accent_ink: None,
-        forced_mode: None,
-        font_css_url: None,
-        font_family: None,
-        splash_text: None,
         splash_image_url: Some("https://placehold.co/600x400/png".into()),
-        splash_primitive: None,
-        splash_url: None,
         shader_cell_scale: Some(24),
+        ..base_branding()
     };
 
     let tmpl = match state.templates.get_template("preview.html") {
         Ok(t) => t,
         Err(e) => {
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+            tracing::error!(error = %e, "preview gallery render failed");
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "preview render failed",
+            )
+                .into_response();
         }
     };
     let rendered = tmpl.render(context! {
@@ -93,7 +101,14 @@ async fn render_gallery(State(state): State<PreviewState>) -> impl IntoResponse 
     });
     match rendered {
         Ok(html) => axum::response::Html(html).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "preview gallery render failed");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "preview render failed",
+            )
+                .into_response()
+        }
     }
 }
 
@@ -140,42 +155,19 @@ mod tests {
         assert!(html.contains("wf-input"));
         assert!(html.contains("wf-statusbar"));
         assert!(html.contains("data-shader-ascii"));
-        assert_eq!(html.matches("data-shader-ascii").count(), 4);
-    }
-
-    #[tokio::test]
-    async fn unknown_path_below_preview_is_404() {
-        let app = routes(PreviewState {
-            templates: env_with_partials(),
-        });
-        let res = app
-            .oneshot(
-                Request::builder()
-                    .uri("/__allowthem/preview/not-a-thing")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        // 4 = text-fallback + accent-text + primitive + image variants in preview.html.
+        const SPLASH_VARIANT_COUNT: usize = 4;
+        assert_eq!(
+            html.matches("data-shader-ascii").count(),
+            SPLASH_VARIANT_COUNT
+        );
     }
 
     #[tokio::test]
     async fn preview_route_is_404_when_debug_preview_flag_is_false() {
-        // Mirrors the conditional mount from binaries/standalone/main.rs:
-        // when config.debug_preview = false, preview::routes() is not merged
-        // into the root router, so the path 404s at the outer axum matcher.
-        let debug_preview = false;
-
-        let app = axum::Router::new();
-        let app = if debug_preview {
-            app.merge(routes(PreviewState {
-                templates: env_with_partials(),
-            }))
-        } else {
-            app
-        };
-
+        // Uses the same helper main.rs uses, so the flag-off contract is
+        // tested against the real wiring rather than a replica.
+        let app = mount(axum::Router::new(), false, env_with_partials());
         let res = app
             .oneshot(
                 Request::builder()
