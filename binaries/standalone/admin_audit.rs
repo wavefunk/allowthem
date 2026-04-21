@@ -345,7 +345,7 @@ mod tests {
         AllowThem, AllowThemBuilder, AuditEvent, AuthClient, Email, EmbeddedAuthClient, RoleName,
         generate_token, hash_token,
     };
-    use allowthem_server::csrf_middleware;
+    use allowthem_server::{csrf_middleware, inject_ath_into_extensions};
 
     use crate::state::AppState;
 
@@ -395,9 +395,10 @@ mod tests {
     fn test_app(state: AppState) -> Router {
         Router::new()
             .nest("/admin/audit", super::routes())
+            .layer(axum::middleware::from_fn(csrf_middleware))
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
-                csrf_middleware,
+                inject_ath_into_extensions,
             ))
             .with_state(state)
     }

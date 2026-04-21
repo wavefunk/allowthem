@@ -46,7 +46,7 @@ impl fmt::Display for AllRoutesError {
 impl std::error::Error for AllRoutesError {}
 
 /// Builder that assembles allowthem route groups into a single
-/// [`Router<AllowThem>`] with CSRF middleware applied to the correct subset.
+/// [`Router<()>`] with CSRF middleware applied to the correct subset.
 pub struct AllRoutesBuilder {
     // Shared config
     templates: Option<Arc<Environment<'static>>>,
@@ -251,12 +251,10 @@ impl AllRoutesBuilder {
         self.all || self.routes.contains(&group)
     }
 
-    pub fn build(mut self, ath: &AllowThem) -> Result<Router<AllowThem>, AllRoutesError> {
+    fn validate(&self) -> Result<(), AllRoutesError> {
         if !self.all && self.routes.is_empty() {
             return Err(AllRoutesError::NoRoutesSelected);
         }
-
-        // --- Validate required config for selected groups ---
 
         let needs_base_url = self.selected(RouteGroup::PasswordReset)
             || self.selected(RouteGroup::Mfa)
@@ -293,6 +291,12 @@ impl AllRoutesBuilder {
             ));
         }
 
+        Ok(())
+    }
+
+    fn build_inner(mut self) -> Result<Router<()>, AllRoutesError> {
+        self.validate()?;
+
         // --- Resolve defaults ---
 
         let templates = self
@@ -318,7 +322,7 @@ impl AllRoutesBuilder {
 
         // --- CSRF-protected routes (browser routes) ---
 
-        let mut csrf_protected: Router<AllowThem> = Router::new();
+        let mut csrf_protected: Router<()> = Router::new();
 
         if self.selected(RouteGroup::Login) {
             csrf_protected = csrf_protected.merge(crate::login_routes::login_routes(
@@ -396,7 +400,7 @@ impl AllRoutesBuilder {
 
         // --- Non-CSRF routes ---
 
-        let mut non_csrf: Router<AllowThem> = Router::new();
+        let mut non_csrf: Router<()> = Router::new();
 
         if self.selected(RouteGroup::Mfa) {
             non_csrf = non_csrf.merge(crate::mfa_page_routes::mfa_challenge_routes(
@@ -419,7 +423,7 @@ impl AllRoutesBuilder {
 
         // --- OIDC sub-router (CORS-eligible routes) ---
 
-        let mut oidc: Router<AllowThem> = Router::new();
+        let mut oidc: Router<()> = Router::new();
 
         if self.selected(RouteGroup::Token) {
             oidc = oidc.merge(crate::token_route::token_route());
@@ -434,12 +438,10 @@ impl AllRoutesBuilder {
             oidc = oidc.merge(crate::well_known_routes::well_known_routes(base_url));
         }
 
-        let oidc_final: Router<AllowThem> = if self.cors_enabled {
+        // cors_middleware reads AllowThem from extensions; the inject shim is
+        // applied by the caller (build/build_for_saas) at the appropriate scope.
+        let oidc_final: Router<()> = if self.cors_enabled {
             oidc.layer(axum::middleware::from_fn(crate::cors::cors_middleware))
-                .layer(axum::middleware::from_fn_with_state(
-                    ath.clone(),
-                    crate::cors::inject_ath_into_extensions,
-                ))
         } else {
             oidc
         };
@@ -455,15 +457,27 @@ impl AllRoutesBuilder {
             ));
         }
 
-        // Apply CSRF middleware to the browser routes, then merge in the
-        // non-CSRF routes underneath. `from_fn_with_state` is required
-        // because `csrf_middleware` extracts `State<AllowThem>`.
+        // Apply CSRF middleware to browser routes, then merge non-CSRF routes.
+        // Both csrf_middleware and all handlers read AllowThem from extensions.
         Ok(csrf_protected
-            .layer(axum::middleware::from_fn_with_state(
-                ath.clone(),
-                crate::csrf::csrf_middleware,
-            ))
+            .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
             .merge(non_csrf))
+    }
+
+    /// Build routes for standalone mode. Wraps `build_inner` with the inject
+    /// shim that bridges `State<AllowThem>` into request extensions.
+    pub fn build(self, ath: &AllowThem) -> Result<Router<()>, AllRoutesError> {
+        let inner = self.build_inner()?;
+        Ok(inner.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        )))
+    }
+
+    /// Build routes for SaaS mode. The tenant router injects AllowThem into
+    /// extensions before dispatching, so no inject shim is added here.
+    pub fn build_for_saas(self) -> Result<Router<()>, AllRoutesError> {
+        self.build_inner()
     }
 }
 

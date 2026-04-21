@@ -1,4 +1,4 @@
-use axum::extract::State;
+use axum::extract::Extension;
 use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -123,7 +123,7 @@ fn token_error_response(error: &TokenError) -> Response {
 // ---------------------------------------------------------------------------
 
 async fn token(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     headers: HeaderMap,
     Form(params): Form<TokenParams>,
 ) -> Response {
@@ -316,7 +316,7 @@ fn token_success_response(token_response: allowthem_core::TokenResponse) -> Resp
 // Router
 // ---------------------------------------------------------------------------
 
-pub fn token_route() -> Router<AllowThem> {
+pub fn token_route() -> Router<()> {
     Router::new().route("/oauth/token", post(token))
 }
 
@@ -351,7 +351,10 @@ mod tests {
         ath.db().activate_signing_key(key.id).await.unwrap();
 
         let routes = token_route();
-        let app = routes.with_state(ath.clone());
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app)
     }
 

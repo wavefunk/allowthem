@@ -6,7 +6,10 @@ pub mod manage;
 pub mod router;
 pub mod tenants;
 
+pub use api_keys::ApiKeyScope;
 pub use cache::{HandleCache, SlugCache, TenantMeta};
+pub use control_db::ControlDb;
 pub use error::SaasError;
-pub use router::{RequireActiveTenant, TenantRouterState, pre_warm};
+pub use manage::{ManageState, manage_router};
+pub use router::{RequireActiveTenant, TenantRouterState, pre_warm, tenant_router_middleware};
 pub use tenants::{ProvisionResult, Tenant, TenantBuilderConfig, TenantId, TenantStatus};

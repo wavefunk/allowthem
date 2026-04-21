@@ -10,16 +10,24 @@ publish = false
 
 [[bin]]
 name = "allowthem"
-path = "main.rs"
+path = "standalone/main.rs"
+
+[[bin]]
+name = "allowthem-saas"
+path = "saas/main.rs"
 
 [dependencies]
 allowthem-core = { path = "../crates/core" }
 allowthem-server = { path = "../crates/server" }
+allowthem-saas = { path = "../crates/saas" }
 axum.workspace = true
 base64ct.workspace = true
 chrono.workspace = true
+clap.workspace = true
+dashmap.workspace = true
 eyre.workspace = true
 figment.workspace = true
+hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::Router;
-use axum::extract::State;
+use axum::extract::Extension;
 use axum::http::HeaderMap;
 use axum::http::Uri;
 use axum::http::header::USER_AGENT;
@@ -145,7 +144,7 @@ async fn require_browser_user(
 
 /// GET /settings — render the settings page for the authenticated user.
 async fn get_settings(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<SettingsConfig>,
     uri: Uri,
     csrf: CsrfToken,
@@ -179,7 +178,7 @@ async fn get_settings(
 
 /// POST /settings — update email and/or username.
 async fn post_settings(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<SettingsConfig>,
     uri: Uri,
     csrf: CsrfToken,
@@ -307,7 +306,7 @@ async fn post_settings(
 
 /// POST /settings/password — change password with session rotation.
 async fn post_change_password(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<SettingsConfig>,
     uri: Uri,
     csrf: CsrfToken,
@@ -445,10 +444,7 @@ async fn post_change_password(
     Ok(([(axum::http::header::SET_COOKIE, cookie)], html).into_response())
 }
 
-pub fn settings_routes(
-    templates: Arc<Environment<'static>>,
-    is_production: bool,
-) -> Router<AllowThem> {
+pub fn settings_routes(templates: Arc<Environment<'static>>, is_production: bool) -> Router<()> {
     let cfg = SettingsConfig {
         templates,
         is_production,
@@ -461,8 +457,6 @@ pub fn settings_routes(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
@@ -512,11 +506,11 @@ mod tests {
 
     fn test_app(ath: AllowThem, config: SettingsConfig) -> Router {
         settings_routes(config.templates.clone(), config.is_production)
+            .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
             .layer(axum::middleware::from_fn_with_state(
                 ath.clone(),
-                crate::csrf::csrf_middleware,
+                crate::cors::inject_ath_into_extensions,
             ))
-            .with_state(ath)
     }
 
     async fn get_csrf_token(app: &Router, cookie: &str) -> String {

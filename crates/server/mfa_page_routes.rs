@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::Form;
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query};
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::http::Uri;
@@ -116,7 +115,7 @@ async fn require_browser_user(
 /// Idempotent: if a pending (non-enabled) secret exists, reuses it.
 /// Only creates a new secret on first visit.
 async fn get_mfa_setup(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
     uri: Uri,
     csrf: CsrfToken,
@@ -162,7 +161,7 @@ pub struct MfaConfirmForm {
 /// On success, renders recovery codes page directly (no redirect).
 /// On failure, re-renders setup page with error.
 async fn post_mfa_confirm(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
     uri: Uri,
     csrf: CsrfToken,
@@ -235,7 +234,7 @@ pub struct MfaDisableForm {
 
 /// POST /settings/mfa/disable — disable MFA and redirect to settings.
 async fn post_mfa_disable(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     uri: Uri,
     headers: HeaderMap,
     Form(_form): Form<MfaDisableForm>,
@@ -276,7 +275,7 @@ pub struct ChallengeQuery {
 
 /// GET /mfa/challenge — render TOTP code input form.
 async fn get_mfa_challenge(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
     Query(query): Query<ChallengeQuery>,
 ) -> Result<Response, BrowserError> {
@@ -312,7 +311,7 @@ pub struct MfaChallengeForm {
 
 /// POST /mfa/challenge — verify TOTP code or recovery code, create session.
 async fn post_mfa_challenge(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
     headers: HeaderMap,
     Form(form): Form<MfaChallengeForm>,
@@ -434,7 +433,7 @@ pub fn mfa_setup_routes(
     templates: Arc<Environment<'static>>,
     is_production: bool,
     base_url: String,
-) -> Router<AllowThem> {
+) -> Router<()> {
     let cfg = MfaPageConfig {
         templates,
         is_production,
@@ -455,7 +454,7 @@ pub fn mfa_setup_routes(
 pub fn mfa_challenge_routes(
     templates: Arc<Environment<'static>>,
     is_production: bool,
-) -> Router<AllowThem> {
+) -> Router<()> {
     let cfg = MfaPageConfig {
         templates,
         is_production,
@@ -507,12 +506,12 @@ mod tests {
                 false,
                 "http://127.0.0.1:3100".into(),
             ))
+            .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
+            .merge(mfa_challenge_routes(templates, false))
             .layer(axum::middleware::from_fn_with_state(
                 ath.clone(),
-                crate::csrf::csrf_middleware,
+                crate::cors::inject_ath_into_extensions,
             ))
-            .merge(mfa_challenge_routes(templates, false))
-            .with_state(ath)
     }
 
     async fn create_session(ath: &AllowThem) -> (allowthem_core::types::UserId, String) {

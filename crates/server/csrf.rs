@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{FromRequestParts, State},
+    extract::FromRequestParts,
     http::{Request, StatusCode, header, request::Parts},
     middleware::Next,
     response::Response,
@@ -52,10 +52,15 @@ impl<S: Send + Sync> FromRequestParts<S> for CsrfToken {
 ///
 /// Returns 403 on CSRF mismatch and 500 if `csrf_key` is not configured.
 pub async fn csrf_middleware(
-    State(ath): State<AllowThem>,
     mut request: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    let ath = request
+        .extensions()
+        .get::<AllowThem>()
+        .cloned()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
     let csrf_key = ath
         .csrf_key()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -216,8 +221,11 @@ mod tests {
     fn test_app(ath: AllowThem) -> Router {
         Router::new()
             .route("/", get(ok_handler).post(ok_handler))
-            .layer(middleware::from_fn_with_state(ath.clone(), csrf_middleware))
-            .with_state(ath)
+            .layer(middleware::from_fn(csrf_middleware))
+            .layer(middleware::from_fn_with_state(
+                ath.clone(),
+                crate::cors::inject_ath_into_extensions,
+            ))
     }
 
     fn get_set_cookie(response: &Response) -> Option<String> {
@@ -471,8 +479,13 @@ mod tests {
             .unwrap();
         let app = Router::new()
             .route("/", get(ok_handler).post(ok_handler))
-            .layer(middleware::from_fn_with_state(ath.clone(), csrf_middleware))
+            .layer(middleware::from_fn(csrf_middleware))
+            .layer(middleware::from_fn_with_state(
+                ath.clone(),
+                crate::cors::inject_ath_into_extensions,
+            ))
             .with_state(ath);
+
         let response = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
             .await

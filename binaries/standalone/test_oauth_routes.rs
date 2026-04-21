@@ -7,8 +7,6 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use serde::Deserialize;
 
-use allowthem_core::AllowThem;
-
 use crate::mock_oauth::{MockIdentity, encode_identity};
 
 #[derive(Deserialize)]
@@ -38,6 +36,6 @@ async fn simulate(Query(q): Query<SimulateQuery>) -> Response {
     Redirect::temporary(&redirect).into_response()
 }
 
-pub fn test_oauth_routes() -> Router<AllowThem> {
+pub fn test_oauth_routes() -> Router {
     Router::new().route("/test-oauth/simulate", get(simulate))
 }
