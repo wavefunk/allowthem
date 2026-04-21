@@ -120,6 +120,16 @@ pub async fn create_application(
             created_by: None,
             logo_url: body.logo_url,
             primary_color: body.primary_color,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
         })
         .await
         .map_err(|e| match e {
@@ -189,6 +199,16 @@ pub async fn update_application(
                 is_active: body.is_active,
                 logo_url: body.logo_url,
                 primary_color: body.primary_color,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
             },
         )
         .await
@@ -290,6 +310,16 @@ mod tests {
                 created_by: None,
                 logo_url: None,
                 primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
             })
             .await
             .unwrap();
