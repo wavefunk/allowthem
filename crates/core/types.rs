@@ -34,6 +34,14 @@ macro_rules! id_newtype {
                 self.0.fmt(f)
             }
         }
+
+        impl std::str::FromStr for $name {
+            type Err = uuid::Error;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                s.parse::<Uuid>().map(Self)
+            }
+        }
     };
 }
 
@@ -318,4 +326,23 @@ pub struct ApiTokenInfo {
     pub metadata: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::UserId;
+
+    #[test]
+    fn userid_fromstr_parses_valid_uuid() {
+        let s = "550e8400-e29b-41d4-a716-446655440000";
+        let id = UserId::from_str(s).unwrap();
+        assert_eq!(id.to_string(), s);
+    }
+
+    #[test]
+    fn userid_fromstr_rejects_invalid() {
+        assert!(UserId::from_str("not-a-uuid").is_err());
+    }
 }

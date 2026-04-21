@@ -229,8 +229,7 @@ impl ControlDb {
             let scopes: Vec<ApiKeyScope> = serde_json::from_str(&scope_json)
                 .map_err(|e| SaasError::ProvisionFailed(e.to_string()))?;
             let key_id = Uuid::from_slice(&id_bytes).map_err(|_| SaasError::TenantNotFound)?;
-            let t_id =
-                Uuid::from_slice(&tenant_bytes).map_err(|_| SaasError::TenantNotFound)?;
+            let t_id = Uuid::from_slice(&tenant_bytes).map_err(|_| SaasError::TenantNotFound)?;
 
             result.push(ApiKey {
                 id: ApiKeyId::from_uuid(key_id),
