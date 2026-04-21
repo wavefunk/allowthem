@@ -1,0 +1,72 @@
+{# _app_shell.html — shared layout for settings + 8 admin pages.
+   Sidebar 240px left, main content, status bar spanning the bottom.
+   Collapses to a top-bar + hamburger overlay below 900px.
+
+   Child templates extend this and fill:
+     {% block content %}     main pane body
+     {% block sidebar_nav %} nav items (M4 populates with role-based items)
+#}
+{% extends "base.html" %}
+
+{% block html_attrs %}{% if branding and branding.forced_mode %}data-mode="{{ branding.forced_mode }}" data-mode-locked{% endif %}{% endblock %}
+
+{% block body_class %}at-app-shell{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <style>
+    body.at-app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      grid-template-rows: 1fr auto;
+    }
+    body.at-app-shell .wf-statusbar { grid-column: 1 / -1; }
+    body.at-app-shell .at-sidebar {
+      background: var(--bg-elev);
+      border-right: 1px solid var(--hairline);
+      padding: 24px 16px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    body.at-app-shell .at-main {
+      padding: 32px 48px;
+      overflow-y: auto;
+    }
+    body.at-app-shell .at-hamburger { display: none; }
+    @media (max-width: 900px) {
+      body.at-app-shell { grid-template-columns: 1fr; }
+      body.at-app-shell .at-sidebar {
+        position: fixed; inset: 0 auto 0 0;
+        width: 240px; transform: translateX(-100%);
+        transition: transform 80ms ease;
+        z-index: 10;
+      }
+      body.at-app-shell[data-nav-open] .at-sidebar { transform: translateX(0); }
+      body.at-app-shell .at-hamburger { display: inline-flex; }
+    }
+  </style>
+{% endblock %}
+
+{% block body_content %}
+  <aside class="at-sidebar" aria-label="primary navigation">
+    <div class="wf-eyebrow">{{ application_name | default("allowthem") }}</div>
+    <nav>
+      {% block sidebar_nav %}{% endblock %}
+    </nav>
+  </aside>
+  <main class="at-main">
+    <button type="button" class="wf-btn wf-btn--ghost at-hamburger"
+            aria-label="toggle navigation"
+            onclick="document.body.toggleAttribute('data-nav-open')">
+      <span class="wf-kbd">≡</span>
+    </button>
+    {% include "_partials/_flash.html" %}
+    {% block content %}{% endblock %}
+  </main>
+  {% include "_partials/_status_bar.html" %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="/__allowthem/static/js/mode-toggle.js" defer></script>
+{% endblock %}

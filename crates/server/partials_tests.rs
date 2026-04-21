@@ -408,3 +408,89 @@ fn auth_shell_with_forced_mode_emits_locked_attrs() {
         "<html> must carry data-mode-locked: {html_open}"
     );
 }
+
+#[test]
+fn app_shell_wraps_content_block_and_renders_sidebar() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    env.add_template(
+        "app_child.html",
+        r#"{% extends "_partials/_app_shell.html" %}
+           {% block sidebar_nav %}<a class="wf-link" href="/x">x</a>{% endblock %}
+           {% block content %}<section id="page">payload</section>{% endblock %}"#,
+    )
+    .unwrap();
+    let html = env
+        .get_template("app_child.html")
+        .unwrap()
+        .render(context! {
+            csrf_token => "_",
+            is_production => false,
+            application_name => "acme",
+        })
+        .unwrap();
+    assert!(html.contains("at-app-shell"));
+    assert!(html.contains("at-sidebar"));
+    assert!(html.contains("wf-statusbar"));
+    assert!(html.contains("href=\"/x\""));
+    assert!(html.contains("id=\"page\""));
+    // Exactly one <body> opening tag — shell overrides body_content + body_class.
+    assert_eq!(html.matches("<body").count(), 1);
+    // Shader JS is NOT pulled in for app shell — only mode-toggle.
+    assert!(html.contains("/__allowthem/static/js/mode-toggle.js"));
+    assert!(!html.contains("/__allowthem/static/js/shader-ascii.js"));
+}
+
+#[test]
+fn app_shell_without_forced_mode_emits_no_html_attrs() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    env.add_template(
+        "app_child_nofm.html",
+        r#"{% extends "_partials/_app_shell.html" %}
+           {% block content %}<section>x</section>{% endblock %}"#,
+    )
+    .unwrap();
+    let html = env
+        .get_template("app_child_nofm.html")
+        .unwrap()
+        .render(context! {
+            csrf_token => "_",
+            is_production => false,
+            application_name => "acme",
+        })
+        .unwrap();
+    let html_open = html.split_once("<head").map(|(h, _)| h).unwrap_or("");
+    assert!(!html_open.contains("data-mode-locked"));
+    assert!(!html_open.contains("data-mode="));
+}
+
+#[test]
+fn app_shell_with_forced_mode_emits_locked_attrs() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    env.add_template(
+        "app_child_fm.html",
+        r#"{% extends "_partials/_app_shell.html" %}
+           {% block content %}<section>x</section>{% endblock %}"#,
+    )
+    .unwrap();
+    let mut b = mock_branding();
+    b.forced_mode = Some(Mode::Dark);
+    let html = env
+        .get_template("app_child_fm.html")
+        .unwrap()
+        .render(context! {
+            csrf_token => "_",
+            is_production => false,
+            application_name => "acme",
+            branding => &b,
+        })
+        .unwrap();
+    let html_open = html.split_once("<head").map(|(h, _)| h).unwrap_or("");
+    assert!(
+        html_open.contains("data-mode=\"dark\""),
+        "<html> must carry data-mode=\"dark\": {html_open}"
+    );
+    assert!(html_open.contains("data-mode-locked"));
+}
