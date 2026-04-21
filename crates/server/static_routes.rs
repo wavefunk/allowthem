@@ -94,6 +94,8 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
         let ct = res.headers().get("content-type").unwrap();
         assert_eq!(ct, "text/css; charset=utf-8");
+        let cc = res.headers().get("cache-control").unwrap();
+        assert_eq!(cc, "public, max-age=3600");
     }
 
     #[tokio::test]
