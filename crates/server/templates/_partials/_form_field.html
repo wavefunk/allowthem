@@ -16,8 +16,9 @@
          type="{{ field.type | default('text') }}"
          value="{{ field.value | default('') }}"
          {% if field.required | default(false) %}required{% endif %}
-         {% if field.autocomplete %}autocomplete="{{ field.autocomplete }}"{% endif %}>
+         {% if field.autocomplete %}autocomplete="{{ field.autocomplete }}"{% endif %}
+         {% if field.error %}aria-describedby="fld-{{ field.name }}-err" aria-invalid="true"{% endif %}>
   {% if field.error %}
-    <div class="wf-alert wf-alert--err" role="alert">{{ field.error }}</div>
+    <div id="fld-{{ field.name }}-err" class="wf-alert wf-alert--err" role="alert">{{ field.error }}</div>
   {% endif %}
 </div>

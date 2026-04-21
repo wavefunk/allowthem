@@ -154,4 +154,7 @@ fn form_field_surfaces_error_below_input() {
         .unwrap();
     assert!(html.contains("wf-alert--err"));
     assert!(html.contains("not a valid email"));
+    assert!(html.contains("aria-describedby=\"fld-email-err\""));
+    assert!(html.contains("aria-invalid=\"true\""));
+    assert!(html.contains("id=\"fld-email-err\""));
 }
