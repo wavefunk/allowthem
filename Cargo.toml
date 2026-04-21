@@ -51,6 +51,7 @@ serde_html_form = "0.2"
 jsonschema = "0.46"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
+regex = "1"
 
 [profile.dev.package.sqlx-macros]
 opt-level = 3

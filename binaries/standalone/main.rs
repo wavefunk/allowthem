@@ -9,6 +9,9 @@ mod state;
 mod templates;
 mod test_oauth_routes;
 
+#[cfg(test)]
+mod admin_template_render_tests;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

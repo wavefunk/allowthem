@@ -82,6 +82,7 @@ dependencies = [
  "figment",
  "hex",
  "minijinja",
+ "regex",
  "serde",
  "serde_html_form",
  "serde_json",
