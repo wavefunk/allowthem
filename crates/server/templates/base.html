@@ -12,15 +12,22 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     {% endif %}
 
+    {# Wave Funk CSS bundle — available to partials landing in M2; current Tailwind classes unaffected. #}
+    <link rel="stylesheet" href="/__allowthem/static/css/fonts.css">
+    <link rel="stylesheet" href="/__allowthem/static/css/colors_and_type.css">
+    <link rel="stylesheet" href="/__allowthem/static/css/kit.css">
+
     {% block theme %}
     <style>
         :root {
-            --at-accent: {{ accent | default("#2563eb") }};
-            --at-accent-hover: {{ accent_hover | default("#1d4ed8") }};
-            --at-accent-ring: {{ accent_ring | default("#3b82f6") }};
+            --at-accent: {{ accent | default("#ffffff") }};
+            --at-accent-ink: {{ accent_ink | default("#000000") }};
+            --at-accent-hover: color-mix(in oklch, var(--at-accent), black 15%);
+            --at-accent-ring: color-mix(in oklch, var(--at-accent), white 25%);
         }
         .at-btn-primary {
             background-color: var(--at-accent);
+            color: var(--at-accent-ink);
         }
         .at-btn-primary:hover {
             background-color: var(--at-accent-hover);

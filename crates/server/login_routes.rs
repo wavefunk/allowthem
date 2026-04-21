@@ -22,7 +22,7 @@ use allowthem_core::sessions;
 use allowthem_core::types::ClientId;
 use allowthem_core::{AllowThem, AuditEvent, PasswordHash, SessionToken};
 
-use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
+use crate::branding::{lookup_branding, resolve_accent};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 
@@ -87,10 +87,7 @@ fn render_login_form(
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
-    let (accent, accent_hover, accent_ring) = branding
-        .and_then(|b| b.primary_color.as_deref())
-        .map(compute_accent_variants)
-        .unwrap_or_else(default_accents);
+    let (accent_hex, accent_ink_hex) = resolve_accent(branding);
 
     crate::browser_templates::render(
         &config.templates,
@@ -103,9 +100,8 @@ fn render_login_form(
             client_id => client_id.map(|c| c.as_str()),
             app_name => branding.map(|b| b.application_name.as_str()),
             logo_url => branding.and_then(|b| b.logo_url.as_deref()),
-            accent,
-            accent_hover,
-            accent_ring,
+            accent => accent_hex,
+            accent_ink => accent_ink_hex,
             oauth_providers => &config.oauth_providers,
             is_production => config.is_production,
         },
@@ -714,7 +710,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "TODO(task-7): re-enable after resolve_accent migration"]
     async fn login_with_client_id_shows_branding() {
         let (ath, config) = setup().await;
         let (app, _) = ath
@@ -754,11 +749,17 @@ mod tests {
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains("BrandedApp"), "should show app name");
         assert!(html.contains("<img"), "should show logo");
-        assert!(html.contains("#ff6600"), "should have accent color");
+        assert!(
+            html.contains("--at-accent: #ff6600"),
+            "primary_color should flow to --at-accent"
+        );
+        assert!(
+            html.contains("--at-accent-ink:"),
+            "accent_ink should be emitted in template"
+        );
     }
 
     #[tokio::test]
-    #[ignore = "TODO(task-7): re-enable after resolve_accent migration"]
     async fn login_without_client_id_shows_default() {
         let (ath, config) = setup().await;
         let router = test_app(ath, config);
@@ -774,11 +775,17 @@ mod tests {
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(!html.contains("<img"), "no logo without client_id");
-        assert!(html.contains("#2563eb"), "should have default blue");
+        assert!(
+            html.contains("--at-accent: #ffffff"),
+            "should have default white accent"
+        );
+        assert!(
+            html.contains("--at-accent-ink: #000000"),
+            "should have default black ink"
+        );
     }
 
     #[tokio::test]
-    #[ignore = "TODO(task-7): re-enable after resolve_accent migration"]
     async fn login_with_invalid_client_id_shows_default() {
         let (ath, config) = setup().await;
         let router = test_app(ath, config);
@@ -794,11 +801,17 @@ mod tests {
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(!html.contains("<img"), "no logo for invalid client_id");
-        assert!(html.contains("#2563eb"), "should fall back to default blue");
+        assert!(
+            html.contains("--at-accent: #ffffff"),
+            "should fall back to default white accent"
+        );
+        assert!(
+            html.contains("--at-accent-ink: #000000"),
+            "should fall back to default black ink"
+        );
     }
 
     #[tokio::test]
-    #[ignore = "TODO(task-7): re-enable after resolve_accent migration"]
     async fn branded_login_post_failure_preserves_branding() {
         let (ath, config) = setup().await;
         create_user(&ath, "branded@example.com", "correcthorse").await;
@@ -850,7 +863,7 @@ mod tests {
             "app name preserved after error"
         );
         assert!(
-            html.contains("#ff6600"),
+            html.contains("--at-accent: #ff6600"),
             "accent color preserved after error"
         );
     }

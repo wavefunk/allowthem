@@ -19,7 +19,7 @@ use allowthem_core::{
     RegisteredEvent, RegistrationSource, Username, generate_token, hash_token,
 };
 
-use crate::branding::{compute_accent_variants, default_accents, lookup_branding};
+use crate::branding::{lookup_branding, resolve_accent};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 use crate::custom_fields::{
@@ -311,11 +311,7 @@ fn render_register_form(
     config: &RegisterConfig,
     params: RegisterFormParams<'_>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let (accent, accent_hover, accent_ring) = params
-        .branding
-        .and_then(|b| b.primary_color.as_deref())
-        .map(compute_accent_variants)
-        .unwrap_or_else(default_accents);
+    let (accent_hex, accent_ink_hex) = resolve_accent(params.branding);
 
     // Build a custom_values map keyed by field name (stripping custom_data[] prefix)
     let custom_values_map: HashMap<&str, &str> = params
@@ -349,9 +345,8 @@ fn render_register_form(
             client_id => client_id.map(|c| c.as_str()),
             app_name => branding.map(|b| b.application_name.as_str()),
             logo_url => branding.and_then(|b| b.logo_url.as_deref()),
-            accent,
-            accent_hover,
-            accent_ring,
+            accent => accent_hex,
+            accent_ink => accent_ink_hex,
             is_production => config.is_production,
             custom_fields,
             custom_values => custom_values_map,
@@ -876,7 +871,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "TODO(task-7): re-enable after resolve_accent migration"]
     async fn register_with_client_id_shows_branding() {
         let (ath, config) = setup().await;
         let (app, _) = ath
@@ -916,11 +910,17 @@ mod tests {
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains("BrandedRegApp"), "should show app name");
         assert!(html.contains("<img"), "should show logo");
-        assert!(html.contains("#ff6600"), "should have accent color");
+        assert!(
+            html.contains("--at-accent: #ff6600"),
+            "primary_color should flow to --at-accent"
+        );
+        assert!(
+            html.contains("--at-accent-ink:"),
+            "accent_ink should be emitted in template"
+        );
     }
 
     #[tokio::test]
-    #[ignore = "TODO(task-7): re-enable after resolve_accent migration"]
     async fn register_without_client_id_shows_default() {
         let (ath, config) = setup().await;
         let router = test_app(ath, config);
@@ -936,7 +936,14 @@ mod tests {
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(!html.contains("<img"), "no logo without client_id");
-        assert!(html.contains("#2563eb"), "should have default blue");
+        assert!(
+            html.contains("--at-accent: #ffffff"),
+            "should have default white accent"
+        );
+        assert!(
+            html.contains("--at-accent-ink: #000000"),
+            "should have default black ink"
+        );
     }
 
     #[tokio::test]
