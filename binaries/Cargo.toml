@@ -16,6 +16,10 @@ path = "standalone/main.rs"
 name = "allowthem-saas"
 path = "saas/main.rs"
 
+[[bin]]
+name = "seed-branding"
+path = "standalone/bin/seed_branding.rs"
+
 [dependencies]
 allowthem-core = { path = "../crates/core" }
 allowthem-server = { path = "../crates/server" }

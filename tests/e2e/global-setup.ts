@@ -6,7 +6,13 @@ import { spawnSync, spawn } from "child_process";
 
 const workspaceRoot = path.resolve(__dirname, "../..");
 const dbPath = path.resolve(__dirname, "test-e2e.db");
+// Hoisted to ensure byte-identical DB URL for both the server env var and
+// the seed binary's --db-url flag; a mismatch (e.g. sqlite: vs sqlite://)
+// would open a different handle and the spec would navigate to a server
+// with no seeded app.
+const dbUrl = `sqlite:${dbPath}?mode=rwc`;
 const pidFile = path.join(os.tmpdir(), "allowthem-e2e.pid");
+const seededClientIdFile = path.resolve(__dirname, ".seeded-client-id");
 
 function getBinaryPath(): string {
   // Use cargo metadata to find the actual target directory (may be outside the workspace)
@@ -58,7 +64,7 @@ export default async function globalSetup(): Promise<void> {
     env: {
       ...process.env,
       ALLOWTHEM_BIND: "127.0.0.1:3100",
-      ALLOWTHEM_DATABASE_URL: `sqlite:${dbPath}?mode=rwc`,
+      ALLOWTHEM_DATABASE_URL: dbUrl,
       ALLOWTHEM_COOKIE_SECURE: "false",
       ALLOWTHEM_BASE_URL: "http://127.0.0.1:3100",
       ALLOWTHEM_SIGNING_KEY_HEX:
@@ -105,4 +111,52 @@ export default async function globalSetup(): Promise<void> {
     throw err;
   }
   console.log("[e2e] Server is ready.");
+
+  // Seed a branded application via the `seed-branding` Rust binary. We
+  // cannot write directly to the SQLite DB from TS (branding schema drift
+  // would silently break the spec); the Rust binary shares the same crate
+  // as the server, so a schema mismatch is a compile error instead.
+  console.log("[e2e] Seeding branded application via seed-branding...");
+  const seedBuild = spawnSync("cargo", ["build", "--bin", "seed-branding"], {
+    cwd: workspaceRoot,
+    stdio: "inherit",
+  });
+  if (seedBuild.status !== 0) {
+    server.kill("SIGTERM");
+    throw new Error("cargo build --bin seed-branding failed");
+  }
+  const seedArgs = [
+    "run",
+    "--quiet",
+    "--bin",
+    "seed-branding",
+    "--",
+    "--db-url",
+    dbUrl,
+    "--name",
+    "m5-accent-fixture",
+    "--accent-hex",
+    "#cba6f7",
+    "--ink",
+    "black",
+    "--redirect-uri",
+    "http://localhost:3000/callback",
+  ];
+  console.log(`[e2e] cargo ${seedArgs.join(" ")}`);
+  const seedResult = spawnSync("cargo", seedArgs, {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+  });
+  if (seedResult.status !== 0) {
+    console.error(seedResult.stderr);
+    server.kill("SIGTERM");
+    throw new Error("seed-branding binary failed");
+  }
+  const seededClientId = seedResult.stdout.trim();
+  if (!seededClientId) {
+    server.kill("SIGTERM");
+    throw new Error("seed-branding produced empty client_id on stdout");
+  }
+  fs.writeFileSync(seededClientIdFile, seededClientId);
+  console.log(`[e2e] Seeded client_id=${seededClientId} written to ${seededClientIdFile}`);
 }
