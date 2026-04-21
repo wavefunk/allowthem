@@ -1,5 +1,5 @@
 use axum::Router;
-use axum::extract::State;
+use axum::extract::Extension;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -24,7 +24,7 @@ pub struct UserInfoResponse {
 
 async fn userinfo(
     OAuthBearerToken(claims): OAuthBearerToken,
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
 ) -> Response {
     // 1. Fetch user by claims.sub
     let user = match ath.db().get_user(claims.sub).await {
@@ -62,7 +62,7 @@ async fn userinfo(
     (StatusCode::OK, axum::Json(response)).into_response()
 }
 
-pub fn userinfo_route() -> Router<AllowThem> {
+pub fn userinfo_route() -> Router<()> {
     Router::new().route("/oauth/userinfo", get(userinfo).post(userinfo))
 }
 
@@ -128,7 +128,10 @@ mod tests {
             .await
             .unwrap();
 
-        let app = userinfo_route().with_state(ath.clone());
+        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
 
         (ath, app, user.id)
     }
@@ -196,7 +199,10 @@ mod tests {
             .unwrap();
 
         let jwt = sign_jwt(&ath, &user.id, "openid profile", 300).await;
-        let app = userinfo_route().with_state(ath);
+        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(
+            ath,
+            crate::cors::inject_ath_into_extensions,
+        ));
 
         let resp = app.oneshot(bearer_request(&jwt)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -272,7 +278,10 @@ mod tests {
             .unwrap();
 
         let jwt = sign_jwt(&ath, &user.id, "openid profile", 300).await;
-        let app = userinfo_route().with_state(ath);
+        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(
+            ath,
+            crate::cors::inject_ath_into_extensions,
+        ));
 
         let resp = app.oneshot(bearer_request(&jwt)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -302,7 +311,10 @@ mod tests {
             .unwrap();
 
         let jwt = sign_jwt(&ath, &user.id, "openid email", 300).await;
-        let app = userinfo_route().with_state(ath);
+        let app = userinfo_route().layer(axum::middleware::from_fn_with_state(
+            ath,
+            crate::cors::inject_ath_into_extensions,
+        ));
 
         let resp = app.oneshot(bearer_request(&jwt)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);

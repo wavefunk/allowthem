@@ -1,4 +1,4 @@
-use axum::extract::{Extension, State};
+use axum::extract::Extension;
 use axum::http::header::COOKIE;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -17,7 +17,7 @@ struct MfaConfig {
 
 /// Create a router with MFA route handlers.
 ///
-/// Returns a `Router<AllowThem>` with four endpoints:
+/// Returns a `Router<()>` with four endpoints:
 /// - `POST /mfa/setup` — generates TOTP secret, returns otpauth URI and base32 secret
 /// - `POST /mfa/confirm` — validates TOTP code, enables MFA, returns recovery codes
 /// - `POST /mfa/disable` — disables MFA, deletes secret and recovery codes
@@ -35,7 +35,7 @@ struct MfaConfig {
 /// 4. Integrator returns `{ mfa_required: true, mfa_token }` to client
 /// 5. Client sends `POST /mfa/verify { mfa_token, code }` with TOTP or recovery code
 /// 6. On success, a session is created and returned via Set-Cookie
-pub fn mfa_routes(issuer: String) -> Router<AllowThem> {
+pub fn mfa_routes(issuer: String) -> Router<()> {
     let config = MfaConfig { issuer };
     Router::new()
         .route("/mfa/setup", post(setup))
@@ -144,7 +144,7 @@ fn map_mfa_error(err: AuthError) -> (StatusCode, Json<Value>) {
 /// Generates a TOTP secret for the authenticated user. Returns the otpauth URI
 /// (for QR code rendering) and the base32-encoded secret.
 async fn setup(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaConfig>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
@@ -176,7 +176,7 @@ struct ConfirmBody {
 /// Validates the TOTP code against the user's pending secret. If valid,
 /// enables MFA and returns 10 recovery codes (shown once).
 async fn confirm(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     headers: HeaderMap,
     Json(body): Json<ConfirmBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
@@ -200,7 +200,7 @@ async fn confirm(
 ///
 /// Disables MFA for the authenticated user. Deletes the secret and all recovery codes.
 async fn disable(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let user = authenticated_user(&ath, &headers).await?;
@@ -224,7 +224,10 @@ struct VerifyBody {
 /// On success: creates a session and sets the session cookie.
 /// On wrong code: returns 401 (the challenge token is NOT consumed, allowing retry).
 /// On invalid/expired token: returns 401.
-async fn verify_mfa(State(ath): State<AllowThem>, Json(body): Json<VerifyBody>) -> Response {
+async fn verify_mfa(
+    Extension(ath): Extension<AllowThem>,
+    Json(body): Json<VerifyBody>,
+) -> Response {
     let user_id = match ath.db().validate_mfa_challenge(&body.mfa_token).await {
         Ok(Some(uid)) => uid,
         Ok(None) => {
@@ -315,7 +318,7 @@ struct RecoverBody {
 /// `mfa_token` (from the two-step login flow) and a one-time recovery code.
 /// On success, the recovery code is consumed and a session is created.
 /// Does NOT require an auth cookie (the user is mid-login).
-async fn recover(State(ath): State<AllowThem>, Json(body): Json<RecoverBody>) -> Response {
+async fn recover(Extension(ath): Extension<AllowThem>, Json(body): Json<RecoverBody>) -> Response {
     let user_id = match ath.db().validate_mfa_challenge(&body.mfa_token).await {
         Ok(Some(uid)) => uid,
         Ok(None) => {
@@ -402,7 +405,7 @@ async fn recover(State(ath): State<AllowThem>, Json(body): Json<RecoverBody>) ->
 /// Replaces all recovery codes with a fresh set of 10. Requires auth.
 /// Returns the new codes (shown once).
 async fn regenerate_codes(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let user = authenticated_user(&ath, &headers).await?;
@@ -429,7 +432,7 @@ async fn regenerate_codes(
 ///
 /// Returns the number of unused recovery codes remaining. Requires auth.
 async fn recovery_code_count(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let user = authenticated_user(&ath, &headers).await?;
@@ -465,7 +468,10 @@ mod tests {
             .unwrap();
 
         let routes = mfa_routes("allowthem-test".into());
-        let app = routes.with_state(ath.clone());
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app)
     }
 
@@ -848,7 +854,10 @@ mod tests {
         // Try to recover with the same consumed code
         let mfa_token = ath.db().create_mfa_challenge(user_id).await.unwrap();
 
-        let app = mfa_routes("allowthem-test".into()).with_state(ath.clone());
+        let app = mfa_routes("allowthem-test".into()).layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         let req = Request::builder()
             .method("POST")
             .uri("/auth/mfa/recover")
@@ -960,7 +969,10 @@ mod tests {
             .unwrap();
 
         // Check count again (need a new app since oneshot consumed it)
-        let app2 = mfa_routes("allowthem-test".into()).with_state(ath.clone());
+        let app2 = mfa_routes("allowthem-test".into()).layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         let req2 = Request::builder()
             .method("GET")
             .uri("/mfa/recovery-codes/count")

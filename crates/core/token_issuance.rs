@@ -11,6 +11,8 @@ use crate::authorization::hash_authorization_code;
 use crate::db::Db;
 use crate::error::AuthError;
 use crate::signing_keys::SigningKey;
+#[cfg(test)]
+use crate::types::ClientType;
 use crate::types::{ApplicationId, AuthorizationCodeId, RefreshTokenId, TokenHash, UserId};
 
 // ---------------------------------------------------------------------------
@@ -840,6 +842,7 @@ mod tests {
         let (app, _secret) = db
             .create_application(
                 "ExchangeApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".to_string()],
                 false,
                 Some(user.id),
@@ -1022,6 +1025,7 @@ mod tests {
         let (app, _) = db
             .create_application(
                 "ExpiredApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".to_string()],
                 false,
                 Some(user.id),
@@ -1091,6 +1095,7 @@ mod tests {
         let (app_b, _) = db
             .create_application(
                 "OtherApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://other.example.com/callback".to_string()],
                 false,
                 Some(user_b.id),
@@ -1473,6 +1478,7 @@ mod tests {
         let (app_b, _) = db
             .create_application(
                 "OtherRefreshApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://other.example.com/callback".to_string()],
                 false,
                 Some(user_b.id),

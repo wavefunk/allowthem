@@ -1,4 +1,4 @@
-use axum::extract::State;
+use axum::extract::Extension;
 use axum::http::header::COOKIE;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -453,7 +453,7 @@ pub async fn check_authorization(
 }
 
 pub async fn authorize_post(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     headers: HeaderMap,
     Form(form): Form<ConsentSubmission>,
 ) -> Response {
@@ -531,7 +531,7 @@ pub async fn authorize_post(
 mod tests {
     use super::*;
     use allowthem_core::handle::AllowThemBuilder;
-    use allowthem_core::types::Email;
+    use allowthem_core::types::{ClientType, Email};
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request;
@@ -558,6 +558,7 @@ mod tests {
             .db()
             .create_application(
                 "TestApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".to_string()],
                 false,
                 Some(user.id),
@@ -797,6 +798,7 @@ mod tests {
             .db()
             .create_application(
                 "TrustedApp".to_string(),
+                ClientType::Confidential,
                 vec!["https://trusted.example.com/callback".to_string()],
                 true,
                 None,
@@ -928,7 +930,10 @@ mod tests {
     fn post_app(ath: AllowThem) -> Router {
         Router::new()
             .route("/oauth/authorize", post(authorize_post))
-            .with_state(ath)
+            .layer(axum::middleware::from_fn_with_state(
+                ath,
+                crate::cors::inject_ath_into_extensions,
+            ))
     }
 
     #[tokio::test]

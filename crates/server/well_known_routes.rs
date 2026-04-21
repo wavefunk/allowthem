@@ -1,7 +1,7 @@
 //! `.well-known` HTTP routes: OIDC discovery document and JWKS endpoint.
 
 use axum::Router;
-use axum::extract::{Extension, State};
+use axum::extract::Extension;
 use axum::http::StatusCode;
 use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
@@ -44,7 +44,7 @@ async fn openid_configuration(Extension(config): Extension<WellKnownConfig>) -> 
 /// `GET /.well-known/jwks.json`
 ///
 /// Queries all signing keys from the database and builds the JWKS document.
-async fn jwks(State(ath): State<AllowThem>) -> Response {
+async fn jwks(Extension(ath): Extension<AllowThem>) -> Response {
     let keys = match ath.db().get_all_signing_keys().await {
         Ok(k) => k,
         Err(e) => return server_error(e),
@@ -65,10 +65,10 @@ async fn jwks(State(ath): State<AllowThem>) -> Response {
 
 /// Create a router with `.well-known` route handlers.
 ///
-/// Returns a `Router<AllowThem>` with:
+/// Returns a `Router<()>` with:
 /// - `GET /.well-known/openid-configuration` — OIDC discovery document
 /// - `GET /.well-known/jwks.json` — JSON Web Key Set
-pub fn well_known_routes(base_url: String) -> Router<AllowThem> {
+pub fn well_known_routes(base_url: String) -> Router<()> {
     let config = WellKnownConfig { base_url };
     Router::new()
         .route(
@@ -98,7 +98,10 @@ mod tests {
             .unwrap();
 
         let routes = well_known_routes("https://auth.example.com".into());
-        let app = routes.with_state(ath.clone());
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app)
     }
 

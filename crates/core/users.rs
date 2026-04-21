@@ -1,5 +1,6 @@
+use base64ct::{Base64UrlUnpadded, Encoding};
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::db::Db;
@@ -51,6 +52,48 @@ pub struct UserListEntry {
 pub struct SearchUsersResult {
     pub users: Vec<UserListEntry>,
     pub total: u32,
+}
+
+/// Opaque keyset cursor for paginating `list_users_paginated`.
+///
+/// Encodes `(created_at, id)` as a base64url-encoded JSON blob.
+pub struct UserCursor {
+    pub created_at: DateTime<Utc>,
+    pub id: UserId,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RawUserCursor {
+    ca: String,
+    id: String,
+}
+
+impl UserCursor {
+    pub fn from_entry(entry: &UserListEntry) -> Self {
+        Self {
+            created_at: entry.created_at,
+            id: entry.id,
+        }
+    }
+
+    pub fn encode(&self) -> String {
+        let raw = RawUserCursor {
+            ca: self.created_at.to_rfc3339(),
+            id: self.id.to_string(),
+        };
+        let json = serde_json::to_string(&raw).expect("RawUserCursor serializes");
+        Base64UrlUnpadded::encode_string(json.as_bytes())
+    }
+
+    pub fn decode(s: &str) -> Option<Self> {
+        let bytes = Base64UrlUnpadded::decode_vec(s).ok()?;
+        let raw: RawUserCursor = serde_json::from_slice(&bytes).ok()?;
+        let created_at = chrono::DateTime::parse_from_rfc3339(&raw.ca)
+            .ok()?
+            .with_timezone(&Utc);
+        let id = raw.id.parse::<uuid::Uuid>().ok().map(UserId::from_uuid)?;
+        Some(Self { created_at, id })
+    }
 }
 
 impl Db {
@@ -253,6 +296,52 @@ impl Db {
         .map_err(AuthError::Database)
     }
 
+    /// Paginated list of users using a `(created_at, id)` keyset cursor.
+    ///
+    /// Limits are capped at 200. Pass `None` for cursor to start from the beginning.
+    /// Results are ordered oldest-first.
+    pub async fn list_users_paginated(
+        &self,
+        limit: u32,
+        cursor: Option<&UserCursor>,
+    ) -> Result<Vec<UserListEntry>, AuthError> {
+        let limit = (limit as i64).min(200);
+        match cursor {
+            None => sqlx::query_as::<_, UserListEntry>(
+                "SELECT u.id, u.email, u.username, u.is_active, \
+                 EXISTS (SELECT 1 FROM allowthem_mfa_secrets \
+                         WHERE user_id = u.id AND enabled = 1) AS has_mfa, \
+                 u.created_at \
+                 FROM allowthem_users u \
+                 ORDER BY u.created_at ASC, u.id ASC \
+                 LIMIT ?",
+            )
+            .bind(limit)
+            .fetch_all(self.pool())
+            .await
+            .map_err(AuthError::Database),
+            Some(c) => {
+                let ca = c.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+                sqlx::query_as::<_, UserListEntry>(
+                    "SELECT u.id, u.email, u.username, u.is_active, \
+                     EXISTS (SELECT 1 FROM allowthem_mfa_secrets \
+                             WHERE user_id = u.id AND enabled = 1) AS has_mfa, \
+                     u.created_at \
+                     FROM allowthem_users u \
+                     WHERE (u.created_at > ?1 OR (u.created_at = ?1 AND u.id > ?2)) \
+                     ORDER BY u.created_at ASC, u.id ASC \
+                     LIMIT ?3",
+                )
+                .bind(&ca)
+                .bind(c.id)
+                .bind(limit)
+                .fetch_all(self.pool())
+                .await
+                .map_err(AuthError::Database)
+            }
+        }
+    }
+
     /// Search and filter users with pagination.
     ///
     /// Builds a dynamic query with optional search term (matched against
@@ -431,5 +520,63 @@ impl Db {
             .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handle::{AllowThem, AllowThemBuilder};
+
+    async fn setup() -> AllowThem {
+        AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap()
+    }
+
+    async fn make_user(db: &Db, tag: u32) -> crate::types::User {
+        let email = Email::new(format!("user{tag}@example.com")).unwrap();
+        db.create_user(email, "pw123456", None, None).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn user_cursor_encode_decode_roundtrip() {
+        let ath = setup().await;
+        let db = ath.db();
+        let user = make_user(db, 1).await;
+        let entries = db.list_users_paginated(10, None).await.unwrap();
+        assert_eq!(entries.len(), 1);
+        let cursor = UserCursor::from_entry(&entries[0]);
+        let encoded = cursor.encode();
+        let decoded = UserCursor::decode(&encoded).unwrap();
+        assert_eq!(decoded.id, user.id);
+    }
+
+    #[tokio::test]
+    async fn list_users_paginated_returns_first_page() {
+        let ath = setup().await;
+        let db = ath.db();
+        for i in 0..5 {
+            make_user(db, i).await;
+        }
+        let page = db.list_users_paginated(3, None).await.unwrap();
+        assert_eq!(page.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn list_users_paginated_cursor_advances() {
+        let ath = setup().await;
+        let db = ath.db();
+        for i in 0..5 {
+            make_user(db, i + 10).await;
+        }
+        let page1 = db.list_users_paginated(3, None).await.unwrap();
+        assert_eq!(page1.len(), 3);
+        let cursor = UserCursor::from_entry(page1.last().unwrap());
+        let page2 = db.list_users_paginated(3, Some(&cursor)).await.unwrap();
+        assert_eq!(page2.len(), 2);
+        assert!(!page2.iter().any(|u| page1.iter().any(|v| v.id == u.id)));
     }
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::{Extension, Query, State};
+use axum::extract::{Extension, Query};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -18,7 +18,7 @@ struct PasswordResetConfig {
 
 /// Create a router with password reset JSON API handlers.
 ///
-/// Returns a `Router<AllowThem>` with three endpoints namespaced under `/api`
+/// Returns a `Router<()>` with three endpoints namespaced under `/api`
 /// to avoid colliding with the browser form surface in
 /// [`crate::password_reset_page_routes`]:
 /// - `POST /api/forgot-password` — initiates reset flow (always returns 200)
@@ -35,10 +35,7 @@ struct PasswordResetConfig {
 ///     .merge(reset_routes)
 ///     .with_state(ath);
 /// ```
-pub fn password_reset_routes(
-    email_sender: Arc<dyn EmailSender>,
-    base_url: String,
-) -> Router<AllowThem> {
+pub fn password_reset_routes(email_sender: Arc<dyn EmailSender>, base_url: String) -> Router<()> {
     let config = PasswordResetConfig {
         email_sender,
         base_url,
@@ -62,7 +59,7 @@ struct ForgotPasswordBody {
 /// Always returns 200 regardless of whether the email exists.
 /// This prevents email enumeration attacks.
 async fn forgot_password(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetConfig>,
     Json(body): Json<ForgotPasswordBody>,
 ) -> (StatusCode, Json<Value>) {
@@ -103,7 +100,7 @@ struct ResetTokenQuery {
 ///
 /// Validates a reset token without consuming it.
 async fn validate_reset(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Query(q): Query<ResetTokenQuery>,
 ) -> (StatusCode, Json<Value>) {
     match ath.db().validate_reset_token(&q.token).await {
@@ -130,7 +127,7 @@ struct ResetPasswordBody {
 /// Executes the password reset: validates the token, hashes the new password,
 /// updates the user, and marks the token as used.
 async fn execute_reset(
-    State(ath): State<AllowThem>,
+    Extension(ath): Extension<AllowThem>,
     Json(body): Json<ResetPasswordBody>,
 ) -> (StatusCode, Json<Value>) {
     match ath
@@ -173,7 +170,10 @@ mod tests {
 
         let sender: Arc<dyn EmailSender> = Arc::new(LogEmailSender);
         let routes = password_reset_routes(sender, "https://example.com".into());
-        let app = routes.with_state(ath.clone());
+        let app = routes.layer(axum::middleware::from_fn_with_state(
+            ath.clone(),
+            crate::cors::inject_ath_into_extensions,
+        ));
         (ath, app)
     }
 

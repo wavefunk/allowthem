@@ -17,10 +17,12 @@ use eyre::Result;
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
+#[cfg(test)]
+use allowthem_core::types::ClientType;
 use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
-use allowthem_server::{AllRoutesBuilder, csrf_middleware};
+use allowthem_server::{AllRoutesBuilder, csrf_middleware, inject_ath_into_extensions};
 
 use crate::state::AppState;
 
@@ -130,8 +132,7 @@ async fn main() -> Result<()> {
         .mfa_issuer(&config.base_url)
         .all_routes()
         .build(&ath)
-        .map_err(|e| eyre::eyre!("{e}"))?
-        .with_state(ath.clone());
+        .map_err(|e| eyre::eyre!("{e}"))?;
 
     // 7. App state (admin routes need AuthClient + templates)
     let auth_client: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
@@ -144,25 +145,30 @@ async fn main() -> Result<()> {
 
     // 8. Router
     //
-    // Admin routes are nested with CSRF protection via an outer layer.
-    // The builder already applies CSRF to its browser route subset
-    // internally, so `routes` (merged after the layer) is unaffected.
-    let app = Router::new()
-        .route("/health", get(health))
+    // Admin routes use AppState; apply .with_state() before merging so the
+    // top-level app is Router<()> and can be merged with auth routes.
+    // inject_ath_into_extensions (outermost) runs before csrf_middleware.
+    let admin_router = Router::new()
         .nest("/admin/applications", admin_applications::routes())
         .nest("/admin/audit", admin_audit::routes())
         .nest("/admin/sessions", admin_sessions::routes())
-        .nest_service("/static", ServeDir::new("binaries/static"))
+        .layer(axum::middleware::from_fn(csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
-            csrf_middleware,
+            inject_ath_into_extensions,
         ))
-        .merge(routes)
         .with_state(state);
+
+    // auth routes already carry inject shim from AllRoutesBuilder::build()
+    let app = Router::new()
+        .route("/health", get(health))
+        .nest_service("/static", ServeDir::new("binaries/standalone/static"))
+        .merge(admin_router)
+        .merge(routes);
 
     // Conditionally mount mock test routes
     let app = if config.oauth_mock {
-        app.merge(test_oauth_routes::test_oauth_routes().with_state(ath))
+        app.merge(test_oauth_routes::test_oauth_routes())
     } else {
         app
     };
@@ -577,9 +583,9 @@ mod tests {
             is_production: false,
         };
         let static_dir = if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
-            std::path::PathBuf::from(dir).join("static")
+            std::path::PathBuf::from(dir).join("standalone/static")
         } else {
-            std::path::PathBuf::from("binaries/static")
+            std::path::PathBuf::from("binaries/standalone/static")
         };
         let app = Router::new()
             .nest_service("/static", ServeDir::new(&static_dir))
@@ -631,9 +637,12 @@ mod consent_tests {
         let templates = state.templates.clone();
         let is_production = state.is_production;
         Router::new()
-            .merge(consent_routes(templates, is_production).with_state(ath.clone()))
-            .layer(axum::middleware::from_fn_with_state(ath, csrf_middleware))
-            .with_state(state)
+            .merge(consent_routes(templates, is_production))
+            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(
+                ath.clone(),
+                inject_ath_into_extensions,
+            ))
     }
 
     async fn create_test_session(ath: &allowthem_core::AllowThem, email: &str) -> String {
@@ -676,6 +685,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "MyTestApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -714,6 +724,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "TrustedApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 true,
                 None,
@@ -743,6 +754,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "NoAuth".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -774,6 +786,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "HttpLogo".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -792,6 +805,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "HttpsLogo".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -826,6 +840,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "ColorApp".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,
@@ -855,6 +870,7 @@ mod consent_tests {
             .db()
             .create_application(
                 "DefaultColor".into(),
+                ClientType::Confidential,
                 vec!["https://example.com/callback".into()],
                 false,
                 None,

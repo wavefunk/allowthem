@@ -7,7 +7,7 @@ use url::Url;
 
 use crate::db::Db;
 use crate::error::AuthError;
-use crate::types::{ApplicationId, ClientId, ClientSecret, PasswordHash, UserId};
+use crate::types::{ApplicationId, ClientId, ClientSecret, ClientType, PasswordHash, UserId};
 
 /// An OIDC client application registered with allowthem.
 ///
@@ -18,8 +18,9 @@ pub struct Application {
     pub id: ApplicationId,
     pub name: String,
     pub client_id: ClientId,
+    pub client_type: ClientType,
     #[serde(skip_serializing)]
-    pub client_secret_hash: PasswordHash,
+    pub client_secret_hash: Option<PasswordHash>,
     pub redirect_uris: String, // JSON array, parsed at the call site
     pub logo_url: Option<String>,
     pub primary_color: Option<String>,
@@ -103,6 +104,53 @@ fn map_unique_violation(err: sqlx::Error) -> AuthError {
         }
     }
     AuthError::Database(err)
+}
+
+/// Opaque keyset cursor for paginating `list_applications_paginated`.
+///
+/// Encodes `(created_at, id)` as a base64url-encoded JSON blob. Callers
+/// treat the encoded string as opaque and pass it back verbatim.
+pub struct ApplicationCursor {
+    pub created_at: DateTime<Utc>,
+    pub id: ApplicationId,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RawCursor {
+    ca: String,
+    id: String,
+}
+
+impl ApplicationCursor {
+    pub fn from_app(app: &Application) -> Self {
+        Self {
+            created_at: app.created_at,
+            id: app.id,
+        }
+    }
+
+    pub fn encode(&self) -> String {
+        let raw = RawCursor {
+            ca: self.created_at.to_rfc3339(),
+            id: self.id.to_string(),
+        };
+        let json = serde_json::to_string(&raw).expect("RawCursor serializes");
+        Base64UrlUnpadded::encode_string(json.as_bytes())
+    }
+
+    pub fn decode(s: &str) -> Option<Self> {
+        let bytes = Base64UrlUnpadded::decode_vec(s).ok()?;
+        let raw: RawCursor = serde_json::from_slice(&bytes).ok()?;
+        let created_at = chrono::DateTime::parse_from_rfc3339(&raw.ca)
+            .ok()?
+            .with_timezone(&Utc);
+        let id = raw
+            .id
+            .parse::<uuid::Uuid>()
+            .ok()
+            .map(ApplicationId::from_uuid)?;
+        Some(Self { created_at, id })
+    }
 }
 
 /// Parameters for updating an application's mutable fields.
@@ -221,15 +269,17 @@ impl Db {
     ///
     /// Validates `redirect_uris` before inserting. Returns `AuthError::InvalidRedirectUri`
     /// if any URI fails validation.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_application(
         &self,
         name: String,
+        client_type: ClientType,
         redirect_uris: Vec<String>,
         is_trusted: bool,
         created_by: Option<UserId>,
         logo_url: Option<String>,
         primary_color: Option<String>,
-    ) -> Result<(Application, ClientSecret), AuthError> {
+    ) -> Result<(Application, Option<ClientSecret>), AuthError> {
         validate_redirect_uris(&redirect_uris)?;
         if let Some(ref url) = logo_url {
             validate_logo_url(url)?;
@@ -239,20 +289,27 @@ impl Db {
         }
         let id = ApplicationId::new();
         let client_id = generate_client_id();
-        let (raw_secret, hash) = generate_client_secret()?;
+        let (raw_secret, hash) = match client_type {
+            ClientType::Confidential => {
+                let (secret, hash) = generate_client_secret()?;
+                (Some(secret), Some(hash))
+            }
+            ClientType::Public => (None, None),
+        };
         let redirect_uris_json =
             serde_json::to_string(&redirect_uris).expect("Vec<String> serializes to JSON");
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
         sqlx::query(
             "INSERT INTO allowthem_applications \
-             (id, name, client_id, client_secret_hash, redirect_uris, logo_url, \
+             (id, name, client_id, client_type, client_secret_hash, redirect_uris, logo_url, \
               primary_color, is_trusted, created_by, is_active, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?11)",
         )
         .bind(id)
         .bind(&name)
         .bind(&client_id)
+        .bind(client_type)
         .bind(&hash)
         .bind(&redirect_uris_json)
         .bind(&logo_url)
@@ -271,7 +328,7 @@ impl Db {
     /// Get an application by internal ID.
     pub async fn get_application(&self, id: ApplicationId) -> Result<Application, AuthError> {
         sqlx::query_as::<_, Application>(
-            "SELECT id, name, client_id, client_secret_hash, redirect_uris, \
+            "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
              logo_url, primary_color, is_trusted, created_by, is_active, \
              created_at, updated_at \
              FROM allowthem_applications WHERE id = ?",
@@ -290,7 +347,7 @@ impl Db {
         client_id: &ClientId,
     ) -> Result<Application, AuthError> {
         sqlx::query_as::<_, Application>(
-            "SELECT id, name, client_id, client_secret_hash, redirect_uris, \
+            "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
              logo_url, primary_color, is_trusted, created_by, is_active, \
              created_at, updated_at \
              FROM allowthem_applications WHERE client_id = ?",
@@ -324,7 +381,7 @@ impl Db {
     /// List all applications ordered by `created_at ASC`.
     pub async fn list_applications(&self) -> Result<Vec<Application>, AuthError> {
         sqlx::query_as::<_, Application>(
-            "SELECT id, name, client_id, client_secret_hash, redirect_uris, \
+            "SELECT id, name, client_id, client_type, client_secret_hash, redirect_uris, \
              logo_url, primary_color, is_trusted, created_by, is_active, \
              created_at, updated_at \
              FROM allowthem_applications ORDER BY created_at ASC",
@@ -332,6 +389,49 @@ impl Db {
         .fetch_all(self.pool())
         .await
         .map_err(AuthError::Database)
+    }
+
+    /// Paginated list of applications using a `(created_at, id)` keyset cursor.
+    ///
+    /// Limits are capped at 200. Pass `None` for cursor to start from the beginning.
+    pub async fn list_applications_paginated(
+        &self,
+        limit: u32,
+        cursor: Option<&ApplicationCursor>,
+    ) -> Result<Vec<Application>, AuthError> {
+        let limit = (limit as i64).min(200);
+        match cursor {
+            None => sqlx::query_as::<_, Application>(
+                "SELECT id, name, client_id, client_type, client_secret_hash, \
+                 redirect_uris, logo_url, primary_color, is_trusted, created_by, \
+                 is_active, created_at, updated_at \
+                 FROM allowthem_applications \
+                 ORDER BY created_at ASC, id ASC LIMIT ?1",
+            )
+            .bind(limit)
+            .fetch_all(self.pool())
+            .await
+            .map_err(AuthError::Database),
+            Some(cur) => {
+                // Bind created_at as TEXT matching the schema format so that
+                // lexicographic comparison produces the correct ordering.
+                let ca = cur.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+                sqlx::query_as::<_, Application>(
+                    "SELECT id, name, client_id, client_type, client_secret_hash, \
+                     redirect_uris, logo_url, primary_color, is_trusted, created_by, \
+                     is_active, created_at, updated_at \
+                     FROM allowthem_applications \
+                     WHERE (created_at > ?1 OR (created_at = ?1 AND id > ?2)) \
+                     ORDER BY created_at ASC, id ASC LIMIT ?3",
+                )
+                .bind(&ca)
+                .bind(cur.id)
+                .bind(limit)
+                .fetch_all(self.pool())
+                .await
+                .map_err(AuthError::Database)
+            }
+        }
     }
 
     /// Update an application's mutable fields.
@@ -392,6 +492,12 @@ impl Db {
         &self,
         id: ApplicationId,
     ) -> Result<(Application, ClientSecret), AuthError> {
+        let application = self.get_application(id).await?;
+        if application.client_type == ClientType::Public {
+            return Err(AuthError::InvalidRequest(
+                "public clients have no client secret".into(),
+            ));
+        }
         let (raw_secret, hash) = generate_client_secret()?;
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
@@ -570,7 +676,8 @@ mod tests {
             id: ApplicationId::new(),
             name: "Test".to_string(),
             client_id: generate_client_id(),
-            client_secret_hash: hash,
+            client_type: ClientType::Confidential,
+            client_secret_hash: Some(hash),
             redirect_uris: r#"["https://example.com/callback","https://example.com/other"]"#
                 .to_string(),
             logo_url: None,
@@ -598,7 +705,8 @@ mod tests {
             id: ApplicationId::new(),
             name: "Test".to_string(),
             client_id: generate_client_id(),
-            client_secret_hash: hash,
+            client_type: ClientType::Confidential,
+            client_secret_hash: Some(hash),
             redirect_uris: "not valid json".to_string(),
             logo_url: None,
             primary_color: None,
@@ -700,7 +808,8 @@ mod tests {
             id: ApplicationId::new(),
             name: "My App".to_string(),
             client_id: generate_client_id(),
-            client_secret_hash: hash,
+            client_type: ClientType::Confidential,
+            client_secret_hash: Some(hash),
             redirect_uris: r#"["https://example.com/cb"]"#.to_string(),
             logo_url: Some("https://example.com/logo.png".to_string()),
             primary_color: Some("#3B82F6".to_string()),
@@ -723,7 +832,8 @@ mod tests {
             id: ApplicationId::new(),
             name: "Test App".to_string(),
             client_id: generate_client_id(),
-            client_secret_hash: hash,
+            client_type: ClientType::Confidential,
+            client_secret_hash: Some(hash),
             redirect_uris: r#"["https://example.com/callback"]"#.to_string(),
             logo_url: None,
             primary_color: None,
