@@ -1,33 +1,29 @@
-{% extends "base.html" %}
+{% extends "_partials/_auth_shell.html" %}
 
 {% block title %}Recovery codes — allowthem{% endblock %}
 
-{% block body %}
-<div class="flex min-h-screen justify-center px-4 py-12">
-    <div class="w-full max-w-md space-y-6">
-        <h1 class="text-2xl font-bold text-gray-900">Two-factor authentication enabled</h1>
+{% block form %}
+  <header>
+    <div class="wf-eyebrow">security</div>
+    <h1 class="wf-display-sm">Two-factor authentication enabled</h1>
+  </header>
 
-        <div class="rounded bg-yellow-50 border border-yellow-200 p-3 text-sm text-yellow-800">
-            Save these recovery codes in a secure location. Each code can only be used once.
-            If you lose access to your authenticator app, you can use a recovery code to sign in.
-        </div>
+  <div class="wf-alert warn" role="alert">
+    Save these recovery codes in a secure location. Each code can only be used once.
+    If you lose access to your authenticator app, you can use a recovery code to sign in.
+  </div>
 
-        <div class="rounded border border-gray-200 bg-white p-4">
-            <ul class="grid grid-cols-2 gap-2">
-                {% for code in recovery_codes %}
-                <li>
-                    <code data-testid="recovery-code" class="text-sm font-mono text-gray-900">{{ code }}</code>
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
+  <div style="border:1px solid var(--hairline);padding:16px">
+    <ul style="list-style:none;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      {% for code in recovery_codes %}
+        <li>
+          <code data-testid="recovery-code" class="wf-kbd" style="width:100%;display:block">{{ code }}</code>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
 
-        <a href="/settings"
-           class="inline-block rounded bg-blue-600 px-4 py-2 text-white font-medium
-                  hover:bg-blue-700 focus:outline-none focus:ring-2
-                  focus:ring-blue-500 focus:ring-offset-2">
-            Back to settings
-        </a>
-    </div>
-</div>
+  <p class="wf-meta" style="margin-top:16px">
+    <a class="wf-btn primary" href="/settings">Back to settings</a>
+  </p>
 {% endblock %}
