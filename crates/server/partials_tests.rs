@@ -7,9 +7,11 @@
 
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::types::{Mode, SplashPrimitive};
+use minijinja::value::Value;
 use minijinja::{Environment, context};
 
 use crate::browser_templates::add_default_browser_templates;
+use crate::shell_context::ShellContext;
 
 fn env_with_wrapper(wrapper_name: &'static str, wrapper_src: &'static str) -> Environment<'static> {
     let mut env = Environment::new();
@@ -90,7 +92,10 @@ fn flash_renders_error_variant() {
         })
         .unwrap();
     assert!(html.contains("wf-alert"));
-    assert!(html.contains(" err\""), "expected ' err\"' variant token in class attr");
+    assert!(
+        html.contains(" err\""),
+        "expected ' err\"' variant token in class attr"
+    );
     assert!(html.contains("bad password"));
     assert!(html.contains("role=\"alert\""));
 }
@@ -156,7 +161,10 @@ fn form_field_surfaces_error_below_input() {
         })
         .unwrap();
     assert!(html.contains("wf-alert"));
-    assert!(html.contains(" err\""), "expected ' err\"' variant token in class attr");
+    assert!(
+        html.contains(" err\""),
+        "expected ' err\"' variant token in class attr"
+    );
     assert!(html.contains("not a valid email"));
     assert!(html.contains("aria-describedby=\"fld-email-err\""));
     assert!(html.contains("aria-invalid=\"true\""));
@@ -176,7 +184,10 @@ fn flash_partial_reads_locally_set_flash_from_including_template() {
         .unwrap()
         .render(context! {})
         .unwrap();
-    assert!(html.contains("local error"), "_flash.html did not see locally-set flash: {html}");
+    assert!(
+        html.contains("local error"),
+        "_flash.html did not see locally-set flash: {html}"
+    );
     assert!(html.contains("wf-alert"));
 }
 
@@ -439,13 +450,14 @@ fn app_shell_wraps_content_block_and_renders_sidebar() {
            {% block content %}<section id="page">payload</section>{% endblock %}"#,
     )
     .unwrap();
+    let shell = ShellContext::new(false, "/app", "acme");
     let html = env
         .get_template("app_child.html")
         .unwrap()
         .render(context! {
             csrf_token => "_",
             is_production => false,
-            application_name => "acme",
+            shell => Value::from_serialize(&shell),
         })
         .unwrap();
     assert!(html.contains("at-app-shell"));
@@ -470,13 +482,14 @@ fn app_shell_without_forced_mode_emits_no_html_attrs() {
            {% block content %}<section>x</section>{% endblock %}"#,
     )
     .unwrap();
+    let shell = ShellContext::new(false, "/app", "acme");
     let html = env
         .get_template("app_child_nofm.html")
         .unwrap()
         .render(context! {
             csrf_token => "_",
             is_production => false,
-            application_name => "acme",
+            shell => Value::from_serialize(&shell),
         })
         .unwrap();
     let html_open = html.split_once("<head").map(|(h, _)| h).unwrap_or("");
@@ -496,13 +509,14 @@ fn app_shell_with_forced_mode_emits_locked_attrs() {
     .unwrap();
     let mut b = mock_branding();
     b.forced_mode = Some(Mode::Dark);
+    let shell = ShellContext::new(false, "/app", "acme");
     let html = env
         .get_template("app_child_fm.html")
         .unwrap()
         .render(context! {
             csrf_token => "_",
             is_production => false,
-            application_name => "acme",
+            shell => Value::from_serialize(&shell),
             branding => &b,
         })
         .unwrap();

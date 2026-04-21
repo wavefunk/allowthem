@@ -68,9 +68,9 @@
 
 {% block body_content %}
   <aside class="at-sidebar" aria-label="primary navigation">
-    <div class="wf-eyebrow">{{ application_name | default("allowthem") }}</div>
+    <div class="wf-eyebrow">{{ shell.application_name | default("allowthem") }}</div>
     <nav>
-      {% block sidebar_nav %}{% endblock %}
+      {% block sidebar_nav %}{% include "_partials/_sidebar_nav.html" %}{% endblock %}
     </nav>
   </aside>
   <main class="at-main">

@@ -1,0 +1,22 @@
+{# _sidebar_nav.html — role-filtered sidebar used by _app_shell.html.
+   Required context:
+     - shell.nav_items : list of { href, label, group: "admin"|"account", active: bool }
+   Items arrive pre-ordered: admin entries first, account entries last.
+   Renders nothing if `shell` is undefined (lets legacy pages without shell render cleanly).
+#}
+{%- if shell is defined and shell %}
+  {%- if shell.is_admin %}
+    <div class="wf-eyebrow">Admin</div>
+    {%- for item in shell.nav_items %}
+      {%- if item.group == "admin" %}
+        <a class="wf-link{% if not item.active %} wf-link-quiet{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+      {%- endif %}
+    {%- endfor %}
+  {%- endif %}
+  <div class="wf-eyebrow">Account</div>
+  {%- for item in shell.nav_items %}
+    {%- if item.group == "account" %}
+      <a class="wf-link{% if not item.active %} wf-link-quiet{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+    {%- endif %}
+  {%- endfor %}
+{%- endif %}
