@@ -49,3 +49,7 @@ sqlx-reset:
 # Run Playwright e2e tests
 test-e2e:
     cd tests/e2e && npx playwright test
+
+# Run Playwright e2e across chromium, firefox, webkit (manual; no CI)
+test-e2e-all-browsers:
+    cd tests/e2e && npx playwright test --project=main --project=firefox --project=webkit
