@@ -13,9 +13,6 @@ data/
 /.claude/
 /.beads/.beads-credential-key
 
-# Build artifacts
-binaries/static/css/style.css
-
 # E2E test artifacts
 tests/e2e/server.log
 .worktrees/

@@ -41,10 +41,6 @@ migrate-new NAME:
 sqlx-prepare:
     cargo sqlx prepare --workspace
 
-# Build production CSS with Tailwind CLI (v4)
-build-css:
-    tailwindcss -i binaries/static/css/input.css -o binaries/static/css/style.css --minify
-
 # Reset dev database
 sqlx-reset:
     rm -f data/allowthem.db data/allowthem.db-wal data/allowthem.db-shm

@@ -511,32 +511,22 @@ mod tests {
     }
 
     #[test]
-    fn base_html_renders_dev_mode() {
+    fn base_html_renders_without_tailwind() {
         let env = crate::templates::build_template_env().unwrap();
-        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, false);
-        let html = result.unwrap().0;
+        let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
+            .unwrap()
+            .0;
         assert!(
-            html.contains("@tailwindcss/browser@4"),
-            "dev mode should include Tailwind CDN"
+            !html.contains("tailwindcss"),
+            "Tailwind references must be gone"
         );
         assert!(
             !html.contains("/static/css/style.css"),
-            "dev mode should not link compiled CSS"
-        );
-    }
-
-    #[test]
-    fn base_html_renders_production_mode() {
-        let env = crate::templates::build_template_env().unwrap();
-        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, true);
-        let html = result.unwrap().0;
-        assert!(
-            html.contains("/static/css/style.css"),
-            "prod mode should link compiled CSS"
+            "prod-only CSS path must be gone"
         );
         assert!(
-            !html.contains("@tailwindcss/browser@4"),
-            "prod mode should not include CDN"
+            html.contains("/__allowthem/static/css/kit.css"),
+            "kit CSS still served"
         );
     }
 
