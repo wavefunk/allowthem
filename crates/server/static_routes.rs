@@ -18,6 +18,9 @@ const IOSEVKA_500: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-500.
 const IOSEVKA_600: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-600.woff2");
 const IOSEVKA_800: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-800.woff2");
 
+const MODE_TOGGLE_JS: &[u8] = include_bytes!("assets/static/js/mode-toggle.js");
+const SHADER_ASCII_JS: &[u8] = include_bytes!("assets/static/js/shader-ascii.js");
+
 /// Cache-Control value for all static assets.
 ///
 /// Files are served with fixed filenames, so we keep the TTL modest.
@@ -54,6 +57,14 @@ pub fn router() -> Router {
         .route(
             "/__allowthem/static/fonts/iosevka-aile-800.woff2",
             get(|| asset(IOSEVKA_800, "font/woff2")),
+        )
+        .route(
+            "/__allowthem/static/js/mode-toggle.js",
+            get(|| asset(MODE_TOGGLE_JS, "application/javascript; charset=utf-8")),
+        )
+        .route(
+            "/__allowthem/static/js/shader-ascii.js",
+            get(|| asset(SHADER_ASCII_JS, "application/javascript; charset=utf-8")),
         )
 }
 
@@ -123,5 +134,39 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn serves_mode_toggle_js() {
+        let app = router();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/__allowthem/static/js/mode-toggle.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let ct = res.headers().get("content-type").unwrap();
+        assert_eq!(ct, "application/javascript; charset=utf-8");
+    }
+
+    #[tokio::test]
+    async fn serves_shader_ascii_js() {
+        let app = router();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/__allowthem/static/js/shader-ascii.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let ct = res.headers().get("content-type").unwrap();
+        assert_eq!(ct, "application/javascript; charset=utf-8");
     }
 }
