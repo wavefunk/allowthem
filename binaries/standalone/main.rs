@@ -570,7 +570,7 @@ mod tests {
     #[test]
     fn base_html_has_fouc_free_mode_bootstrap() {
         let env = crate::templates::build_template_env().unwrap();
-        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, false);
+        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, true);
         let html = result.unwrap().0;
         assert!(
             html.contains("allowthem:mode"),
@@ -605,9 +605,11 @@ mod tests {
             !html.contains("data-mode=\""),
             "no data-mode attr on <html> when branding.forced_mode is unset"
         );
+        let html_tag_end = html.find('>').unwrap();
+        let html_tag = &html[..html_tag_end];
         assert!(
-            !html.contains("data-mode-locked>") && !html.contains("data-mode-locked "),
-            "no data-mode-locked attr on <html> when branding.forced_mode is unset"
+            !html_tag.contains("data-mode"),
+            "no data-mode attrs on <html> when branding.forced_mode is unset"
         );
     }
 
