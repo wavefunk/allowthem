@@ -10,6 +10,6 @@
   <span class="wf-meta">MODE {{ status_mode | default("DARK") }}</span>
   <span class="wf-meta">ENV {{ status_env | default("DEV") }}</span>
   <span class="wf-meta">SESSION {{ status_session | default("ANON") }}</span>
-  <span class="wf-meta" style="margin-left:auto">{{ status_hint | default("") }}</span>
+  <span id="wf-screen-label" class="wf-meta" style="margin-left:auto">{{ status_hint | default("") }}</span>
   {% include "_partials/_mode_toggle.html" %}
 </div>
