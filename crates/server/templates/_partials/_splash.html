@@ -10,8 +10,7 @@
      - branding (optional BrandingConfig)
      - application_name (optional — used as fallback for splash_text)
 #}
-<aside class="wf-splash" aria-label="application splash">
-  {% if branding and branding.splash_url %}
+{% if branding and branding.splash_url %}
     <iframe src="{{ branding.splash_url | safe }}"
             sandbox="allow-scripts"
             referrerpolicy="no-referrer"
@@ -42,6 +41,5 @@
             data-shape-source="text"
             data-shape-text="{{ _text }}"
             aria-hidden="true"></canvas>
-    <pre class="ascii" style="display:none">{{ _text }}</pre>
-  {% endif %}
-</aside>
+  <pre class="ascii" style="display:none">{{ _text }}</pre>
+{% endif %}

@@ -1,6 +1,8 @@
 //! Guard tests that enumerate the migrated auth templates and assert each
-//! one extends `_auth_shell.html` (stamping `at-auth-shell` on <body>) and
-//! contains no Tailwind utility classes or the retired at-* compat classes.
+//! one extends `_auth_shell.html` (stamping `wf-auth` on <body>) and
+//! contains no Tailwind utility classes or the retired at-* compat / legacy
+//! `wf-splash` shell classes (M6.2 flipped the polarity — the at-shell
+//! classes are now forbidden; `wf-auth` / `wf-auth-splash` are required).
 //!
 //! Add a template here when M3 lands its migration; remove an entry if the
 //! page is deleted. The explicit list beats globbing — it fails loud if a
@@ -37,14 +39,23 @@ const FORBIDDEN_SUBSTRINGS: &[&str] = &[
     "at-btn-primary",
     "at-input-focus",
     "at-link",
+    // at-* shell classes — retired in M6.2 in favour of upstream wf-auth primitives.
+    "at-auth-shell",
+    "at-form-pane",
+    "at-form-wrap",
+    // Legacy `wf-splash` shell class — renamed to `wf-auth-splash` in M6.2.
+    // Use delimited tokens so we don't collide with `wf-auth-splash` (required)
+    // or `wf-splash-frame` (still used on the iframe inside _splash.html).
+    "class=\"wf-splash\"",
+    "class=\"wf-splash ",
 ];
 
 /// Structural assertion: every migrated auth page inherits `_auth_shell.html`
-/// (which stamps `at-auth-shell` on `<body>`) and pulls the splash aside.
+/// (which stamps `wf-auth` on `<body>`) and pulls the splash aside.
 const REQUIRED_SUBSTRINGS: &[&str] = &[
-    "at-auth-shell", // body class from the shell
-    "wf-splash",     // splash aside from the shell
-    "wf-statusbar",  // status bar at the bottom
+    "wf-auth",        // body class from the shell
+    "wf-auth-splash", // splash aside from the shell
+    "wf-statusbar",   // status bar at the bottom
 ];
 
 use minijinja::Value;
