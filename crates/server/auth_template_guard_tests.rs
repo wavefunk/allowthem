@@ -213,6 +213,49 @@ fn assert_accent_vars_render(template_name: &'static str, extra_ctx: Value) {
     );
 }
 
+/// Cascade order guard: tokens → components → layouts. The four `<link>`
+/// tags in `base.html` must appear in declaration order on every render,
+/// since later files intentionally override earlier ones (e.g. our gated
+/// light-mode accent override depends on `colors_and_type.css` already
+/// being loaded). Enforced via monotonic `find()` indices on a rendered
+/// `/login` page — the simplest probe that fails if someone reorders
+/// or renames one of the stylesheet declarations.
+#[test]
+fn base_html_loads_css_files_in_cascade_order() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    let html = env
+        .get_template("login.html")
+        .unwrap_or_else(|e| panic!("load login.html: {e}"))
+        .render(ctx_with(&[
+            ("identifier", Value::from("")),
+            ("oauth_providers", Value::from(Vec::<String>::new())),
+        ]))
+        .unwrap_or_else(|e| panic!("render login.html: {e}"));
+
+    let ordered = [
+        "/__allowthem/static/css/fonts.css",
+        "/__allowthem/static/css/colors_and_type.css",
+        "/__allowthem/static/css/kit.css",
+        "/__allowthem/static/css/layouts.css",
+    ];
+    let indices: Vec<usize> = ordered
+        .iter()
+        .map(|needle| {
+            html.find(needle)
+                .unwrap_or_else(|| panic!("base.html: missing stylesheet link `{needle}`"))
+        })
+        .collect();
+    for window in indices.windows(2) {
+        assert!(
+            window[0] < window[1],
+            "base.html: CSS link order broken — expected {:?}, got indices {:?}",
+            ordered,
+            indices
+        );
+    }
+}
+
 #[test]
 fn login_emits_non_default_accent_vars() {
     assert_accent_vars_render(
