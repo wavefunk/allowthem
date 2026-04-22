@@ -311,7 +311,8 @@ fn render_register_form(
     config: &RegisterConfig,
     params: RegisterFormParams<'_>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let (accent_hex, accent_ink_hex) = resolve_accent(params.branding);
+    let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
+        resolve_accent(params.branding);
 
     // Build a custom_values map keyed by field name (stripping custom_data[] prefix)
     let custom_values_map: HashMap<&str, &str> = params
@@ -347,6 +348,8 @@ fn render_register_form(
             logo_url => branding.and_then(|b| b.logo_url.as_deref()),
             accent => accent_hex,
             accent_ink => accent_ink_hex,
+            accent_light => accent_light_hex,
+            accent_ink_light => accent_ink_light_hex,
             is_production => config.is_production,
             custom_fields,
             custom_values => custom_values_map,

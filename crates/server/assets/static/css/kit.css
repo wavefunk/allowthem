@@ -1,6 +1,7 @@
 /* Wave Funk UI kit — shared component styles.
-   Imports the design tokens and adds kit-only primitive styles. */
-@import url("./colors_and_type.css");
+   Imports the design tokens + layout system, then adds kit-only primitive styles. */
+@import url("../../colors_and_type.css?v=splash");
+@import url("./layouts.css");
 
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: var(--font-mono); }
 * { box-sizing: border-box; }
@@ -133,6 +134,79 @@ a.wf-link-quiet:active,
 /* Horizontal rule */
 .wf-hr { border: 0; border-top: 1px solid var(--hairline); margin: 0; }
 
+/* Table — hairline rows, UPPERCASE headers, tabular numerics.
+   Matches the system: no outer border, no zebra fills, no rounded chrome.
+   Groupings come from hairlines + alignment alone.
+
+   Structure:
+     <table class="wf-table">
+       <thead><tr><th>...</th></tr></thead>
+       <tbody><tr><td>...</td></tr></tbody>
+     </table>
+
+   Alignment: text left by default, numerics right via <td class="num">.
+   Size:      add .dense for a compact variant (32px row vs 44px).
+   Width:     .wf-table is full-width; wrap in a scroll container if needed.
+
+   Status columns: use .wf-tag (ok/warn/err) inside cells — do NOT introduce
+   row background colors. Severity lives in the tag, not the row. */
+.wf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.wf-table thead th {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--fg-muted);
+  text-align: left;
+  padding: 10px 16px;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.wf-table tbody td {
+  padding: 14px 16px;
+  height: 44px;
+  border-bottom: 1px solid var(--hairline-dim);
+  vertical-align: middle;
+  color: var(--fg);
+}
+.wf-table tbody tr:last-child td { border-bottom: 1px solid var(--hairline); }
+/* First/last cells get no horizontal padding on the outer edge so the
+   table aligns flush with surrounding hairlines. Override by wrapping
+   the table if you want internal padding. */
+.wf-table th:first-child, .wf-table td:first-child { padding-left: 0; }
+.wf-table th:last-child,  .wf-table td:last-child  { padding-right: 0; text-align: right; }
+/* Explicit numeric cells — right-aligned, tabular. Put .num on the <th>
+   too if you want the header to follow. */
+.wf-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.wf-table .strong { color: var(--fg-strong); font-weight: 600; }
+.wf-table .muted  { color: var(--fg-muted); }
+/* Row hover — only when the table is marked interactive (e.g. rows are
+   links or clickable). Static data tables should NOT hover. */
+.wf-table.interactive tbody tr { cursor: pointer; transition: background var(--dur-snap) var(--ease-snap); }
+.wf-table.interactive tbody tr:hover { background: var(--bg-hover); }
+.wf-table.interactive tbody tr:focus-within { background: var(--bg-hover); outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Selected row — highlight fill only. No left rule; a rule makes the row
+   feel visually displaced from its neighbors. Use aria-selected="true". */
+.wf-table tbody tr[aria-selected="true"] td { background: var(--bg-hover); color: var(--fg-strong); }
+/* Dense variant — 32px rows, 11px body. For log-style or dashboard tables. */
+.wf-table.dense { font-size: 11px; }
+.wf-table.dense thead th { padding: 6px 12px; font-size: 9px; }
+.wf-table.dense tbody td { padding: 6px 12px; height: 32px; }
+/* Sort indicator — put .sort on the active <th>, add .desc for descending. */
+.wf-table th.sort { color: var(--fg-strong); cursor: pointer; }
+.wf-table th.sort::after {
+  content: " ↑"; color: var(--accent); font-weight: 700;
+}
+.wf-table th.sort.desc::after { content: " ↓"; }
+
 /* Vim-style status bar — dense single row of meta spans.
    Use at the bottom of any kit to signal online/encryption/version state. */
 .wf-statusbar {
@@ -148,37 +222,3 @@ a.wf-link-quiet:active,
   background: var(--ok);
   display: inline-block; vertical-align: middle;
 }
-
-/* TODO(allowthem-z3b): align with Wave Funk design guide */
-.wf-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-.wf-table th,
-.wf-table td {
-  padding: 12px 8px;
-  text-align: left;
-  border-bottom: 1px solid var(--hairline);
-}
-.wf-table th { font-weight: 600; color: var(--fg-muted); }
-
-/* TODO(allowthem-z3b): align with Wave Funk design guide */
-.wf-dl {
-  display: grid;
-  grid-template-columns: minmax(160px, 1fr) 3fr;
-  gap: 8px 24px;
-}
-.wf-dl dt { color: var(--fg-muted); }
-.wf-dl dd { margin: 0; }
-
-/* TODO(allowthem-z3b): align with Wave Funk design guide */
-.wf-empty {
-  padding: 32px 0;
-  color: var(--fg-muted);
-  text-align: center;
-}
-
-/* TODO(allowthem-z3b): align with Wave Funk design guide */
-.wf-tag.muted { color: var(--fg-muted); border-color: var(--hairline-dim); }

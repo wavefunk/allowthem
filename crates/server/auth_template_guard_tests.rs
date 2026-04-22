@@ -42,13 +42,13 @@ const FORBIDDEN_SUBSTRINGS: &[&str] = &[
 /// Structural assertion: every migrated auth page inherits `_auth_shell.html`
 /// (which stamps `at-auth-shell` on `<body>`) and pulls the splash aside.
 const REQUIRED_SUBSTRINGS: &[&str] = &[
-    "at-auth-shell",   // body class from the shell
-    "wf-splash",       // splash aside from the shell
-    "wf-statusbar",    // status bar at the bottom
+    "at-auth-shell", // body class from the shell
+    "wf-splash",     // splash aside from the shell
+    "wf-statusbar",  // status bar at the bottom
 ];
 
-use std::collections::BTreeMap;
 use minijinja::Value;
+use std::collections::BTreeMap;
 
 /// Non-default accent fixture used by the accent-vars tests below. Pairs
 /// a Catppuccin Mauve hex with black ink; no bearing on production branding.
@@ -65,6 +65,8 @@ fn ctx_with(extras: &[(&str, Value)]) -> Value {
     map.insert("csrf_token".into(), Value::from("tok"));
     map.insert("accent".into(), Value::from("#ffffff"));
     map.insert("accent_ink".into(), Value::from("#000000"));
+    map.insert("accent_light".into(), Value::from("#000000"));
+    map.insert("accent_ink_light".into(), Value::from("#ffffff"));
     map.insert("is_production".into(), Value::from(false));
     map.insert("error".into(), Value::from(""));
     map.insert("success".into(), Value::from(false));
@@ -98,7 +100,10 @@ fn register_has_no_tailwind_or_at_classes() {
             ("email", Value::from("")),
             ("username", Value::from("")),
             ("custom_fields", Value::from(Vec::<Value>::new())),
-            ("custom_values", Value::from_serialize(&BTreeMap::<String, String>::new())),
+            (
+                "custom_values",
+                Value::from_serialize(&BTreeMap::<String, String>::new()),
+            ),
         ]),
     );
 }
@@ -139,7 +144,10 @@ fn mfa_setup_has_no_tailwind_or_at_classes() {
 fn mfa_recovery_has_no_tailwind_or_at_classes() {
     check_template(
         "mfa_recovery.html",
-        ctx_with(&[("recovery_codes", Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]))]),
+        ctx_with(&[(
+            "recovery_codes",
+            Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]),
+        )]),
     );
 }
 
@@ -211,6 +219,49 @@ fn assert_accent_vars_render(template_name: &'static str, extra_ctx: Value) {
     );
 }
 
+/// Cascade order guard: tokens → components → layouts. The four `<link>`
+/// tags in `base.html` must appear in declaration order on every render,
+/// since later files intentionally override earlier ones (e.g. our gated
+/// light-mode accent override depends on `colors_and_type.css` already
+/// being loaded). Enforced via monotonic `find()` indices on a rendered
+/// `/login` page — the simplest probe that fails if someone reorders
+/// or renames one of the stylesheet declarations.
+#[test]
+fn base_html_loads_css_files_in_cascade_order() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    let html = env
+        .get_template("login.html")
+        .unwrap_or_else(|e| panic!("load login.html: {e}"))
+        .render(ctx_with(&[
+            ("identifier", Value::from("")),
+            ("oauth_providers", Value::from(Vec::<String>::new())),
+        ]))
+        .unwrap_or_else(|e| panic!("render login.html: {e}"));
+
+    let ordered = [
+        "/__allowthem/static/css/fonts.css",
+        "/__allowthem/static/css/colors_and_type.css",
+        "/__allowthem/static/css/kit.css",
+        "/__allowthem/static/css/layouts.css",
+    ];
+    let indices: Vec<usize> = ordered
+        .iter()
+        .map(|needle| {
+            html.find(needle)
+                .unwrap_or_else(|| panic!("base.html: missing stylesheet link `{needle}`"))
+        })
+        .collect();
+    for window in indices.windows(2) {
+        assert!(
+            window[0] < window[1],
+            "base.html: CSS link order broken — expected {:?}, got indices {:?}",
+            ordered,
+            indices
+        );
+    }
+}
+
 #[test]
 fn login_emits_non_default_accent_vars() {
     assert_accent_vars_render(
@@ -230,7 +281,10 @@ fn register_emits_non_default_accent_vars() {
             ("email", Value::from("")),
             ("username", Value::from("")),
             ("custom_fields", Value::from(Vec::<Value>::new())),
-            ("custom_values", Value::from_serialize(&BTreeMap::<String, String>::new())),
+            (
+                "custom_values",
+                Value::from_serialize(&BTreeMap::<String, String>::new()),
+            ),
         ]),
     );
 }
@@ -271,7 +325,10 @@ fn mfa_setup_emits_non_default_accent_vars() {
 fn mfa_recovery_emits_non_default_accent_vars() {
     assert_accent_vars_render(
         "mfa_recovery.html",
-        ctx_with(&[("recovery_codes", Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]))]),
+        ctx_with(&[(
+            "recovery_codes",
+            Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]),
+        )]),
     );
 }
 

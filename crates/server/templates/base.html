@@ -37,6 +37,7 @@
     <link rel="stylesheet" href="/__allowthem/static/css/fonts.css">
     <link rel="stylesheet" href="/__allowthem/static/css/colors_and_type.css">
     <link rel="stylesheet" href="/__allowthem/static/css/kit.css">
+    <link rel="stylesheet" href="/__allowthem/static/css/layouts.css">
 
     {% block theme %}
     <style>
@@ -46,6 +47,10 @@
             --accent-hover: color-mix(in oklch, var(--accent), black 15%);
             --accent-press: color-mix(in oklch, var(--accent), black 25%);
             --accent-ring:  color-mix(in oklch, var(--accent), white 25%);
+        }
+        html[data-mode="light"] {
+            --accent: {{ accent_light | default("#000000") }};
+            --accent-ink: {{ accent_ink_light | default("#ffffff") }};
         }
     </style>
     {% endblock %}

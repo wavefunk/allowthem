@@ -605,10 +605,8 @@ mod tests {
         let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
             .unwrap()
             .0;
-        assert!(
-            !html.contains("data-mode=\""),
-            "no data-mode attr on <html> when branding.forced_mode is unset"
-        );
+        // Scope the check to the <html> tag itself — the `[data-mode="light"]`
+        // CSS selector inside <style> is legal and must not trip this test.
         let html_tag_end = html.find('>').unwrap();
         let html_tag = &html[..html_tag_end];
         assert!(
@@ -1011,13 +1009,7 @@ mod consent_tests {
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
         assert!(body.contains("wf-btn primary"), "themed button class");
-        assert!(
-            body.contains("--accent: #ffffff"),
-            "default white accent"
-        );
-        assert!(
-            body.contains("--accent-ink: #000000"),
-            "default black ink"
-        );
+        assert!(body.contains("--accent: #ffffff"), "default white accent");
+        assert!(body.contains("--accent-ink: #000000"), "default black ink");
     }
 }

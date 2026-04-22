@@ -58,7 +58,8 @@ async fn get_authorize(
             let scope_items = build_scope_items(&data.context.scopes);
 
             let branding = &data.context.branding;
-            let (accent_hex, accent_ink_hex) = resolve_accent(Some(branding));
+            let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
+                resolve_accent(Some(branding));
 
             let html = render(
                 &config.templates,
@@ -68,6 +69,8 @@ async fn get_authorize(
                     logo_url => branding.logo_url.clone(),
                     accent => accent_hex,
                     accent_ink => accent_ink_hex,
+                    accent_light => accent_light_hex,
+                    accent_ink_light => accent_ink_light_hex,
                     scope_items => scope_items,
                     client_id => data.params.application.client_id.as_str(),
                     redirect_uri => data.params.redirect_uri,

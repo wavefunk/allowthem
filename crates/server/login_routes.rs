@@ -87,7 +87,8 @@ fn render_login_form(
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
-    let (accent_hex, accent_ink_hex) = resolve_accent(branding);
+    let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
+        resolve_accent(branding);
 
     crate::browser_templates::render(
         &config.templates,
@@ -102,6 +103,8 @@ fn render_login_form(
             logo_url => branding.and_then(|b| b.logo_url.as_deref()),
             accent => accent_hex,
             accent_ink => accent_ink_hex,
+            accent_light => accent_light_hex,
+            accent_ink_light => accent_ink_light_hex,
             oauth_providers => &config.oauth_providers,
             is_production => config.is_production,
         },
@@ -808,6 +811,118 @@ mod tests {
         assert!(
             html.contains("--accent-ink: #000000"),
             "should fall back to default black ink"
+        );
+    }
+
+    #[tokio::test]
+    async fn login_default_emits_light_mode_accent_override() {
+        // Without branding, base.html must emit both the dark-mode :root
+        // block (white/black) AND an html[data-mode="light"] override
+        // (black/white), so theme toggles stay on-brand without loading
+        // the upstream Catppuccin default.
+        let (ath, config) = setup().await;
+        let router = test_app(ath, config);
+
+        let req = Request::builder()
+            .uri("/login")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+
+        let root_idx = html
+            .find(":root {")
+            .expect(":root block missing from base.html");
+        let light_idx = html
+            .find("html[data-mode=\"light\"] {")
+            .expect("html[data-mode=\"light\"] block missing from base.html");
+        assert!(
+            root_idx < light_idx,
+            ":root block should come before the light-mode override"
+        );
+
+        let root_block = &html[root_idx..light_idx];
+        assert!(
+            root_block.contains("--accent: #ffffff;"),
+            ":root should pin the default white accent"
+        );
+        assert!(
+            root_block.contains("--accent-ink: #000000;"),
+            ":root should pin the default black ink"
+        );
+
+        let light_block = &html[light_idx..];
+        assert!(
+            light_block.contains("--accent: #000000;"),
+            "html[data-mode=\"light\"] should override accent to black"
+        );
+        assert!(
+            light_block.contains("--accent-ink: #ffffff;"),
+            "html[data-mode=\"light\"] should override ink to white"
+        );
+    }
+
+    #[tokio::test]
+    async fn login_branded_emits_same_accent_in_both_modes() {
+        // When branding is configured, both :root and
+        // html[data-mode="light"] must pin the integrator's accent so a
+        // theme toggle doesn't silently revert to the upstream default.
+        let (ath, config) = setup().await;
+        let (app, _) = ath
+            .db()
+            .create_application(CreateApplicationParams {
+                name: "BrandedThemeApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/cb".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: Some("#ff6600".into()),
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
+            .await
+            .unwrap();
+        let router = test_app(ath, config);
+
+        let req = Request::builder()
+            .uri(&format!("/login?client_id={}", app.client_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+
+        let root_idx = html
+            .find(":root {")
+            .expect(":root block missing from base.html");
+        let light_idx = html
+            .find("html[data-mode=\"light\"] {")
+            .expect("html[data-mode=\"light\"] block missing from base.html");
+        let root_block = &html[root_idx..light_idx];
+        let light_block = &html[light_idx..];
+        assert!(
+            root_block.contains("--accent: #ff6600;"),
+            ":root should use the integrator's accent"
+        );
+        assert!(
+            light_block.contains("--accent: #ff6600;"),
+            "html[data-mode=\"light\"] should also use the integrator's accent"
         );
     }
 
