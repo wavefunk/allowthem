@@ -6,7 +6,7 @@ use axum::extract::{Extension, Query};
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::http::header::COOKIE;
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use minijinja::{Environment, context};
 use serde::Deserialize;
@@ -47,6 +47,36 @@ pub struct ResetPasswordForm {
     csrf_token: String,
 }
 
+/// Render just the `_auth_main_forgot_password.html` partial plus the
+/// `_auth_oob_head.html` OOB head swap, for HTMX fragment responses.
+fn render_forgot_password_fragment(
+    config: &PasswordResetPageConfig,
+    csrf_token: &str,
+    error: &str,
+    success: bool,
+) -> Result<Html<String>, BrowserError> {
+    let ctx = context! {
+        csrf_token,
+        success,
+        error,
+        is_production => config.is_production,
+        page_title => "Forgot password — allowthem",
+        status_hint => "FORGOT PASSWORD",
+    };
+
+    let main = crate::browser_templates::render(
+        &config.templates,
+        "_partials/_auth_main_forgot_password.html",
+        ctx.clone(),
+    )?;
+    let oob = crate::browser_templates::render(
+        &config.templates,
+        "_partials/_auth_oob_head.html",
+        ctx,
+    )?;
+    Ok(Html(format!("{}{}", main.0, oob.0)))
+}
+
 /// GET /forgot-password — render the email input form.
 async fn get_forgot_password(
     Extension(ath): Extension<AllowThem>,
@@ -56,6 +86,11 @@ async fn get_forgot_password(
 ) -> Result<Response, BrowserError> {
     if is_authenticated(&ath, &headers).await {
         return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
+    }
+
+    if crate::hx::is_hx_request(&headers) {
+        let html = render_forgot_password_fragment(&config, csrf.as_str(), "", false)?;
+        return Ok(html.into_response());
     }
 
     let html = crate::browser_templates::render(
@@ -306,7 +341,7 @@ mod tests {
 
     use allowthem_core::{AllowThem, AllowThemBuilder, Email, LogEmailSender};
 
-    use super::{PasswordResetPageConfig, password_reset_page_routes};
+    use super::{PasswordResetPageConfig, password_reset_page_routes, render_forgot_password_fragment};
 
     async fn setup() -> (AllowThem, PasswordResetPageConfig) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -638,5 +673,51 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
         assert_eq!(resp.headers().get("location").unwrap(), "/");
+    }
+
+    #[tokio::test]
+    async fn get_forgot_password_hx_request_returns_fragment() {
+        let (ath, config) = setup().await;
+        let app = test_app(ath, config);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/forgot-password")
+                    .header("HX-Request", "true")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "HX response must be a fragment starting at <main>"
+        );
+        assert!(
+            !html.contains("<html"),
+            "HX response must not render the full shell"
+        );
+    }
+
+    #[tokio::test]
+    async fn render_forgot_password_fragment_composes_main_and_oob_head() {
+        let (_ath, config) = setup().await;
+        let html = render_forgot_password_fragment(&config, "tok", "", false)
+            .unwrap()
+            .0;
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "fragment must include the <main> root"
+        );
+        assert!(
+            html.contains("<title hx-swap-oob=\"true\">"),
+            "fragment must include the OOB <title> tag"
+        );
+        assert!(
+            html.contains("id=\"wf-screen-label\""),
+            "fragment must include the OOB #wf-screen-label span"
+        );
     }
 }

@@ -32,6 +32,8 @@ const AUTH_MAIN_LOGIN_PARTIAL: &str =
     include_str!("templates/_partials/_auth_main_login.html");
 const AUTH_MAIN_REGISTER_PARTIAL: &str =
     include_str!("templates/_partials/_auth_main_register.html");
+const AUTH_MAIN_FORGOT_PW_PARTIAL: &str =
+    include_str!("templates/_partials/_auth_main_forgot_password.html");
 
 /// Register the default browser templates into an existing environment.
 ///
@@ -140,6 +142,11 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
         AUTH_MAIN_REGISTER_PARTIAL,
     )
     .expect("_partials/_auth_main_register.html");
+    env.add_template_owned(
+        "_partials/_auth_main_forgot_password.html",
+        AUTH_MAIN_FORGOT_PW_PARTIAL,
+    )
+    .expect("_partials/_auth_main_forgot_password.html");
 }
 
 pub fn build_default_browser_env() -> Arc<Environment<'static>> {
@@ -190,6 +197,7 @@ mod tests {
             "_partials/_auth_oob_head.html",
             "_partials/_auth_main_login.html",
             "_partials/_auth_main_register.html",
+            "_partials/_auth_main_forgot_password.html",
         ] {
             assert!(
                 env.get_template(name).is_ok(),
