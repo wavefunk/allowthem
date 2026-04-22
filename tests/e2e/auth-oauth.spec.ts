@@ -8,10 +8,10 @@ import { registerUser, oauthLogin } from "./fixtures";
 test("oauth > login page renders OAuth provider buttons", async ({ page }) => {
   await page.goto("/login");
   await expect(
-    page.getByRole("link", { name: /Log in with Google/i })
+    page.getByRole("link", { name: /^\s*GOOGLE\s*$/ })
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: /Log in with Github/i })
+    page.getByRole("link", { name: /^\s*GITHUB\s*$/ })
   ).toBeVisible();
 });
 
