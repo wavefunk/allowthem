@@ -460,8 +460,12 @@ fn app_shell_wraps_content_block_and_renders_sidebar() {
             shell => Value::from_serialize(&shell),
         })
         .unwrap();
-    assert!(html.contains("at-app-shell"));
-    assert!(html.contains("at-sidebar"));
+    assert!(html.contains("class=\"wf-app\"") || html.contains("class=\"wf-app "));
+    assert!(html.contains("class=\"wf-shell\"") || html.contains("class=\"wf-shell "));
+    assert!(html.contains("class=\"wf-sidebar\"") || html.contains("class=\"wf-sidebar "));
+    assert!(!html.contains("class=\"at-app-shell\"") && !html.contains("class=\"at-app-shell "));
+    assert!(!html.contains("class=\"at-sidebar\"") && !html.contains("class=\"at-sidebar "));
+    assert!(!html.contains("class=\"at-main\"") && !html.contains("class=\"at-main "));
     assert!(html.contains("wf-statusbar"));
     assert!(html.contains("href=\"/x\""));
     assert!(html.contains("id=\"page\""));

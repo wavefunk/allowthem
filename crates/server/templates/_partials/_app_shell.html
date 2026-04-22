@@ -4,16 +4,20 @@
      base.html
        └── _partials/_app_shell.html   (this file)
              └── settings.html, admin/applications_*, admin/users_*,
-                 admin/sessions_list.html, admin/audit_log.html  (M4 migrates)
+                 admin/sessions_list.html, admin/audit_log.html
 
    Child responsibility:
-     - fill {% block content %} with the page body.
-     - fill {% block sidebar_nav %} with role-filtered nav links (M4).
+     - fill {% block page_content %} with the page body (or {% block content %}
+       for backwards compat — page_content wraps content by default).
+     - fill {% block sidebar_nav %} with role-filtered nav links.
+     - optionally override {% block pagetitle %}, {% block crumbs %},
+       {% block page_meta %}, {% block topbar %}, and {% block main_class %}
+       (defaults to "has-header"; list pages use "has-tablewrap").
 
    Block overrides this shell sets on base.html:
      - html_attrs    data-mode / data-mode-locked when branding.forced_mode is set
-     - body_class    "at-app-shell"
-     - body_content  sidebar + main + status-bar (no second <body> tag)
+     - body_class    "wf-app"
+     - body_content  shell + main + status-bar (no second <body> tag)
      - scripts       mode-toggle.js (super() preserves HTMX)
 
    Expected context:
@@ -22,66 +26,41 @@
      - status_* keys (optional; see _status_bar.html)
      - csrf_token, is_production (from the renderer)
 
-   Sidebar 240px left, main content, status bar spanning the bottom.
-   Collapses to a top-bar + hamburger overlay below 900px.
+   Shell chrome comes from upstream Wave Funk layouts.css — .wf-app / .wf-shell
+   / .wf-sidebar / .wf-main own the grid; responsive sidebar collapse is built
+   into .wf-sidebar itself.
 #}
 {% extends "base.html" %}
 
 {% block html_attrs %}{% if branding and branding.forced_mode %}data-mode="{{ branding.forced_mode }}" data-mode-locked{% endif %}{% endblock %}
 
-{% block body_class %}at-app-shell{% endblock %}
-
-{% block head %}
-  {{ super() }}
-  <style>
-    body.at-app-shell {
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 240px 1fr;
-      grid-template-rows: 1fr auto;
-    }
-    body.at-app-shell .wf-statusbar { grid-column: 1 / -1; }
-    body.at-app-shell .at-sidebar {
-      background: var(--bg-elev);
-      border-right: 1px solid var(--hairline);
-      padding: 24px 16px;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    body.at-app-shell .at-main {
-      padding: 32px 48px;
-      overflow-y: auto;
-    }
-    body.at-app-shell .at-hamburger { display: none; }
-    @media (max-width: 900px) {
-      body.at-app-shell { grid-template-columns: 1fr; }
-      body.at-app-shell .at-sidebar {
-        position: fixed; inset: 0 auto 0 0;
-        width: 240px; transform: translateX(-100%);
-        transition: transform 80ms ease;
-        z-index: 10;
-      }
-      body.at-app-shell[data-nav-open] .at-sidebar { transform: translateX(0); }
-      body.at-app-shell .at-hamburger { display: inline-flex; }
-    }
-  </style>
-{% endblock %}
+{% block body_class %}wf-app{% endblock %}
 
 {% block body_content %}
-  <aside class="at-sidebar" aria-label="primary navigation">
-    <div class="wf-eyebrow">{{ shell.application_name | default("allowthem") }}</div>
-    <nav>
-      {% block sidebar_nav %}{% include "_partials/_sidebar_nav.html" %}{% endblock %}
-    </nav>
-  </aside>
-  <main class="at-main">
-    <button type="button" class="wf-btn ghost at-hamburger"
-            aria-label="toggle navigation"
-            onclick="document.body.toggleAttribute('data-nav-open')">
-      <span class="wf-kbd">≡</span>
-    </button>
-    {% include "_partials/_flash.html" %}
-    {% block content %}{% endblock %}
-  </main>
+  <div class="wf-shell">
+    <aside class="wf-sidebar" aria-label="primary navigation">
+      <div class="wf-brand">
+        <span class="wf-brand-name">{{ (shell.application_name if shell is defined else app_name) or application_name or "allowthem" }}</span>
+      </div>
+      <nav class="wf-nav-list">
+        {% block sidebar_nav %}{% include "_partials/_sidebar_nav.html" %}{% endblock %}
+      </nav>
+    </aside>
+    <div class="wf-main {% block main_class %}has-header{% endblock %}">
+      {% block topbar %}{% endblock %}
+      <div class="wf-pageheader">
+        <div>
+          <div class="wf-crumbs">{% block crumbs %}{% endblock %}</div>
+          <h1 class="wf-pagetitle">{% block pagetitle %}{% endblock %}</h1>
+        </div>
+        <div class="wf-page-meta">{% block page_meta %}{% endblock %}</div>
+      </div>
+      {% include "_partials/_flash.html" %}
+      <div class="wf-scroll">
+        {% block page_content %}{% block content %}{% endblock %}{% endblock %}
+      </div>
+    </div>
+  </div>
   {% include "_partials/_status_bar.html" %}
 {% endblock %}
 
