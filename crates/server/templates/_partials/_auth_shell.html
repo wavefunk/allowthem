@@ -4,31 +4,32 @@
      base.html
        └── _partials/_auth_shell.html   (this file)
              └── login.html, register.html, consent.html, forgot_password.html,
-                 reset_password.html, mfa_*.html  (M3 migrates)
+                 reset_password.html, mfa_*.html
 
-   Child responsibility: fill {% block form %}. Each child includes
-   `_partials/_flash.html` itself when it needs to surface flash messages.
-   Optional: override {% block head %} for page-specific <title> or <meta>
-   — must call {{ super() }} to keep the shell's styles.
+   Child responsibility: fill {% block auth_main %} by including
+   _partials/_auth_main_<page>.html. The included partial renders the
+   entire <main class="wf-auth-form">…</main> subtree so HTMX fragment
+   routes can render it standalone.
 
    Block overrides this shell sets on base.html:
      - html_attrs    data-mode / data-mode-locked when branding.forced_mode is set
      - body_class    "wf-auth"
-     - body_content  splash + form + status-bar (no second <body> tag)
+     - body_content  splash + auth_main slot + status-bar (no second <body> tag)
      - scripts       mode-toggle.js + shader-ascii.js (super() preserves HTMX)
 
    Integrator-overridable blocks:
-     - splash_content  replaces the splash aside contents (iframe / canvas / text cascade)
-     - auth_top        replaces the top-bar content (default: `APP / AUTH` eyebrow)
+     - splash_content  replaces the splash aside contents
+     - auth_main       replaces the entire <main class="wf-auth-form"> subtree
 
-   Expected context:
+   Expected context (passed through to the included main partial):
      - branding (optional BrandingConfig; forced_mode drives html_attrs)
-     - application_name / app_name (optional string; either is tolerated)
-     - status_mode / status_env / status_session / status_hint (for the status bar)
-     - csrf_token, is_production (from the renderer)
+     - application_name / app_name
+     - status_mode / status_env / status_session / status_hint (status bar)
+     - csrf_token, is_production
 
-   Layout rules live in layouts.css (.wf-auth + friends). This template
-   carries no inline <style> — the upstream grid rules own the geometry.
+   Auth-local .wf-note class — hairline-bordered info block used by
+   mfa_setup (TOTP box), mfa_recovery (code grid), consent (scope list).
+   Kept here rather than in kit.css until another surface adopts it.
 #}
 {% extends "base.html" %}
 
@@ -36,20 +37,41 @@
 
 {% block body_class %}wf-auth{% endblock %}
 
+{% block head %}
+  {{ super() }}
+  <style>
+    .wf-note {
+      border: 1px solid var(--hairline);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+  </style>
+{% endblock %}
+
 {% block body_content %}
   <aside class="wf-auth-splash">
     {% block splash_content %}{% include "_partials/_splash.html" %}{% endblock %}
   </aside>
-  <main class="wf-auth-form">
-    <div class="wf-auth-top">
-      {% block auth_top %}
-        <span class="wf-eyebrow">{{ (app_name or application_name or "allowthem") | upper }} / AUTH</span>
-      {% endblock %}
-    </div>
-    <div class="wf-auth-wrap">
-      {% block form %}{% endblock %}
-    </div>
-  </main>
+  {% block auth_main %}
+    {# Transitional bridge: un-migrated pages (C3+) still override
+       {% block form %} / {% block auth_top %}. This default renders the
+       old wf-auth-form structure so those pages keep working until each
+       is migrated to include its own _auth_main_<page>.html partial.
+       Once all pages are migrated (C3 onwards), this bridge becomes dead
+       code and can be removed. #}
+    <main class="wf-auth-form">
+      <div class="wf-auth-top">
+        {% block auth_top %}
+          <span class="wf-eyebrow">{{ (app_name or application_name or "allowthem") | upper }} / AUTH</span>
+        {% endblock %}
+      </div>
+      <div class="wf-auth-wrap">
+        {% block form %}{% endblock %}
+      </div>
+    </main>
+  {% endblock %}
   {% include "_partials/_status_bar.html" %}
 {% endblock %}
 

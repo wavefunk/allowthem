@@ -358,3 +358,22 @@ fn consent_emits_non_default_accent_vars() {
         ]),
     );
 }
+
+#[test]
+fn auth_oob_head_renders_title_and_screen_label() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    let html = env
+        .get_template("_partials/_auth_oob_head.html")
+        .expect("load _auth_oob_head.html")
+        .render(minijinja::context! {
+            page_title => "Log in — allowthem",
+            status_hint => "SIGN IN",
+        })
+        .expect("render _auth_oob_head.html");
+
+    assert!(html.contains(r#"<title hx-swap-oob="true">Log in — allowthem</title>"#));
+    assert!(html.contains(r#"id="wf-screen-label""#));
+    assert!(html.contains(r#"hx-swap-oob="true""#));
+    assert!(html.contains(">SIGN IN<"));
+}
