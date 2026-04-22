@@ -23,6 +23,8 @@ const SPLASH_PARTIAL: &str = include_str!("templates/_partials/_splash.html");
 const AUTH_SHELL_PARTIAL: &str = include_str!("templates/_partials/_auth_shell.html");
 const APP_SHELL_PARTIAL: &str = include_str!("templates/_partials/_app_shell.html");
 const SIDEBAR_NAV_PARTIAL: &str = include_str!("templates/_partials/_sidebar_nav.html");
+const CREATE_ACCOUNT_LINK_PARTIAL: &str =
+    include_str!("templates/_partials/_create_account_link.html");
 
 /// Register the default browser templates into an existing environment.
 ///
@@ -65,6 +67,11 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
         .expect("_partials/_app_shell.html");
     env.add_template_owned("_partials/_sidebar_nav.html", SIDEBAR_NAV_PARTIAL)
         .expect("_partials/_sidebar_nav.html");
+    env.add_template_owned(
+        "_partials/_create_account_link.html",
+        CREATE_ACCOUNT_LINK_PARTIAL,
+    )
+    .expect("_partials/_create_account_link.html");
 }
 
 pub fn build_default_browser_env() -> Arc<Environment<'static>> {
@@ -109,6 +116,7 @@ mod tests {
             "_partials/_auth_shell.html",
             "_partials/_app_shell.html",
             "_partials/_sidebar_nav.html",
+            "_partials/_create_account_link.html",
         ] {
             assert!(
                 env.get_template(name).is_ok(),
