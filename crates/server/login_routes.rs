@@ -1104,6 +1104,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn render_login_fragment_composes_main_and_oob_head() {
+        let (_ath, config) = setup().await;
+        let html = render_login_fragment(&config, "tok", "", None, "", None, None)
+            .unwrap()
+            .0;
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "fragment must include the <main> root"
+        );
+        assert!(
+            html.contains("<title hx-swap-oob=\"true\">"),
+            "fragment must include the OOB <title> tag"
+        );
+        assert!(
+            html.contains("id=\"wf-screen-label\""),
+            "fragment must include the OOB #wf-screen-label span"
+        );
+    }
+
+    #[tokio::test]
     async fn login_register_link_carries_client_id() {
         let (ath, config) = setup().await;
         let (app, _) = ath
