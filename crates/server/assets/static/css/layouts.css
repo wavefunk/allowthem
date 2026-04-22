@@ -280,6 +280,14 @@ body.wf-app { overflow: hidden; height: 100vh; }
 }
 .wf-panel-body { padding: 16px; min-width: 0; min-height: 0; }
 
+/* Danger variant — paints the panel border + head separator + title in
+   --err. Use for destructive surfaces (delete account, revoke all keys,
+   sign out everywhere). Does NOT fill the body — error tint is a rail,
+   not a background wash. */
+.wf-panel-danger { border-color: var(--err); }
+.wf-panel-danger > .wf-panel-head { border-bottom-color: var(--err); }
+.wf-panel-danger > .wf-panel-head > .wf-panel-title { color: var(--err); }
+
 
 /* ---------------------------------------------------------------------------
    4. SEGMENTED CONTROLS
@@ -1001,6 +1009,14 @@ body.wf-page-marketing { padding: 0; }
 .wf-mt-4 { margin-top: 16px; }
 .wf-mt-6 { margin-top: 24px; }
 .wf-mt-8 { margin-top: 32px; }
+.wf-ml-1 { margin-left: 4px; }
+.wf-ml-2 { margin-left: 8px; }
+.wf-ml-3 { margin-left: 12px; }
+.wf-mr-1 { margin-right: 4px; }
+.wf-mr-2 { margin-right: 8px; }
+.wf-mr-3 { margin-right: 12px; }
+/* Small paired-with-text gap. Used when a .wf-dot precedes a label. */
+.wf-dot-gap { margin-right: 6px; }
 
 /* Width / size helpers */
 .wf-w-full { width: 100%; }
