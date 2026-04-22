@@ -1009,13 +1009,7 @@ mod consent_tests {
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
         assert!(body.contains("wf-btn primary"), "themed button class");
-        assert!(
-            body.contains("--accent: #ffffff"),
-            "default white accent"
-        );
-        assert!(
-            body.contains("--accent-ink: #000000"),
-            "default black ink"
-        );
+        assert!(body.contains("--accent: #ffffff"), "default white accent");
+        assert!(body.contains("--accent-ink: #000000"), "default black ink");
     }
 }

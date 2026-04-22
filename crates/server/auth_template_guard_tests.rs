@@ -42,13 +42,13 @@ const FORBIDDEN_SUBSTRINGS: &[&str] = &[
 /// Structural assertion: every migrated auth page inherits `_auth_shell.html`
 /// (which stamps `at-auth-shell` on `<body>`) and pulls the splash aside.
 const REQUIRED_SUBSTRINGS: &[&str] = &[
-    "at-auth-shell",   // body class from the shell
-    "wf-splash",       // splash aside from the shell
-    "wf-statusbar",    // status bar at the bottom
+    "at-auth-shell", // body class from the shell
+    "wf-splash",     // splash aside from the shell
+    "wf-statusbar",  // status bar at the bottom
 ];
 
-use std::collections::BTreeMap;
 use minijinja::Value;
+use std::collections::BTreeMap;
 
 /// Non-default accent fixture used by the accent-vars tests below. Pairs
 /// a Catppuccin Mauve hex with black ink; no bearing on production branding.
@@ -100,7 +100,10 @@ fn register_has_no_tailwind_or_at_classes() {
             ("email", Value::from("")),
             ("username", Value::from("")),
             ("custom_fields", Value::from(Vec::<Value>::new())),
-            ("custom_values", Value::from_serialize(&BTreeMap::<String, String>::new())),
+            (
+                "custom_values",
+                Value::from_serialize(&BTreeMap::<String, String>::new()),
+            ),
         ]),
     );
 }
@@ -141,7 +144,10 @@ fn mfa_setup_has_no_tailwind_or_at_classes() {
 fn mfa_recovery_has_no_tailwind_or_at_classes() {
     check_template(
         "mfa_recovery.html",
-        ctx_with(&[("recovery_codes", Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]))]),
+        ctx_with(&[(
+            "recovery_codes",
+            Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]),
+        )]),
     );
 }
 
@@ -275,7 +281,10 @@ fn register_emits_non_default_accent_vars() {
             ("email", Value::from("")),
             ("username", Value::from("")),
             ("custom_fields", Value::from(Vec::<Value>::new())),
-            ("custom_values", Value::from_serialize(&BTreeMap::<String, String>::new())),
+            (
+                "custom_values",
+                Value::from_serialize(&BTreeMap::<String, String>::new()),
+            ),
         ]),
     );
 }
@@ -316,7 +325,10 @@ fn mfa_setup_emits_non_default_accent_vars() {
 fn mfa_recovery_emits_non_default_accent_vars() {
     assert_accent_vars_render(
         "mfa_recovery.html",
-        ctx_with(&[("recovery_codes", Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]))]),
+        ctx_with(&[(
+            "recovery_codes",
+            Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]),
+        )]),
     );
 }
 
