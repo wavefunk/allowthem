@@ -8,10 +8,13 @@ import {
 
 // M3 frontend revamp — visual QA for the 8 migrated auth templates.
 //
-// Asserts shell inheritance (at-auth-shell + wf-splash + wf-statusbar), bans
-// a curated set of Tailwind / at-* substrings, and exercises the
-// dark/light mode toggle. Covers the same ground as the Rust-side
+// Asserts shell inheritance (wf-auth + wf-auth-splash + wf-statusbar), bans
+// a curated set of Tailwind / at-* / legacy-shell substrings, and exercises
+// the dark/light mode toggle. Covers the same ground as the Rust-side
 // auth_template_guard_tests.rs but against a running browser.
+//
+// M6.2 flipped the polarity: at-auth-shell / at-form-pane / at-form-wrap are
+// now forbidden; wf-auth + wf-auth-splash are required.
 
 const FORBIDDEN = [
   "bg-gray-50",
@@ -30,11 +33,14 @@ const FORBIDDEN = [
   "at-btn-primary",
   "at-input-focus",
   "at-link",
+  "at-auth-shell",
+  "at-form-pane",
+  "at-form-wrap",
 ];
 
 async function expectShellStructure(page: Page) {
-  await expect(page.locator("body.at-auth-shell")).toHaveCount(1);
-  await expect(page.locator(".wf-splash")).toHaveCount(1);
+  await expect(page.locator("body.wf-auth")).toHaveCount(1);
+  await expect(page.locator(".wf-auth-splash")).toHaveCount(1);
   await expect(page.locator(".wf-statusbar")).toHaveCount(1);
 }
 
