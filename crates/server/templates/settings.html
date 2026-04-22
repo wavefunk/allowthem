@@ -70,8 +70,10 @@
       {% if oauth_accounts %}
         <dl class="wf-dl">
           {% for account in oauth_accounts %}
-            <dt>{{ account.provider }}</dt>
-            <dd>{{ account.email }}</dd>
+            <div class="wf-dl-row">
+              <dt>{{ account.provider }}</dt>
+              <dd>{{ account.email }}</dd>
+            </div>
           {% endfor %}
         </dl>
       {% else %}
