@@ -69,11 +69,39 @@ fn render_forgot_password_fragment(
         "_partials/_auth_main_forgot_password.html",
         ctx.clone(),
     )?;
-    let oob = crate::browser_templates::render(
+    let oob =
+        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
+    Ok(Html(format!("{}{}", main.0, oob.0)))
+}
+
+/// Render just the `_auth_main_reset_password.html` partial plus the
+/// `_auth_oob_head.html` OOB head swap, for HTMX fragment responses.
+fn render_reset_password_fragment(
+    config: &PasswordResetPageConfig,
+    csrf_token: &str,
+    token: &str,
+    invalid_token: bool,
+    success: bool,
+    error: &str,
+) -> Result<Html<String>, BrowserError> {
+    let ctx = context! {
+        csrf_token,
+        token,
+        invalid_token,
+        success,
+        error,
+        is_production => config.is_production,
+        page_title => "Reset password — allowthem",
+        status_hint => "RESET PASSWORD",
+    };
+
+    let main = crate::browser_templates::render(
         &config.templates,
-        "_partials/_auth_oob_head.html",
-        ctx,
+        "_partials/_auth_main_reset_password.html",
+        ctx.clone(),
     )?;
+    let oob =
+        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
     Ok(Html(format!("{}{}", main.0, oob.0)))
 }
 
@@ -156,12 +184,18 @@ async fn post_forgot_password(
 async fn get_reset_password(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
+    headers: HeaderMap,
     csrf: CsrfToken,
     Query(query): Query<ResetTokenQuery>,
 ) -> Result<Response, BrowserError> {
     let token = match query.token {
         Some(ref t) if !t.is_empty() => t.clone(),
         _ => {
+            if crate::hx::is_hx_request(&headers) {
+                let html =
+                    render_reset_password_fragment(&config, csrf.as_str(), "", true, false, "")?;
+                return Ok(html.into_response());
+            }
             let html = crate::browser_templates::render(
                 &config.templates,
                 "reset_password.html",
@@ -181,6 +215,11 @@ async fn get_reset_password(
     let valid = ath.db().validate_reset_token(&token).await?;
 
     if valid.is_some() {
+        if crate::hx::is_hx_request(&headers) {
+            let html =
+                render_reset_password_fragment(&config, csrf.as_str(), &token, false, false, "")?;
+            return Ok(html.into_response());
+        }
         let html = crate::browser_templates::render(
             &config.templates,
             "reset_password.html",
@@ -195,6 +234,10 @@ async fn get_reset_password(
         )?;
         Ok(html.into_response())
     } else {
+        if crate::hx::is_hx_request(&headers) {
+            let html = render_reset_password_fragment(&config, csrf.as_str(), "", true, false, "")?;
+            return Ok(html.into_response());
+        }
         let html = crate::browser_templates::render(
             &config.templates,
             "reset_password.html",
@@ -341,7 +384,10 @@ mod tests {
 
     use allowthem_core::{AllowThem, AllowThemBuilder, Email, LogEmailSender};
 
-    use super::{PasswordResetPageConfig, password_reset_page_routes, render_forgot_password_fragment};
+    use super::{
+        PasswordResetPageConfig, password_reset_page_routes, render_forgot_password_fragment,
+        render_reset_password_fragment,
+    };
 
     async fn setup() -> (AllowThem, PasswordResetPageConfig) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -718,6 +764,58 @@ mod tests {
         assert!(
             html.contains("id=\"wf-screen-label\""),
             "fragment must include the OOB #wf-screen-label span"
+        );
+    }
+
+    #[tokio::test]
+    async fn render_reset_password_fragment_composes_main_and_oob_head() {
+        let (_ath, config) = setup().await;
+        let html =
+            render_reset_password_fragment(&config, "tok", "reset-token-abc", false, false, "")
+                .unwrap()
+                .0;
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "fragment must include the <main> root"
+        );
+        assert!(
+            html.contains("<title hx-swap-oob=\"true\">"),
+            "fragment must include the OOB <title> tag"
+        );
+        assert!(
+            html.contains("id=\"wf-screen-label\""),
+            "fragment must include the OOB #wf-screen-label span"
+        );
+        assert!(
+            html.contains("RESET PASSWORD"),
+            "fragment must include the RESET PASSWORD status hint"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_reset_password_hx_request_returns_fragment() {
+        let (ath, config) = setup().await;
+        let token = create_user_and_token(&ath, "hx@example.com").await;
+        let app = test_app(ath, config);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/auth/reset-password?token={token}"))
+                    .header("HX-Request", "true")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = body_string(resp).await;
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "HX response must be a fragment starting at <main>"
+        );
+        assert!(
+            !html.contains("<html"),
+            "HX response must not render the full shell"
         );
     }
 }

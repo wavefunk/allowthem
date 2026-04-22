@@ -418,11 +418,8 @@ fn render_register_fragment(
         "_partials/_auth_main_register.html",
         ctx.clone(),
     )?;
-    let oob = crate::browser_templates::render(
-        &config.templates,
-        "_partials/_auth_oob_head.html",
-        ctx,
-    )?;
+    let oob =
+        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
     Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
 }
 
@@ -509,9 +506,7 @@ mod tests {
 
     use crate::custom_fields::{CustomSchemaConfig, extract_field_descriptors};
 
-    use super::{
-        RegisterConfig, RegisterFormParams, register_routes, render_register_fragment,
-    };
+    use super::{RegisterConfig, RegisterFormParams, register_routes, render_register_fragment};
 
     async fn setup() -> (AllowThem, RegisterConfig) {
         let ath = AllowThemBuilder::new("sqlite::memory:")

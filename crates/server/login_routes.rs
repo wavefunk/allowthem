@@ -147,11 +147,8 @@ fn render_login_fragment(
         "_partials/_auth_main_login.html",
         ctx.clone(),
     )?;
-    let oob = crate::browser_templates::render(
-        &config.templates,
-        "_partials/_auth_oob_head.html",
-        ctx,
-    )?;
+    let oob =
+        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
     Ok(Html(format!("{}{}", main.0, oob.0)))
 }
 
