@@ -237,6 +237,22 @@ fn auth_main_login_has_no_tailwind_or_at_classes() {
     );
 }
 
+#[test]
+fn auth_main_register_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_register.html",
+        ctx_with(&[
+            ("email", Value::from("")),
+            ("username", Value::from("")),
+            ("custom_fields", Value::from(Vec::<Value>::new())),
+            (
+                "custom_values",
+                Value::from_serialize(&BTreeMap::<String, String>::new()),
+            ),
+        ]),
+    );
+}
+
 /// Render `template_name` with the non-default accent fixture merged onto
 /// `extra_ctx`, then assert base.html's <style> block emitted the pair
 /// verbatim. Shields against a template accidentally overriding
