@@ -110,6 +110,40 @@ async fn require_browser_user(
 // Setup-side routes (authenticated, CSRF-protected)
 // ---------------------------------------------------------------------------
 
+/// Render just the `_auth_main_mfa_setup.html` partial plus the
+/// `_auth_oob_head.html` OOB head swap, for HTMX fragment responses.
+///
+/// The `.wf-note` style used by the TOTP info box lives in the shell's
+/// `<head>` `<style>` block. Fragment responses don't update `<head>`,
+/// but mfa_setup is always reached from an authenticated /settings page,
+/// so the full page (and its head styles) loads before any HX swap.
+fn render_mfa_setup_fragment(
+    config: &MfaPageConfig,
+    csrf_token: &str,
+    totp_uri: &str,
+    secret: &str,
+    error: &str,
+) -> Result<axum::response::Html<String>, BrowserError> {
+    let ctx = context! {
+        csrf_token,
+        totp_uri,
+        secret,
+        error,
+        is_production => config.is_production,
+        page_title => "Set up two-factor authentication — allowthem",
+        status_hint => "ENABLE 2FA",
+    };
+
+    let main = crate::browser_templates::render(
+        &config.templates,
+        "_partials/_auth_main_mfa_setup.html",
+        ctx.clone(),
+    )?;
+    let oob =
+        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
+    Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
+}
+
 /// GET /settings/mfa/setup — show QR URI, base32 secret, and TOTP code input.
 ///
 /// Idempotent: if a pending (non-enabled) secret exists, reuses it.
@@ -134,6 +168,11 @@ async fn get_mfa_setup(
 
     let issuer = derive_issuer(&config.base_url);
     let uri = totp_uri(&secret, user.email.as_str(), &issuer);
+
+    if crate::hx::is_hx_request(&headers) {
+        let html = render_mfa_setup_fragment(&config, csrf.as_str(), &uri, &secret, "")?;
+        return Ok(html.into_response());
+    }
 
     let html = crate::browser_templates::render(
         &config.templates,
@@ -920,6 +959,78 @@ mod tests {
         let token = ath.db().create_mfa_challenge(user_id).await.unwrap();
         let req = Request::builder()
             .uri(format!("/mfa/challenge?token={token}"))
+            .header("HX-Request", "true")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "HX response must be a fragment starting at <main>"
+        );
+        assert!(
+            !html.contains("<html"),
+            "HX response must not render the full shell"
+        );
+    }
+
+    #[test]
+    fn render_mfa_setup_fragment_composes_main_and_oob_head() {
+        let templates = crate::browser_templates::build_default_browser_env();
+        let config = MfaPageConfig {
+            templates,
+            is_production: false,
+            base_url: "http://127.0.0.1:3100".into(),
+        };
+        let html = render_mfa_setup_fragment(
+            &config,
+            "csrf-tok",
+            "otpauth://totp/allowthem:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=allowthem",
+            "JBSWY3DPEHPK3PXP",
+            "",
+        )
+        .unwrap()
+        .0;
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "fragment must include the <main> root"
+        );
+        assert!(
+            html.contains("<title hx-swap-oob=\"true\">"),
+            "fragment must include the OOB <title> tag"
+        );
+        assert!(
+            html.contains("id=\"wf-screen-label\""),
+            "fragment must include the OOB #wf-screen-label span"
+        );
+        assert!(
+            html.contains("ENABLE 2FA"),
+            "fragment must include the ENABLE 2FA status hint"
+        );
+        assert!(
+            html.contains("JBSWY3DPEHPK3PXP"),
+            "fragment must include the base32 secret"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_mfa_setup_hx_request_returns_fragment() {
+        let ath = setup().await;
+        let app = test_app(ath.clone());
+        let (_, cookie) = create_session(&ath).await;
+        let csrf = get_csrf(&app, &cookie).await;
+
+        let req = Request::builder()
+            .uri("/settings/mfa/setup")
+            .header(header::COOKIE, format!("{cookie}; csrf_token={csrf}"))
             .header("HX-Request", "true")
             .body(Body::empty())
             .unwrap();
