@@ -57,7 +57,7 @@
 {% macro oauth_grid(providers, next="") %}
   {% if providers %}
     <div class="wf-divider-txt">OR</div>
-    <div class="auth-oauth">
+    <div class="wf-oauth-grid">
       {% for provider in providers %}
         <a class="wf-btn"
            href="/oauth/{{ provider }}/authorize{% if next %}?next={{ next }}{% endif %}">

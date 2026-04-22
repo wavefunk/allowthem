@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 // re-state this pattern; drift between sites is a bug.
 fn tailwind_re() -> regex::Regex {
     regex::Regex::new(
-        r#"class="[^"]*\b(bg-|text-|border-|rounded|shadow|p-\d|px-\d|py-\d|m-\d|mx-\d|my-\d|flex|grid|gap-\d|w-\d|h-\d|min-h-|min-w-|max-w-|hover:|focus:|dark:|space-x-|space-y-|opacity-|items-|justify-|font-|tracking-|leading-)"#,
+        r#"class="[^"]*\b(bg-|text-|border-|rounded|shadow|p-\d|px-\d|py-\d|m-\d|mx-\d|my-\d|flex|grid-cols-|gap-\d|w-\d|h-\d|min-h-|min-w-|max-w-|hover:|focus:|dark:|space-x-|space-y-|opacity-|items-|justify-|font-|tracking-|leading-)"#,
     )
     .expect("regex compiles")
 }

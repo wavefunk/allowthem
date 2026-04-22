@@ -39,18 +39,21 @@ const AUTH_OOB_HEAD_PARTIAL: &str = include_str!("templates/_partials/_auth_oob_
 /// `_partials/_auth_shell.html` exposes two named blocks that integrators
 /// can override from a child template without forking the shell:
 ///
-/// - `splash_content` — replaces the entire splash aside contents
-///   (iframe / canvas / text cascade). Default includes
-///   `_partials/_splash.html`, which renders a shader canvas (or
-///   sandboxed iframe when `branding.splash_url` is set).
-/// - `auth_top` — replaces the top-bar content above the form.
-///   Default: a `.wf-eyebrow` span rendering `APP / AUTH`
-///   (`app_name` / `application_name` falls back to `"allowthem"`).
+/// - `splash_content` — replaces the splash aside's body (left column).
+///   Default includes `_partials/_splash.html`, which renders a shader
+///   canvas (or sandboxed iframe when `branding.splash_url` is set).
+/// - `auth_main` — replaces the entire `<main class="wf-auth-form">`
+///   subtree. During the z3c migration (C3–C10) the default body of this
+///   block contains a transitional bridge that re-exposes
+///   `{% block auth_top %}` and `{% block form %}` sub-blocks so
+///   un-migrated pages keep working. Once all pages have migrated to their
+///   `_auth_main_<page>.html` partials, the bridge and its sub-blocks will
+///   be removed and `auth_main` becomes the sole integrator entry point.
 ///
 /// Both blocks are safe to override in integrator templates that
 /// `{% extends "_partials/_auth_shell.html" %}` — the surrounding
-/// `<aside class="wf-auth-splash">` / `<div class="wf-auth-top">`
-/// wrappers are owned by the shell and remain stable.
+/// `<aside class="wf-auth-splash">` wrapper and the auth_main slot are
+/// owned by the shell and remain stable.
 ///
 /// # Integrator-overridable blocks (app shell)
 ///
