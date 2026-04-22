@@ -273,10 +273,42 @@ pub struct ChallengeQuery {
     token: String,
 }
 
+/// Render just the `_auth_main_mfa_challenge.html` partial plus the
+/// `_auth_oob_head.html` OOB head swap, for HTMX fragment responses.
+///
+/// The CSS-only recovery-code toggle's `<style>` lives in the shell's
+/// `<head>`. Fragment responses don't update `<head>`, but mfa_challenge
+/// is always reached mid-flow from /login, so the full page (and its
+/// head styles) loads before any HX swap; re-rendering via fragment
+/// on errors is safe because the styles are already in the document.
+fn render_mfa_challenge_fragment(
+    config: &MfaPageConfig,
+    mfa_token: &str,
+    error: &str,
+) -> Result<axum::response::Html<String>, BrowserError> {
+    let ctx = context! {
+        mfa_token,
+        error,
+        is_production => config.is_production,
+        page_title => "Two-factor authentication — allowthem",
+        status_hint => "TWO-FACTOR",
+    };
+
+    let main = crate::browser_templates::render(
+        &config.templates,
+        "_partials/_auth_main_mfa_challenge.html",
+        ctx.clone(),
+    )?;
+    let oob =
+        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
+    Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
+}
+
 /// GET /mfa/challenge — render TOTP code input form.
 async fn get_mfa_challenge(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
+    headers: HeaderMap,
     Query(query): Query<ChallengeQuery>,
 ) -> Result<Response, BrowserError> {
     // Validate token is still alive (don't consume it)
@@ -284,6 +316,11 @@ async fn get_mfa_challenge(
     if user_id.is_none() {
         // Invalid or expired token — redirect to login
         return Ok((StatusCode::SEE_OTHER, [(LOCATION, "/login".to_string())]).into_response());
+    }
+
+    if crate::hx::is_hx_request(&headers) {
+        let html = render_mfa_challenge_fragment(&config, &query.token, "")?;
+        return Ok(html.into_response());
     }
 
     let html = crate::browser_templates::render(
@@ -870,6 +907,68 @@ mod tests {
         assert!(
             html.contains("mfa_token"),
             "challenge form must embed mfa_token hidden field"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_mfa_challenge_hx_request_returns_fragment() {
+        let ath = setup().await;
+        let app = test_app(ath.clone());
+        let (user_id, _) = create_session(&ath).await;
+        enable_mfa_for_user(&ath, user_id).await;
+
+        let token = ath.db().create_mfa_challenge(user_id).await.unwrap();
+        let req = Request::builder()
+            .uri(format!("/mfa/challenge?token={token}"))
+            .header("HX-Request", "true")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "HX response must be a fragment starting at <main>"
+        );
+        assert!(
+            !html.contains("<html"),
+            "HX response must not render the full shell"
+        );
+    }
+
+    #[test]
+    fn render_mfa_challenge_fragment_composes_main_and_oob_head() {
+        let templates = crate::browser_templates::build_default_browser_env();
+        let config = MfaPageConfig {
+            templates,
+            is_production: false,
+            base_url: String::new(),
+        };
+        let html = render_mfa_challenge_fragment(&config, "mfa-token-abc", "")
+            .unwrap()
+            .0;
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "fragment must include the <main> root"
+        );
+        assert!(
+            html.contains("<title hx-swap-oob=\"true\">"),
+            "fragment must include the OOB <title> tag"
+        );
+        assert!(
+            html.contains("id=\"wf-screen-label\""),
+            "fragment must include the OOB #wf-screen-label span"
+        );
+        assert!(
+            html.contains("TWO-FACTOR"),
+            "fragment must include the TWO-FACTOR status hint"
         );
     }
 

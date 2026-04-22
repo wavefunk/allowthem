@@ -266,6 +266,14 @@ fn auth_main_reset_password_has_no_tailwind_or_at_classes() {
     );
 }
 
+#[test]
+fn auth_main_mfa_challenge_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_mfa_challenge.html",
+        ctx_with(&[("mfa_token", Value::from("mfa-token-abc"))]),
+    );
+}
+
 /// Render `template_name` with the non-default accent fixture merged onto
 /// `extra_ctx`, then assert base.html's <style> block emitted the pair
 /// verbatim. Shields against a template accidentally overriding
