@@ -1,9 +1,0 @@
-{# Boostable cross-link from sign-in to account creation.
-   Integrators override this partial to hide (invite-only) or retarget.
-   Preserves client_id so OIDC flows survive the navigation. #}
-<p class="wf-meta" style="margin-top:16px">
-  Don't have an account?
-  <a href="/register{% if client_id %}?client_id={{ client_id }}{% endif %}"
-     class="wf-link-quiet"
-     hx-boost="true">Create one</a>
-</p>

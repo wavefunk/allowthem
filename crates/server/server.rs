@@ -17,6 +17,7 @@ pub mod custom_fields;
 pub mod error;
 pub(crate) mod events;
 pub mod extractors;
+pub mod hx;
 pub mod login_routes;
 pub mod logout_routes;
 pub mod mfa_page_routes;

@@ -15,43 +15,4 @@
   </style>
 {% endblock %}
 
-{% block form %}
-  <header>
-    <div class="wf-eyebrow">security</div>
-    <h1 class="wf-display-sm">Two-factor authentication</h1>
-  </header>
-
-  <p class="wf-meta">Enter the 6-digit code from your authenticator app to continue.</p>
-
-  {% if error %}
-    {% set flash = { "kind": "err", "message": error } %}
-    {% include "_partials/_flash.html" %}
-  {% endif %}
-
-  <form method="post" action="/mfa/challenge"
-        style="display:flex;flex-direction:column;gap:16px">
-    <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
-
-    {# CSS-only toggle checkbox — must be a sibling of the sections it controls. #}
-    <input type="checkbox" id="use_recovery" name="use_recovery">
-
-    <div id="totp-section" class="wf-field">
-      <label class="wf-label" for="code">Authentication code</label>
-      <input class="wf-input" type="text" id="code" name="code"
-             autocomplete="one-time-code" inputmode="numeric"
-             maxlength="6" pattern="[0-9]{6}">
-    </div>
-
-    <div id="recovery-section" class="wf-field">
-      <label class="wf-label" for="recovery_code">Recovery code</label>
-      <input class="wf-input" type="text" id="recovery_code" name="recovery_code"
-             autocomplete="off">
-    </div>
-
-    <button type="submit" class="wf-btn primary">Verify</button>
-
-    <p class="wf-meta">
-      <label for="use_recovery" class="wf-link-quiet" style="cursor:pointer">Use recovery code</label>
-    </p>
-  </form>
-{% endblock %}
+{% block auth_main %}{% include "_partials/_auth_main_mfa_challenge.html" %}{% endblock %}

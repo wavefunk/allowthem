@@ -1,0 +1,53 @@
+{# _auth_main_mfa_setup.html — MFA setup form column. Renders
+   <main class="wf-auth-form"> standalone so HTMX fragment responses can
+   return just this subtree.
+
+   The .wf-note class (hairline-bordered info block used for the TOTP URI
+   and base32 secret) is defined in the shell's <head> <style> block
+   alongside the MFA challenge's recovery-toggle styles, and so is
+   available on the full page. Fragment responses don't update <head>,
+   but mfa_setup is always reached from an authenticated /settings page,
+   so the full page (with head styles) loads before any HX swap.
+
+   Expected context (provided by render for mfa_setup.html / _fragment):
+     csrf_token, totp_uri, secret, error, app_name, is_production
+#}
+{% import "_partials/_auth_macros.html" as auth %}
+<main class="wf-auth-form">
+  <div class="wf-auth-top">
+    {{ auth.kicker(app_name, "ENABLE 2FA") }}
+  </div>
+
+  <div class="wf-auth-wrap">
+    <h1>ENABLE 2FA</h1>
+    <p class="wf-auth-sub">Scan the QR or enter the secret, then verify.</p>
+
+    <div class="wf-note">
+      <div data-testid="totp-uri" class="wf-meta" style="word-break:break-all">{{ totp_uri }}</div>
+      <div class="wf-meta">
+        Secret key:
+        <code data-testid="totp-secret" class="wf-kbd" style="margin-left:8px">{{ secret }}</code>
+      </div>
+    </div>
+
+    {% if error %}
+      {% set flash = { "kind": "err", "message": error } %}
+      {% include "_partials/_flash.html" %}
+    {% endif %}
+
+    <form method="post" action="/settings/mfa/confirm" class="wf-f wf-col wf-gap-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="wf-field">
+        <label class="wf-label" for="code">ENTER THE 6-DIGIT CODE</label>
+        <input class="wf-input" type="text" id="code" name="code"
+               required autocomplete="one-time-code" inputmode="numeric"
+               maxlength="6" pattern="[0-9]{6}">
+      </div>
+      <button type="submit" class="wf-btn primary">VERIFY AND ENABLE →</button>
+    </form>
+
+    <p class="wf-meta">
+      <a class="wf-link" href="/settings">BACK TO SETTINGS</a>
+    </p>
+  </div>
+</main>

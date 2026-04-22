@@ -202,6 +202,117 @@ fn check_template(name: &'static str, ctx: Value) {
     }
 }
 
+/// Partial-level check: fragments don't inherit the shell, so we only
+/// assert presence of `wf-auth-form` (the fragment's own root) and
+/// the absence of any forbidden substring.
+fn check_partial(name: &'static str, ctx: Value) {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    let html = env
+        .get_template(name)
+        .unwrap_or_else(|e| panic!("load {name}: {e}"))
+        .render(ctx)
+        .unwrap_or_else(|e| panic!("render {name}: {e}"));
+
+    assert!(
+        html.contains("wf-auth-form"),
+        "{name}: expected to contain `wf-auth-form` (is it rendering the <main>?)"
+    );
+    for needle in FORBIDDEN_SUBSTRINGS {
+        assert!(
+            !html.contains(needle),
+            "{name}: contains forbidden substring `{needle}`"
+        );
+    }
+}
+
+#[test]
+fn auth_main_login_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_login.html",
+        ctx_with(&[
+            ("identifier", Value::from("")),
+            ("oauth_providers", Value::from(Vec::<String>::new())),
+        ]),
+    );
+}
+
+#[test]
+fn auth_main_register_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_register.html",
+        ctx_with(&[
+            ("email", Value::from("")),
+            ("username", Value::from("")),
+            ("custom_fields", Value::from(Vec::<Value>::new())),
+            (
+                "custom_values",
+                Value::from_serialize(&BTreeMap::<String, String>::new()),
+            ),
+        ]),
+    );
+}
+
+#[test]
+fn auth_main_forgot_password_has_no_tailwind_or_at_classes() {
+    check_partial("_partials/_auth_main_forgot_password.html", ctx_with(&[]));
+}
+
+#[test]
+fn auth_main_reset_password_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_reset_password.html",
+        ctx_with(&[("token", Value::from("reset-token-abc"))]),
+    );
+}
+
+#[test]
+fn auth_main_mfa_challenge_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_mfa_challenge.html",
+        ctx_with(&[("mfa_token", Value::from("mfa-token-abc"))]),
+    );
+}
+
+#[test]
+fn auth_main_mfa_setup_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_mfa_setup.html",
+        ctx_with(&[
+            ("totp_uri", Value::from("otpauth://totp/foo")),
+            ("secret", Value::from("JBSWY3DPEHPK3PXP")),
+        ]),
+    );
+}
+
+#[test]
+fn auth_main_mfa_recovery_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_mfa_recovery.html",
+        ctx_with(&[(
+            "recovery_codes",
+            Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]),
+        )]),
+    );
+}
+
+#[test]
+fn auth_main_consent_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_consent.html",
+        ctx_with(&[
+            ("application_name", Value::from("Test App")),
+            ("scope_items", Value::from(Vec::<Value>::new())),
+            ("redirect_uri", Value::from("https://example.com/cb")),
+            ("response_type", Value::from("code")),
+            ("scope", Value::from("openid")),
+            ("state_param", Value::from("state")),
+            ("code_challenge", Value::from("chal")),
+            ("code_challenge_method", Value::from("S256")),
+        ]),
+    );
+}
+
 /// Render `template_name` with the non-default accent fixture merged onto
 /// `extra_ctx`, then assert base.html's <style> block emitted the pair
 /// verbatim. Shields against a template accidentally overriding
@@ -357,4 +468,23 @@ fn consent_emits_non_default_accent_vars() {
             ("code_challenge_method", Value::from("S256")),
         ]),
     );
+}
+
+#[test]
+fn auth_oob_head_renders_title_and_screen_label() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    let html = env
+        .get_template("_partials/_auth_oob_head.html")
+        .expect("load _auth_oob_head.html")
+        .render(minijinja::context! {
+            page_title => "Log in — allowthem",
+            status_hint => "SIGN IN",
+        })
+        .expect("render _auth_oob_head.html");
+
+    assert!(html.contains(r#"<title hx-swap-oob="true">Log in — allowthem</title>"#));
+    assert!(html.contains(r#"id="wf-screen-label""#));
+    assert!(html.contains(r#"hx-swap-oob="true""#));
+    assert!(html.contains(">SIGN IN<"));
 }

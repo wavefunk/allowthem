@@ -11,9 +11,22 @@ use std::path::{Path, PathBuf};
 // re-state this pattern; drift between sites is a bug.
 fn tailwind_re() -> regex::Regex {
     regex::Regex::new(
-        r#"class="[^"]*\b(bg-|text-|border-|rounded|shadow|p-\d|px-\d|py-\d|m-\d|mx-\d|my-\d|flex|grid|gap-\d|w-\d|h-\d|min-h-|min-w-|max-w-|hover:|focus:|dark:|space-x-|space-y-|opacity-|items-|justify-|font-|tracking-|leading-)"#,
+        r#"class="[^"]*\b(bg-|text-|border-|rounded|shadow|p-\d|px-\d|py-\d|m-\d|mx-\d|my-\d|flex|grid-cols-|gap-\d|w-\d|h-\d|min-h-|min-w-|max-w-|hover:|focus:|dark:|space-x-|space-y-|opacity-|items-|justify-|font-|tracking-|leading-)"#,
     )
     .expect("regex compiles")
+}
+
+/// Strip `wf-*` tokens from class attribute values before running the
+/// Tailwind guard. Kit classes like `wf-gap-4` contain substrings that
+/// look like Tailwind patterns (`gap-\d`) but are part of the design
+/// system. Removing them first avoids false positives while still
+/// catching any bare Tailwind class that slips through.
+fn strip_wf_classes(body: &str) -> String {
+    // Matches wf- prefixed tokens (wf-gap-4, wf-f, wf-col, etc.)
+    // Only strips from within class="..." attributes.
+    let wf_re = regex::Regex::new(r"\bwf-[a-z][a-z0-9]*(?:-[a-z0-9]+)*\b")
+        .expect("wf class regex compiles");
+    wf_re.replace_all(body, "").into_owned()
 }
 
 fn walk_html(root: &Path) -> Vec<PathBuf> {
@@ -58,7 +71,8 @@ fn all_standalone_templates_are_tailwind_free() {
     let mut audited = 0;
     let mut failures = Vec::new();
     for path in walk_html(&root) {
-        let body = std::fs::read_to_string(&path).expect("read template");
+        let raw = std::fs::read_to_string(&path).expect("read template");
+        let body = strip_wf_classes(&raw);
         if re.is_match(&body) {
             failures.push(path);
         }

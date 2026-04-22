@@ -1,8 +1,0 @@
-{# Boostable cross-link from account creation to sign-in.
-   Preserves client_id so OIDC flows survive the navigation. #}
-<p class="wf-meta" style="margin-top:16px">
-  Already have an account?
-  <a href="/login{% if client_id %}?client_id={{ client_id }}{% endif %}"
-     class="wf-link-quiet"
-     hx-boost="true">Sign in</a>
-</p>

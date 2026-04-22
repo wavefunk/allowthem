@@ -330,7 +330,7 @@ impl AllRoutesBuilder {
                 is_production,
                 self.max_login_attempts,
                 self.rate_limit_window_secs,
-                oauth_providers_list,
+                oauth_providers_list.clone(),
             ));
         }
 
@@ -355,6 +355,7 @@ impl AllRoutesBuilder {
                 custom_schema,
                 self.events_tx.clone(),
                 self.base_url.clone(),
+                oauth_providers_list.clone(),
             ));
         }
 

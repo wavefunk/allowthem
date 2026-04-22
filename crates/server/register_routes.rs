@@ -37,6 +37,7 @@ struct RegisterConfig {
     custom_schema: Option<Arc<CustomSchemaConfig>>,
     events_tx: Option<AuthEventSender>,
     base_url: Option<String>,
+    oauth_providers: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -67,19 +68,23 @@ async fn get_register(
         .unwrap_or(&[]);
     let empty: HashMap<String, String> = HashMap::new();
 
-    let html = render_register_form(
-        &config,
-        RegisterFormParams {
-            csrf_token: csrf.as_str(),
-            email: "",
-            username: "",
-            error: "",
-            client_id: query.client_id.as_ref(),
-            branding: branding.as_ref(),
-            custom_fields,
-            custom_values: &empty,
-        },
-    )?;
+    let params = RegisterFormParams {
+        csrf_token: csrf.as_str(),
+        email: "",
+        username: "",
+        error: "",
+        client_id: query.client_id.as_ref(),
+        branding: branding.as_ref(),
+        custom_fields,
+        custom_values: &empty,
+    };
+
+    if crate::hx::is_hx_request(&headers) {
+        let html = render_register_fragment(&config, params)?;
+        return Ok(html.into_response());
+    }
+
+    let html = render_register_form(&config, params)?;
     Ok(html.into_response())
 }
 
@@ -353,8 +358,69 @@ fn render_register_form(
             is_production => config.is_production,
             custom_fields,
             custom_values => custom_values_map,
+            oauth_providers => &config.oauth_providers,
         },
     )
+}
+
+/// Render just the `_auth_main_register.html` partial plus the
+/// `_auth_oob_head.html` OOB head swap, for HTMX fragment responses.
+fn render_register_fragment(
+    config: &RegisterConfig,
+    params: RegisterFormParams<'_>,
+) -> Result<axum::response::Html<String>, BrowserError> {
+    let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
+        resolve_accent(params.branding);
+
+    let custom_values_map: HashMap<&str, &str> = params
+        .custom_values
+        .iter()
+        .filter_map(|(k, v)| {
+            k.strip_prefix("custom_data[")
+                .and_then(|s| s.strip_suffix(']'))
+                .map(|name| (name, v.as_str()))
+        })
+        .collect();
+
+    let RegisterFormParams {
+        csrf_token,
+        error,
+        email,
+        username,
+        client_id,
+        branding,
+        custom_fields,
+        ..
+    } = params;
+
+    let ctx = context! {
+        csrf_token,
+        error,
+        email,
+        username,
+        client_id => client_id.map(|c| c.as_str()),
+        app_name => branding.map(|b| b.application_name.as_str()),
+        logo_url => branding.and_then(|b| b.logo_url.as_deref()),
+        accent => accent_hex,
+        accent_ink => accent_ink_hex,
+        accent_light => accent_light_hex,
+        accent_ink_light => accent_ink_light_hex,
+        is_production => config.is_production,
+        custom_fields,
+        custom_values => custom_values_map,
+        oauth_providers => &config.oauth_providers,
+        page_title => "Register — allowthem",
+        status_hint => "CREATE ACCOUNT",
+    };
+
+    let main = crate::browser_templates::render(
+        &config.templates,
+        "_partials/_auth_main_register.html",
+        ctx.clone(),
+    )?;
+    let oob =
+        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
+    Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
 }
 
 /// Re-render the registration form with an error message and preserved input.
@@ -408,6 +474,7 @@ pub fn register_routes(
     custom_schema: Option<CustomSchemaConfig>,
     events_tx: Option<AuthEventSender>,
     base_url: Option<String>,
+    oauth_providers: Vec<String>,
 ) -> Router<()> {
     let cfg = RegisterConfig {
         templates,
@@ -415,6 +482,7 @@ pub fn register_routes(
         custom_schema: custom_schema.map(Arc::new),
         events_tx,
         base_url,
+        oauth_providers,
     };
     Router::new()
         .route("/register", get(get_register).post(post_register))
@@ -438,7 +506,7 @@ mod tests {
 
     use crate::custom_fields::{CustomSchemaConfig, extract_field_descriptors};
 
-    use super::{RegisterConfig, register_routes};
+    use super::{RegisterConfig, RegisterFormParams, register_routes, render_register_fragment};
 
     async fn setup() -> (AllowThem, RegisterConfig) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -454,6 +522,7 @@ mod tests {
             custom_schema: None,
             events_tx: None,
             base_url: None,
+            oauth_providers: Vec::new(),
         };
         (ath, config)
     }
@@ -469,6 +538,7 @@ mod tests {
             }),
             config.events_tx.clone(),
             config.base_url.clone(),
+            config.oauth_providers.clone(),
         )
         .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
@@ -510,6 +580,7 @@ mod tests {
             Some(schema_config),
             config.events_tx.clone(),
             config.base_url.clone(),
+            config.oauth_providers.clone(),
         )
         .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
@@ -986,9 +1057,16 @@ mod tests {
             .await
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
+        // MiniJinja HTML-encodes `/` in computed URL values (template-literal
+        // paths like `href="/login"` stay unescaped, but `~`-concatenated
+        // strings use `&#x2f;`). Accept either encoding so the assertion is
+        // resilient — matches the login_register_link_carries_client_id probe.
+        let id = app.client_id.as_str();
+        let unescaped = format!("/login?client_id={id}");
+        let escaped = format!("&#x2f;login?client_id={id}");
         assert!(
-            html.contains(&format!("/login?client_id={}", app.client_id)),
-            "sign-in link should carry client_id"
+            html.contains(&unescaped) || html.contains(&escaped),
+            "sign-in link should carry client_id (checked both /login and &#x2f;login forms)"
         );
     }
 
@@ -1143,6 +1221,7 @@ mod tests {
             None,
             Some(events_tx),
             Some(base_url),
+            config.oauth_providers.clone(),
         )
         .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
@@ -1219,5 +1298,38 @@ mod tests {
         );
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    }
+
+    #[tokio::test]
+    async fn render_register_fragment_composes_main_and_oob_head() {
+        let (_ath, config) = setup().await;
+        let empty: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let html = render_register_fragment(
+            &config,
+            RegisterFormParams {
+                csrf_token: "tok",
+                email: "",
+                username: "",
+                error: "",
+                client_id: None,
+                branding: None,
+                custom_fields: &[],
+                custom_values: &empty,
+            },
+        )
+        .unwrap()
+        .0;
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "fragment must include the <main> root"
+        );
+        assert!(
+            html.contains("<title hx-swap-oob=\"true\">"),
+            "fragment must include the OOB <title> tag"
+        );
+        assert!(
+            html.contains("id=\"wf-screen-label\""),
+            "fragment must include the OOB #wf-screen-label span"
+        );
     }
 }

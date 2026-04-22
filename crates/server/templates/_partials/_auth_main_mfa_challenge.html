@@ -1,0 +1,57 @@
+{# _auth_main_mfa_challenge.html — MFA challenge form column. Renders
+   <main class="wf-auth-form"> standalone so HTMX fragment responses can
+   return just this subtree.
+
+   Preserves the CSS-only recovery-code toggle: the #use_recovery checkbox
+   must be a sibling of the #totp-section / #recovery-section blocks so the
+   sibling selector in the shell's <head> <style> can flip their display.
+   The <style> block lives in mfa_challenge.html's `head` block — NOT here
+   — because HTMX fragment swaps don't update <head>, and the mfa_challenge
+   page is always reached mid-flow from /login, so the full page (and its
+   head styles) loads first.
+
+   Expected context (provided by render for mfa_challenge.html / _fragment):
+     mfa_token, error, app_name, is_production
+#}
+{% import "_partials/_auth_macros.html" as auth %}
+<main class="wf-auth-form">
+  <div class="wf-auth-top">
+    {{ auth.kicker(app_name, "TWO-FACTOR") }}
+  </div>
+
+  <div class="wf-auth-wrap">
+    <h1>VERIFY CODE</h1>
+    <p class="wf-auth-sub">Enter the 6-digit code from your authenticator app.</p>
+
+    {% if error %}
+      {% set flash = { "kind": "err", "message": error } %}
+      {% include "_partials/_flash.html" %}
+    {% endif %}
+
+    <form method="post" action="/mfa/challenge" class="wf-f wf-col wf-gap-4">
+      <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
+
+      {# CSS-only toggle checkbox — must be a sibling of the sections it controls. #}
+      <input type="checkbox" id="use_recovery" name="use_recovery">
+
+      <div id="totp-section" class="wf-field">
+        <label class="wf-label" for="code">AUTHENTICATION CODE</label>
+        <input class="wf-input" type="text" id="code" name="code"
+               autocomplete="one-time-code" inputmode="numeric"
+               maxlength="6" pattern="[0-9]{6}">
+      </div>
+
+      <div id="recovery-section" class="wf-field">
+        <label class="wf-label" for="recovery_code">RECOVERY CODE</label>
+        <input class="wf-input" type="text" id="recovery_code" name="recovery_code"
+               autocomplete="off">
+      </div>
+
+      <button type="submit" class="wf-btn primary">VERIFY →</button>
+
+      <p class="wf-meta">
+        <label for="use_recovery" class="wf-link-quiet" style="cursor:pointer">USE RECOVERY CODE</label>
+      </p>
+    </form>
+  </div>
+</main>

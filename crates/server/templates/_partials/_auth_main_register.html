@@ -1,0 +1,135 @@
+{# _auth_main_register.html — register form column; height parity with login.
+   Renders <main class="wf-auth-form"> standalone so HTMX fragment responses
+   can return just this subtree.
+
+   Expected context (provided by render_register_form / _fragment):
+     csrf_token, email, username, error, client_id, app_name, logo_url,
+     custom_fields, custom_values, is_production
+#}
+{% import "_partials/_auth_macros.html" as auth %}
+{%- if client_id -%}
+  {%- set login_href = "/login?client_id=" ~ client_id -%}
+{%- else -%}
+  {%- set login_href = "/login" -%}
+{%- endif -%}
+<main class="wf-auth-form">
+  <div class="wf-auth-top">
+    {{ auth.kicker(app_name, "CREATE ACCOUNT",
+                   swap_href=login_href,
+                   swap_label="SIGN IN",
+                   swap_prefix="HAVE AN ACCOUNT?") }}
+  </div>
+
+  <div class="wf-auth-wrap">
+    {% if logo_url and logo_url is startingwith("https://") %}
+      <img class="wf-auth-logo" src="{{ logo_url }}" alt="{{ app_name }}">
+    {% endif %}
+
+    <h1>CREATE ACCOUNT</h1>
+    <p class="wf-auth-sub">Start with a free workspace.</p>
+
+    {{ auth.tabs(active="signup") }}
+
+    {% if error %}
+      {% set flash = { "kind": "err", "message": error } %}
+      {% include "_partials/_flash.html" %}
+    {% endif %}
+
+    <form method="post" action="/register" class="wf-f wf-col wf-gap-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="wf-field">
+        <label class="wf-label" for="email">EMAIL</label>
+        <input class="wf-input" id="email" name="email" type="email"
+               value="{{ email }}" required autocomplete="email">
+      </div>
+
+      <div class="wf-field">
+        <label class="wf-label" for="username">USERNAME <span class="wf-meta">(optional)</span></label>
+        <input class="wf-input" id="username" name="username" type="text"
+               value="{{ username }}" autocomplete="username">
+      </div>
+
+      {% if custom_fields %}
+        {% for field in custom_fields %}
+          <div class="wf-field">
+            <label class="wf-label" for="custom_data_{{ field.name }}">
+              {{ field.label }}{% if not field.required %} <span class="wf-meta">(optional)</span>{% endif %}
+            </label>
+            {% if field.field_type == "textarea" %}
+              <textarea class="wf-textarea"
+                        id="custom_data_{{ field.name }}"
+                        name="custom_data[{{ field.name }}]"
+                        {% if field.required %}required{% endif %}
+                        {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
+                        {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}
+                        >{{ custom_values[field.name] | default("", true) }}</textarea>
+            {% elif field.field_type == "select" %}
+              <select class="wf-select"
+                      id="custom_data_{{ field.name }}"
+                      name="custom_data[{{ field.name }}]"
+                      {% if field.required %}required{% endif %}>
+                <option value="">Select...</option>
+                {% for opt in field.enum_values %}
+                  <option value="{{ opt }}" {% if custom_values[field.name] == opt ~ "" %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            {% elif field.field_type == "checkbox" %}
+              <div class="wf-f wf-ai-c wf-gap-2">
+                <input type="checkbox"
+                       id="custom_data_{{ field.name }}"
+                       name="custom_data[{{ field.name }}]"
+                       value="true"
+                       {% if custom_values[field.name] == "true" %}checked{% endif %}>
+                {% if field.help_text %}
+                  <span class="wf-meta">{{ field.help_text }}</span>
+                {% endif %}
+              </div>
+            {% elif field.field_type == "number" %}
+              <input class="wf-input" type="number"
+                     id="custom_data_{{ field.name }}"
+                     name="custom_data[{{ field.name }}]"
+                     value="{{ custom_values[field.name] | default(field.default_value | default('', true), true) }}"
+                     {% if field.required %}required{% endif %}
+                     {% if field.minimum is defined and field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
+                     {% if field.maximum is defined and field.maximum is not none %}max="{{ field.maximum }}"{% endif %}>
+            {% else %}
+              <input class="wf-input" type="{{ field.field_type }}"
+                     id="custom_data_{{ field.name }}"
+                     name="custom_data[{{ field.name }}]"
+                     value="{{ custom_values[field.name] | default(field.default_value | default('', true), true) }}"
+                     {% if field.required %}required{% endif %}
+                     {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
+                     {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}>
+            {% endif %}
+            {% if field.help_text and field.field_type != "checkbox" %}
+              <p class="wf-meta">{{ field.help_text }}</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="wf-field">
+        {# Invisible row to match login's FORGOT? link height. #}
+        <div class="wf-f wf-jc-sb wf-ai-baseline" style="min-height:14px;visibility:hidden" aria-hidden="true">
+          <span class="wf-label">PASSWORD</span>
+          <span class="wf-t-xs wf-upper">—</span>
+        </div>
+        <input class="wf-input" id="password" name="password" type="password"
+               required minlength="8" autocomplete="new-password">
+      </div>
+
+      <div class="wf-field">
+        <label class="wf-label" for="password_confirm">CONFIRM PASSWORD</label>
+        <input class="wf-input" id="password_confirm" name="password_confirm"
+               type="password" required minlength="8" autocomplete="new-password">
+      </div>
+
+      <button type="submit" class="wf-btn primary">CREATE ACCOUNT →</button>
+    </form>
+
+    {{ auth.oauth_grid(oauth_providers) }}
+
+    {{ auth.terms_footer() }}
+  </div>
+</main>

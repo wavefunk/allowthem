@@ -23,9 +23,22 @@ const SPLASH_PARTIAL: &str = include_str!("templates/_partials/_splash.html");
 const AUTH_SHELL_PARTIAL: &str = include_str!("templates/_partials/_auth_shell.html");
 const APP_SHELL_PARTIAL: &str = include_str!("templates/_partials/_app_shell.html");
 const SIDEBAR_NAV_PARTIAL: &str = include_str!("templates/_partials/_sidebar_nav.html");
-const CREATE_ACCOUNT_LINK_PARTIAL: &str =
-    include_str!("templates/_partials/_create_account_link.html");
-const SIGN_IN_LINK_PARTIAL: &str = include_str!("templates/_partials/_sign_in_link.html");
+const AUTH_MACROS_PARTIAL: &str = include_str!("templates/_partials/_auth_macros.html");
+const AUTH_OOB_HEAD_PARTIAL: &str = include_str!("templates/_partials/_auth_oob_head.html");
+const AUTH_MAIN_LOGIN_PARTIAL: &str = include_str!("templates/_partials/_auth_main_login.html");
+const AUTH_MAIN_REGISTER_PARTIAL: &str =
+    include_str!("templates/_partials/_auth_main_register.html");
+const AUTH_MAIN_FORGOT_PW_PARTIAL: &str =
+    include_str!("templates/_partials/_auth_main_forgot_password.html");
+const AUTH_MAIN_RESET_PW_PARTIAL: &str =
+    include_str!("templates/_partials/_auth_main_reset_password.html");
+const AUTH_MAIN_MFA_CHALLENGE_PARTIAL: &str =
+    include_str!("templates/_partials/_auth_main_mfa_challenge.html");
+const AUTH_MAIN_MFA_SETUP_PARTIAL: &str =
+    include_str!("templates/_partials/_auth_main_mfa_setup.html");
+const AUTH_MAIN_MFA_RECOVERY_PARTIAL: &str =
+    include_str!("templates/_partials/_auth_main_mfa_recovery.html");
+const AUTH_MAIN_CONSENT_PARTIAL: &str = include_str!("templates/_partials/_auth_main_consent.html");
 
 /// Register the default browser templates into an existing environment.
 ///
@@ -37,18 +50,21 @@ const SIGN_IN_LINK_PARTIAL: &str = include_str!("templates/_partials/_sign_in_li
 /// `_partials/_auth_shell.html` exposes two named blocks that integrators
 /// can override from a child template without forking the shell:
 ///
-/// - `splash_content` — replaces the entire splash aside contents
-///   (iframe / canvas / text cascade). Default includes
-///   `_partials/_splash.html`, which renders a shader canvas (or
-///   sandboxed iframe when `branding.splash_url` is set).
-/// - `auth_top` — replaces the top-bar content above the form.
-///   Default: a `.wf-eyebrow` span rendering `APP / AUTH`
-///   (`app_name` / `application_name` falls back to `"allowthem"`).
+/// - `splash_content` — replaces the splash aside's body (left column).
+///   Default includes `_partials/_splash.html`, which renders a shader
+///   canvas (or sandboxed iframe when `branding.splash_url` is set).
+/// - `auth_main` — replaces the entire `<main class="wf-auth-form">`
+///   subtree. During the z3c migration (C3–C10) the default body of this
+///   block contains a transitional bridge that re-exposes
+///   `{% block auth_top %}` and `{% block form %}` sub-blocks so
+///   un-migrated pages keep working. Once all pages have migrated to their
+///   `_auth_main_<page>.html` partials, the bridge and its sub-blocks will
+///   be removed and `auth_main` becomes the sole integrator entry point.
 ///
 /// Both blocks are safe to override in integrator templates that
 /// `{% extends "_partials/_auth_shell.html" %}` — the surrounding
-/// `<aside class="wf-auth-splash">` / `<div class="wf-auth-top">`
-/// wrappers are owned by the shell and remain stable.
+/// `<aside class="wf-auth-splash">` wrapper and the auth_main slot are
+/// owned by the shell and remain stable.
 ///
 /// # Integrator-overridable blocks (app shell)
 ///
@@ -113,13 +129,47 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
         .expect("_partials/_app_shell.html");
     env.add_template_owned("_partials/_sidebar_nav.html", SIDEBAR_NAV_PARTIAL)
         .expect("_partials/_sidebar_nav.html");
+    env.add_template_owned("_partials/_auth_macros.html", AUTH_MACROS_PARTIAL)
+        .expect("_partials/_auth_macros.html");
+    env.add_template_owned("_partials/_auth_oob_head.html", AUTH_OOB_HEAD_PARTIAL)
+        .expect("_partials/_auth_oob_head.html");
+    env.add_template_owned("_partials/_auth_main_login.html", AUTH_MAIN_LOGIN_PARTIAL)
+        .expect("_partials/_auth_main_login.html");
     env.add_template_owned(
-        "_partials/_create_account_link.html",
-        CREATE_ACCOUNT_LINK_PARTIAL,
+        "_partials/_auth_main_register.html",
+        AUTH_MAIN_REGISTER_PARTIAL,
     )
-    .expect("_partials/_create_account_link.html");
-    env.add_template_owned("_partials/_sign_in_link.html", SIGN_IN_LINK_PARTIAL)
-        .expect("_partials/_sign_in_link.html");
+    .expect("_partials/_auth_main_register.html");
+    env.add_template_owned(
+        "_partials/_auth_main_forgot_password.html",
+        AUTH_MAIN_FORGOT_PW_PARTIAL,
+    )
+    .expect("_partials/_auth_main_forgot_password.html");
+    env.add_template_owned(
+        "_partials/_auth_main_reset_password.html",
+        AUTH_MAIN_RESET_PW_PARTIAL,
+    )
+    .expect("_partials/_auth_main_reset_password.html");
+    env.add_template_owned(
+        "_partials/_auth_main_mfa_challenge.html",
+        AUTH_MAIN_MFA_CHALLENGE_PARTIAL,
+    )
+    .expect("_partials/_auth_main_mfa_challenge.html");
+    env.add_template_owned(
+        "_partials/_auth_main_mfa_setup.html",
+        AUTH_MAIN_MFA_SETUP_PARTIAL,
+    )
+    .expect("_partials/_auth_main_mfa_setup.html");
+    env.add_template_owned(
+        "_partials/_auth_main_mfa_recovery.html",
+        AUTH_MAIN_MFA_RECOVERY_PARTIAL,
+    )
+    .expect("_partials/_auth_main_mfa_recovery.html");
+    env.add_template_owned(
+        "_partials/_auth_main_consent.html",
+        AUTH_MAIN_CONSENT_PARTIAL,
+    )
+    .expect("_partials/_auth_main_consent.html");
 }
 
 pub fn build_default_browser_env() -> Arc<Environment<'static>> {
@@ -164,8 +214,16 @@ mod tests {
             "_partials/_auth_shell.html",
             "_partials/_app_shell.html",
             "_partials/_sidebar_nav.html",
-            "_partials/_create_account_link.html",
-            "_partials/_sign_in_link.html",
+            "_partials/_auth_macros.html",
+            "_partials/_auth_oob_head.html",
+            "_partials/_auth_main_login.html",
+            "_partials/_auth_main_register.html",
+            "_partials/_auth_main_forgot_password.html",
+            "_partials/_auth_main_reset_password.html",
+            "_partials/_auth_main_mfa_challenge.html",
+            "_partials/_auth_main_mfa_setup.html",
+            "_partials/_auth_main_mfa_recovery.html",
+            "_partials/_auth_main_consent.html",
         ] {
             assert!(
                 env.get_template(name).is_ok(),
