@@ -110,8 +110,5 @@
     <button type="submit" class="wf-btn primary">Register</button>
   </form>
 
-  <p class="wf-meta" style="margin-top:16px">
-    Already have an account?
-    <a class="wf-link" href="/login{% if client_id %}?client_id={{ client_id }}{% endif %}">Sign in</a>
-  </p>
+  {% include "_partials/_sign_in_link.html" %}
 {% endblock %}

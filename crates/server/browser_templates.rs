@@ -23,11 +23,32 @@ const SPLASH_PARTIAL: &str = include_str!("templates/_partials/_splash.html");
 const AUTH_SHELL_PARTIAL: &str = include_str!("templates/_partials/_auth_shell.html");
 const APP_SHELL_PARTIAL: &str = include_str!("templates/_partials/_app_shell.html");
 const SIDEBAR_NAV_PARTIAL: &str = include_str!("templates/_partials/_sidebar_nav.html");
+const CREATE_ACCOUNT_LINK_PARTIAL: &str =
+    include_str!("templates/_partials/_create_account_link.html");
+const SIGN_IN_LINK_PARTIAL: &str = include_str!("templates/_partials/_sign_in_link.html");
 
 /// Register the default browser templates into an existing environment.
 ///
 /// Useful for consumers (like the standalone binary) that need to extend
 /// the default template set with additional templates of their own.
+///
+/// # Integrator-overridable blocks (auth shell)
+///
+/// `_partials/_auth_shell.html` exposes two named blocks that integrators
+/// can override from a child template without forking the shell:
+///
+/// - `splash_content` — replaces the entire splash aside contents
+///   (iframe / canvas / text cascade). Default includes
+///   `_partials/_splash.html`, which renders a shader canvas (or
+///   sandboxed iframe when `branding.splash_url` is set).
+/// - `auth_top` — replaces the top-bar content above the form.
+///   Default: a `.wf-eyebrow` span rendering `APP / AUTH`
+///   (`app_name` / `application_name` falls back to `"allowthem"`).
+///
+/// Both blocks are safe to override in integrator templates that
+/// `{% extends "_partials/_auth_shell.html" %}` — the surrounding
+/// `<aside class="wf-auth-splash">` / `<div class="wf-auth-top">`
+/// wrappers are owned by the shell and remain stable.
 pub fn add_default_browser_templates(env: &mut Environment<'static>) {
     env.add_template_owned("base.html", BASE_HTML)
         .expect("base.html");
@@ -65,6 +86,13 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
         .expect("_partials/_app_shell.html");
     env.add_template_owned("_partials/_sidebar_nav.html", SIDEBAR_NAV_PARTIAL)
         .expect("_partials/_sidebar_nav.html");
+    env.add_template_owned(
+        "_partials/_create_account_link.html",
+        CREATE_ACCOUNT_LINK_PARTIAL,
+    )
+    .expect("_partials/_create_account_link.html");
+    env.add_template_owned("_partials/_sign_in_link.html", SIGN_IN_LINK_PARTIAL)
+        .expect("_partials/_sign_in_link.html");
 }
 
 pub fn build_default_browser_env() -> Arc<Environment<'static>> {
@@ -109,6 +137,8 @@ mod tests {
             "_partials/_auth_shell.html",
             "_partials/_app_shell.html",
             "_partials/_sidebar_nav.html",
+            "_partials/_create_account_link.html",
+            "_partials/_sign_in_link.html",
         ] {
             assert!(
                 env.get_template(name).is_ok(),

@@ -361,8 +361,8 @@ fn auth_shell_wraps_form_block_and_includes_splash_and_status_bar() {
             application_name => "acme",
         })
         .unwrap();
-    assert!(html.contains("at-auth-shell"));
-    assert!(html.contains("wf-splash"));
+    assert!(html.contains("wf-auth"));
+    assert!(html.contains("wf-auth-splash"));
     assert!(html.contains("wf-statusbar"));
     assert!(html.contains("id=\"the-form\""));
     // Exactly one <body> opening tag — the shell overrides body_content +
