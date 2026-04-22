@@ -765,11 +765,11 @@ mod consent_tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body(resp).await;
         assert!(body.contains("MyTestApp"), "app name");
-        assert!(body.contains("wants access to your account"), "prompt");
+        assert!(body.contains("wants to access the following:"), "prompt");
         assert!(body.contains("Verify your identity"), "openid scope");
         assert!(body.contains("View your email address"), "email scope");
-        assert!(body.contains("Allow"), "allow button");
-        assert!(body.contains("Deny"), "deny button");
+        assert!(body.contains("ALLOW"), "allow button");
+        assert!(body.contains("DENY"), "deny button");
         assert!(
             body.contains(r#"name="state" value="teststate""#),
             "state field"
@@ -1011,5 +1011,66 @@ mod consent_tests {
         assert!(body.contains("wf-btn primary"), "themed button class");
         assert!(body.contains("--accent: #ffffff"), "default white accent");
         assert!(body.contains("--accent-ink: #000000"), "default black ink");
+    }
+
+    #[tokio::test]
+    async fn consent_screen_hx_request_returns_fragment() {
+        let (ath, state) = consent_test_state().await;
+        let cookie = create_test_session(&ath, "hx@test.com").await;
+        let (app, _) = ath
+            .db()
+            .create_application(CreateApplicationParams {
+                name: "HxApp".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
+            .await
+            .unwrap();
+        let router = consent_router(state);
+        let req = Request::builder()
+            .method("GET")
+            .uri(&authorize_query(&app))
+            .header("cookie", &cookie)
+            .header("HX-Request", "true")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert!(
+            body.contains("<main class=\"wf-auth-form\">"),
+            "HX response must be a fragment starting at <main>"
+        );
+        assert!(
+            !body.contains("<html"),
+            "HX response must not render the full shell"
+        );
+        assert!(
+            body.contains("<title hx-swap-oob=\"true\">Authorize HxApp — allowthem</title>"),
+            "HX response must include the OOB <title> with tenant-specific page_title"
+        );
+        assert!(
+            body.contains("id=\"wf-screen-label\""),
+            "HX response must include the OOB #wf-screen-label"
+        );
+        assert!(body.contains("CONSENT"), "status_hint CONSENT must render");
+        assert!(
+            body.contains("HXAPP"),
+            "app_name must render in the kicker (uppercased)"
+        );
     }
 }

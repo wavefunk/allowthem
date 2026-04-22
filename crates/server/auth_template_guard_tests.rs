@@ -296,6 +296,23 @@ fn auth_main_mfa_recovery_has_no_tailwind_or_at_classes() {
     );
 }
 
+#[test]
+fn auth_main_consent_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_consent.html",
+        ctx_with(&[
+            ("application_name", Value::from("Test App")),
+            ("scope_items", Value::from(Vec::<Value>::new())),
+            ("redirect_uri", Value::from("https://example.com/cb")),
+            ("response_type", Value::from("code")),
+            ("scope", Value::from("openid")),
+            ("state_param", Value::from("state")),
+            ("code_challenge", Value::from("chal")),
+            ("code_challenge_method", Value::from("S256")),
+        ]),
+    );
+}
+
 /// Render `template_name` with the non-default accent fixture merged onto
 /// `extra_ctx`, then assert base.html's <style> block emitted the pair
 /// verbatim. Shields against a template accidentally overriding
