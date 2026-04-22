@@ -2,14 +2,17 @@ import { test, expect, loginAsAdmin } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
 
-// Helper: extract CSRF token from the csrf_token cookie (set by CSRF middleware on any GET).
+// Helper: extract CSRF token from any hidden csrf_token form input on the current page.
+// CSRF is session-derived for authenticated users — it lives in form fields, not cookies.
 async function getCsrfToken(
   page: import("@playwright/test").Page
 ): Promise<string> {
-  const cookies = await page.context().cookies();
-  const csrfCookie = cookies.find((c) => c.name === "csrf_token");
-  if (!csrfCookie) throw new Error("csrf_token cookie not found");
-  return csrfCookie.value;
+  const value = await page
+    .locator('input[name="csrf_token"]')
+    .first()
+    .getAttribute("value");
+  if (!value) throw new Error("csrf_token hidden input not found on page");
+  return value;
 }
 
 // Helper: seed a user via register POST. This creates both a user and a session.
@@ -54,7 +57,7 @@ test("admin sessions > list renders with session rows", async ({
   await page.goto("/admin/sessions");
   await expect(page).toHaveURL(/\/admin\/sessions/);
   // The admin session itself should appear (created by adminPage login)
-  await expect(page.locator("h1").first()).toHaveText("Sessions");
+  await expect(page.locator("h1").first()).toHaveText("SESSIONS");
 });
 
 test("admin sessions > user filter shows banner", async ({

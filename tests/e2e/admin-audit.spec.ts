@@ -72,27 +72,27 @@ test("admin audit > pagination: many events creates page 2", async ({
 }) => {
   // PAGE_SIZE=50. Generate >50 events by registering new users (each registration
   // produces a Register audit event). Registrations are not rate-limited.
-  // Need to read CSRF token from cookie, and re-login as admin after seeding
-  // since register POST overwrites the session cookie.
-  await page.goto("/admin/audit");
-  const cookies = await page.context().cookies();
-  const csrfCookie = cookies.find((c) => c.name === "csrf_token");
-  if (!csrfCookie) throw new Error("csrf_token cookie not found");
-  const csrfToken = csrfCookie.value;
-
+  // CSRF is session-derived for authenticated users and the POST /register
+  // handler rotates the session on success, so each iteration needs a fresh
+  // pre-auth csrf_pre cookie + matching csrf_token scraped from GET /register.
   const tag = `audit-pg-${Date.now()}`;
   for (let i = 0; i < 55; i++) {
+    await page.context().clearCookies();
+    const getResp = await page.request.get("/register");
+    const html = await getResp.text();
+    const match = html.match(/name="csrf_token"\s+value="([^"]+)"/);
+    if (!match) throw new Error(`csrf_token not found in GET /register (iter ${i})`);
     await page.request.post("/register", {
       form: {
         email: `${tag}-${i}@example.com`,
         password: "Test1234!",
         password_confirm: "Test1234!",
-        csrf_token: csrfToken,
+        csrf_token: match[1],
       },
     });
   }
 
-  // Re-login as admin (register POSTs overwrite the session cookie)
+  // Re-login as admin (register POSTs overwrote the session cookie)
   await page.context().clearCookies();
   await loginAsAdmin(page);
 
