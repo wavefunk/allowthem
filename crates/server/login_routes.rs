@@ -111,6 +111,50 @@ fn render_login_form(
     )
 }
 
+fn render_login_fragment(
+    config: &LoginConfig,
+    csrf_token: &str,
+    identifier: &str,
+    next: Option<&str>,
+    error: &str,
+    client_id: Option<&ClientId>,
+    branding: Option<&BrandingConfig>,
+) -> Result<Html<String>, BrowserError> {
+    let next_val = next.map(validate_next).unwrap_or("");
+    let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
+        resolve_accent(branding);
+
+    let ctx = context! {
+        csrf_token,
+        next => next_val,
+        error,
+        identifier,
+        client_id => client_id.map(|c| c.as_str()),
+        app_name => branding.map(|b| b.application_name.as_str()),
+        logo_url => branding.and_then(|b| b.logo_url.as_deref()),
+        accent => accent_hex,
+        accent_ink => accent_ink_hex,
+        accent_light => accent_light_hex,
+        accent_ink_light => accent_ink_light_hex,
+        oauth_providers => &config.oauth_providers,
+        is_production => config.is_production,
+        page_title => "Log in — allowthem",
+        status_hint => "SIGN IN",
+    };
+
+    let main = crate::browser_templates::render(
+        &config.templates,
+        "_partials/_auth_main_login.html",
+        ctx.clone(),
+    )?;
+    let oob = crate::browser_templates::render(
+        &config.templates,
+        "_partials/_auth_oob_head.html",
+        ctx,
+    )?;
+    Ok(Html(format!("{}{}", main.0, oob.0)))
+}
+
 fn is_rate_limited(config: &LoginConfig, ip: IpAddr) -> bool {
     if let Some(entry) = config.login_attempts.get(&ip) {
         let (count, window_start) = *entry;
@@ -164,6 +208,20 @@ async fn get_login(
     }
 
     let branding = lookup_branding(&ath, query.client_id.as_ref()).await;
+
+    if crate::hx::is_hx_request(&headers) {
+        let html = render_login_fragment(
+            &config,
+            csrf.as_str(),
+            "",
+            query.next.as_deref(),
+            "",
+            query.client_id.as_ref(),
+            branding.as_ref(),
+        )?;
+        return Ok(html.into_response());
+    }
+
     let html = render_login_form(
         &config,
         csrf.as_str(),
@@ -1082,9 +1140,15 @@ mod tests {
             .await
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
+        // MiniJinja HTML-encodes `/` in computed URL values (template-literal paths
+        // like `href="/register"` stay unescaped, but `~`-concatenated strings use
+        // `&#x2f;`). Accept either encoding so the assertion is resilient.
+        let id = app.client_id.as_str();
+        let unescaped = format!("/register?client_id={id}");
+        let escaped = format!("&#x2f;register?client_id={id}");
         assert!(
-            html.contains(&format!("/register?client_id={}", app.client_id)),
-            "register link should carry client_id"
+            html.contains(&unescaped) || html.contains(&escaped),
+            "register link should carry client_id (checked both /register and &#x2f;register forms)"
         );
     }
 }

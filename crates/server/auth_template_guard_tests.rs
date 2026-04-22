@@ -202,6 +202,41 @@ fn check_template(name: &'static str, ctx: Value) {
     }
 }
 
+/// Partial-level check: fragments don't inherit the shell, so we only
+/// assert presence of `wf-auth-form` (the fragment's own root) and
+/// the absence of any forbidden substring.
+fn check_partial(name: &'static str, ctx: Value) {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    let html = env
+        .get_template(name)
+        .unwrap_or_else(|e| panic!("load {name}: {e}"))
+        .render(ctx)
+        .unwrap_or_else(|e| panic!("render {name}: {e}"));
+
+    assert!(
+        html.contains("wf-auth-form"),
+        "{name}: expected to contain `wf-auth-form` (is it rendering the <main>?)"
+    );
+    for needle in FORBIDDEN_SUBSTRINGS {
+        assert!(
+            !html.contains(needle),
+            "{name}: contains forbidden substring `{needle}`"
+        );
+    }
+}
+
+#[test]
+fn auth_main_login_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_login.html",
+        ctx_with(&[
+            ("identifier", Value::from("")),
+            ("oauth_providers", Value::from(Vec::<String>::new())),
+        ]),
+    );
+}
+
 /// Render `template_name` with the non-default accent fixture merged onto
 /// `extra_ctx`, then assert base.html's <style> block emitted the pair
 /// verbatim. Shields against a template accidentally overriding
