@@ -23,9 +23,6 @@ const SPLASH_PARTIAL: &str = include_str!("templates/_partials/_splash.html");
 const AUTH_SHELL_PARTIAL: &str = include_str!("templates/_partials/_auth_shell.html");
 const APP_SHELL_PARTIAL: &str = include_str!("templates/_partials/_app_shell.html");
 const SIDEBAR_NAV_PARTIAL: &str = include_str!("templates/_partials/_sidebar_nav.html");
-const CREATE_ACCOUNT_LINK_PARTIAL: &str =
-    include_str!("templates/_partials/_create_account_link.html");
-const SIGN_IN_LINK_PARTIAL: &str = include_str!("templates/_partials/_sign_in_link.html");
 const AUTH_MACROS_PARTIAL: &str = include_str!("templates/_partials/_auth_macros.html");
 const AUTH_OOB_HEAD_PARTIAL: &str = include_str!("templates/_partials/_auth_oob_head.html");
 const AUTH_MAIN_LOGIN_PARTIAL: &str = include_str!("templates/_partials/_auth_main_login.html");
@@ -132,13 +129,6 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
         .expect("_partials/_app_shell.html");
     env.add_template_owned("_partials/_sidebar_nav.html", SIDEBAR_NAV_PARTIAL)
         .expect("_partials/_sidebar_nav.html");
-    env.add_template_owned(
-        "_partials/_create_account_link.html",
-        CREATE_ACCOUNT_LINK_PARTIAL,
-    )
-    .expect("_partials/_create_account_link.html");
-    env.add_template_owned("_partials/_sign_in_link.html", SIGN_IN_LINK_PARTIAL)
-        .expect("_partials/_sign_in_link.html");
     env.add_template_owned("_partials/_auth_macros.html", AUTH_MACROS_PARTIAL)
         .expect("_partials/_auth_macros.html");
     env.add_template_owned("_partials/_auth_oob_head.html", AUTH_OOB_HEAD_PARTIAL)
@@ -224,8 +214,6 @@ mod tests {
             "_partials/_auth_shell.html",
             "_partials/_app_shell.html",
             "_partials/_sidebar_nav.html",
-            "_partials/_create_account_link.html",
-            "_partials/_sign_in_link.html",
             "_partials/_auth_macros.html",
             "_partials/_auth_oob_head.html",
             "_partials/_auth_main_login.html",
