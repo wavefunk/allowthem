@@ -48,6 +48,10 @@
             --accent-press: color-mix(in oklch, var(--accent), black 25%);
             --accent-ring:  color-mix(in oklch, var(--accent), white 25%);
         }
+        html[data-mode="light"] {
+            --accent: {{ accent_light | default("#000000") }};
+            --accent-ink: {{ accent_ink_light | default("#ffffff") }};
+        }
     </style>
     {% endblock %}
 
