@@ -126,7 +126,9 @@ let (app, _secret) = ath
     .await?;
 ```
 
-**Standalone mode:** the admin UI exposes `/admin/applications/new` for creation and `/admin/applications/:id/edit` for edits. Every branding field is a form input on those pages; no SQL editing is required. A screenshot of the admin UI branding form is tracked in bd issue `allowthem-oyl`.
+**Standalone mode:** the admin UI exposes `/admin/applications/new` for creation and `/admin/applications/:id/edit` for edits. Every branding field is a form input on those pages; no SQL editing is required.
+
+![Admin branding form — /admin/applications/new](docs/assets/readme-branding-admin-form.png)
 
 ### Accent ink derivation
 
