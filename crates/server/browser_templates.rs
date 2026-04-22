@@ -31,6 +31,24 @@ const SIGN_IN_LINK_PARTIAL: &str = include_str!("templates/_partials/_sign_in_li
 ///
 /// Useful for consumers (like the standalone binary) that need to extend
 /// the default template set with additional templates of their own.
+///
+/// # Integrator-overridable blocks (auth shell)
+///
+/// `_partials/_auth_shell.html` exposes two named blocks that integrators
+/// can override from a child template without forking the shell:
+///
+/// - `splash_content` — replaces the entire splash aside contents
+///   (iframe / canvas / text cascade). Default includes
+///   `_partials/_splash.html`, which renders a shader canvas (or
+///   sandboxed iframe when `branding.splash_url` is set).
+/// - `auth_top` — replaces the top-bar content above the form.
+///   Default: a `.wf-eyebrow` span rendering `APP / AUTH`
+///   (`app_name` / `application_name` falls back to `"allowthem"`).
+///
+/// Both blocks are safe to override in integrator templates that
+/// `{% extends "_partials/_auth_shell.html" %}` — the surrounding
+/// `<aside class="wf-auth-splash">` / `<div class="wf-auth-top">`
+/// wrappers are owned by the shell and remain stable.
 pub fn add_default_browser_templates(env: &mut Environment<'static>) {
     env.add_template_owned("base.html", BASE_HTML)
         .expect("base.html");
