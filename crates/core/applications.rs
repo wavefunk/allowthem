@@ -130,6 +130,65 @@ impl Application {
     }
 }
 
+impl BrandingConfig {
+    /// Construct an all-defaults `BrandingConfig` with only the required
+    /// `application_name` set. Embedders use this as a starting point:
+    /// `BrandingConfig::new("Transfer These Files").with_accent("#ff7a1a", AccentInk::Black)`.
+    pub fn new(application_name: impl Into<String>) -> Self {
+        Self {
+            application_name: application_name.into(),
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        }
+    }
+
+    pub fn with_accent(mut self, hex: impl Into<String>, ink: AccentInk) -> Self {
+        self.accent_hex = Some(hex.into());
+        self.accent_ink = Some(ink);
+        self
+    }
+
+    pub fn with_primary_color(mut self, hex: impl Into<String>) -> Self {
+        self.primary_color = Some(hex.into());
+        self
+    }
+
+    pub fn with_logo_url(mut self, url: impl Into<String>) -> Self {
+        self.logo_url = Some(url.into());
+        self
+    }
+
+    pub fn with_splash_text(mut self, text: impl Into<String>) -> Self {
+        self.splash_text = Some(text.into());
+        self
+    }
+
+    pub fn with_splash_image_url(mut self, url: impl Into<String>) -> Self {
+        self.splash_image_url = Some(url.into());
+        self
+    }
+
+    pub fn with_splash_primitive(mut self, primitive: SplashPrimitive) -> Self {
+        self.splash_primitive = Some(primitive);
+        self
+    }
+
+    pub fn with_shader_cell_scale(mut self, scale: i64) -> Self {
+        self.shader_cell_scale = Some(scale);
+        self
+    }
+}
+
 fn map_unique_violation(err: sqlx::Error) -> AuthError {
     if let sqlx::Error::Database(ref db_err) = err {
         let msg = db_err.message();
@@ -1145,5 +1204,75 @@ mod tests {
             value.get("client_id").is_some(),
             "client_id must appear in serialized output"
         );
+    }
+
+    #[cfg(test)]
+    mod branding_config_builder_tests {
+        use super::*;
+        use crate::types::{AccentInk, SplashPrimitive};
+
+        #[test]
+        fn new_sets_application_name_leaves_rest_none() {
+            let b = BrandingConfig::new("Fixture Co");
+            assert_eq!(b.application_name, "Fixture Co");
+            assert!(b.logo_url.is_none());
+            assert!(b.primary_color.is_none());
+            assert!(b.accent_hex.is_none());
+            assert!(b.accent_ink.is_none());
+            assert!(b.forced_mode.is_none());
+            assert!(b.font_css_url.is_none());
+            assert!(b.font_family.is_none());
+            assert!(b.splash_text.is_none());
+            assert!(b.splash_image_url.is_none());
+            assert!(b.splash_primitive.is_none());
+            assert!(b.splash_url.is_none());
+            assert!(b.shader_cell_scale.is_none());
+        }
+
+        #[test]
+        fn with_accent_sets_hex_and_ink() {
+            let b = BrandingConfig::new("Co").with_accent("#ff7a1a", AccentInk::Black);
+            assert_eq!(b.accent_hex.as_deref(), Some("#ff7a1a"));
+            assert_eq!(b.accent_ink, Some(AccentInk::Black));
+        }
+
+        #[test]
+        fn with_splash_text_sets_field() {
+            let b = BrandingConfig::new("Co").with_splash_text("TRANSFER");
+            assert_eq!(b.splash_text.as_deref(), Some("TRANSFER"));
+        }
+
+        #[test]
+        fn with_shader_cell_scale_sets_field() {
+            let b = BrandingConfig::new("Co").with_shader_cell_scale(18);
+            assert_eq!(b.shader_cell_scale, Some(18));
+        }
+
+        #[test]
+        fn with_splash_primitive_sets_field() {
+            let b = BrandingConfig::new("Co").with_splash_primitive(SplashPrimitive::Wave);
+            assert_eq!(b.splash_primitive, Some(SplashPrimitive::Wave));
+        }
+
+        #[test]
+        fn with_logo_url_sets_field() {
+            let b = BrandingConfig::new("Co").with_logo_url("https://cdn.example/logo.svg");
+            assert_eq!(b.logo_url.as_deref(), Some("https://cdn.example/logo.svg"));
+        }
+
+        #[test]
+        fn with_primary_color_sets_field() {
+            let b = BrandingConfig::new("Co").with_primary_color("#0066ff");
+            assert_eq!(b.primary_color.as_deref(), Some("#0066ff"));
+        }
+
+        #[test]
+        fn with_splash_image_url_sets_field() {
+            let b = BrandingConfig::new("Co").with_splash_image_url("https://cdn.example/splash.png");
+            assert_eq!(
+                b.splash_image_url.as_deref(),
+                Some("https://cdn.example/splash.png")
+            );
+        }
     }
 }
