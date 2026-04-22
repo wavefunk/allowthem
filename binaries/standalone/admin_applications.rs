@@ -581,7 +581,7 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body_string(resp).await;
-        assert!(body.contains("New application"));
+        assert!(body.contains("NEW APPLICATION"));
     }
 
     #[tokio::test]

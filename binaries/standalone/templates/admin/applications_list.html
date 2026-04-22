@@ -2,41 +2,51 @@
 
 {% block title %}Applications — allowthem{% endblock %}
 
-{% block content %}
-  <h1 class="wf-display-sm">Applications</h1>
+{% block pagetitle %}APPLICATIONS{% endblock %}
+{% block crumbs %}ALLOWTHEM · ADMIN · APPLICATIONS{% endblock %}
+{% block main_class %}has-tablewrap{% endblock %}
 
-  <p><a class="wf-btn primary" href="/admin/applications/new">New application</a></p>
-
+{% block page_content %}
+  <div class="wf-panel" style="margin:16px 24px 0">
+    <div class="wf-panel-head">
+      <div class="wf-panel-title">Registered applications</div>
+      <a class="wf-btn primary sm" href="/admin/applications/new">New application</a>
+    </div>
+  </div>
   {% if applications %}
-    <table class="wf-table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Client ID</th>
-          <th>Status</th>
-          <th>Trusted</th>
-          <th>Created</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for app in applications %}
-          <tr>
-            <td><a class="wf-link" href="/admin/applications/{{ app.id }}">{{ app.name }}</a></td>
-            <td><code title="{{ app.client_id }}">{{ app.client_id }}</code></td>
-            <td>
-              {% if app.is_active %}
-                <span class="wf-tag ok">Active</span>
-              {% else %}
-                <span class="wf-tag muted">Inactive</span>
-              {% endif %}
-            </td>
-            <td>{% if app.is_trusted %}Yes{% else %}No{% endif %}</td>
-            <td>{{ app.created_at }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="wf-tablewrap">
+      <div class="wf-tablescroll">
+        <table class="wf-table sticky">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Client ID</th>
+              <th>Status</th>
+              <th>Trusted</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for app in applications %}
+              <tr>
+                <td><a class="wf-link" href="/admin/applications/{{ app.id }}">{{ app.name }}</a></td>
+                <td><code title="{{ app.client_id }}">{{ app.client_id }}</code></td>
+                <td>
+                  {% if app.is_active %}
+                    <span class="wf-tag ok">Active</span>
+                  {% else %}
+                    <span class="wf-tag muted">Inactive</span>
+                  {% endif %}
+                </td>
+                <td>{% if app.is_trusted %}Yes{% else %}No{% endif %}</td>
+                <td>{{ app.created_at }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   {% else %}
-    <p class="wf-empty">No applications registered.</p>
+    <p class="wf-empty" style="padding:24px">No applications registered.</p>
   {% endif %}
 {% endblock %}

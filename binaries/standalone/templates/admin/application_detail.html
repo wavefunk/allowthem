@@ -2,90 +2,93 @@
 
 {% block title %}{{ app.name }} — allowthem{% endblock %}
 
+{% block pagetitle %}{{ app.name | upper }}{% endblock %}
+{% block crumbs %}ADMIN · APPLICATIONS · {{ app.client_id }}{% endblock %}
+
 {% block content %}
-  <h1 class="wf-display-sm">{{ app.name }}</h1>
+  <div class="wf-panel">
+    <div class="wf-panel-body">
+      {% if client_secret %}
+        <div class="wf-alert warn">
+          <span class="wf-bar"></span>
+          <div>
+            <div class="wf-eyebrow">Client secret (copy now — it will not be shown again)</div>
+            <code style="user-select: all; word-break: break-all;">{{ client_secret }}</code>
+          </div>
+          <span></span>
+        </div>
+      {% endif %}
 
-  {% if client_secret %}
-    <div class="wf-alert warn">
-      <span class="wf-bar"></span>
-      <div>
-        <div class="wf-eyebrow">Client secret (copy now — it will not be shown again)</div>
-        <code style="user-select: all; word-break: break-all;">{{ client_secret }}</code>
-      </div>
-      <span></span>
+      <dl class="wf-dl">
+        <dt>Client ID</dt>
+        <dd><code>{{ app.client_id }}</code></dd>
+
+        <dt>Status</dt>
+        <dd>
+          {% if app.is_active %}
+            <span class="wf-tag ok">Active</span>
+          {% else %}
+            <span class="wf-tag muted">Inactive</span>
+          {% endif %}
+        </dd>
+
+        <dt>Trusted</dt>
+        <dd>{% if app.is_trusted %}Yes{% else %}No{% endif %}</dd>
+
+        <dt>Redirect URIs</dt>
+        <dd>
+          {% if redirect_uris %}
+            <ul>
+              {% for uri in redirect_uris %}
+                <li>{{ uri }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <span class="wf-tag muted">None</span>
+          {% endif %}
+        </dd>
+
+        <dt>Logo URL</dt>
+        <dd>{% if app.logo_url %}{{ app.logo_url }}{% else %}<span class="wf-tag muted">Not set</span>{% endif %}</dd>
+
+        <dt>Primary color</dt>
+        <dd>
+          {% if app.primary_color %}
+            {{ app.primary_color }}
+          {% else %}
+            <span class="wf-tag muted">Not set</span>
+          {% endif %}
+        </dd>
+
+        <dt>Created by</dt>
+        <dd>{% if app.created_by %}{{ app.created_by }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</dd>
+
+        <dt>Created</dt>
+        <dd>{{ app.created_at }}</dd>
+
+        <dt>Updated</dt>
+        <dd>{{ app.updated_at }}</dd>
+      </dl>
+
+      <p>
+        <a class="wf-btn primary" href="/admin/applications/{{ app.id }}/edit">Edit</a>
+
+        <form method="post" action="/admin/applications/{{ app.id }}/regenerate-secret"
+              style="display: inline;"
+              onsubmit="return confirm('Regenerate client secret? The old secret will be permanently invalidated and all integrations using it will break.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="wf-btn ghost" type="submit">Regenerate secret</button>
+        </form>
+
+        <form method="post" action="/admin/applications/{{ app.id }}/delete"
+              style="display: inline;"
+              onsubmit="return confirm('Permanently delete this application? This will revoke all associated authorization codes, refresh tokens, and consents.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="wf-btn danger" type="submit">Delete</button>
+        </form>
+      </p>
+
+      <p><a class="wf-link-quiet" href="/admin/applications">Back to applications</a></p>
     </div>
-  {% endif %}
-
-  <dl class="wf-dl">
-    <dt>Client ID</dt>
-    <dd><code>{{ app.client_id }}</code></dd>
-
-    <dt>Status</dt>
-    <dd>
-      {% if app.is_active %}
-        <span class="wf-tag ok">Active</span>
-      {% else %}
-        <span class="wf-tag muted">Inactive</span>
-      {% endif %}
-    </dd>
-
-    <dt>Trusted</dt>
-    <dd>{% if app.is_trusted %}Yes{% else %}No{% endif %}</dd>
-
-    <dt>Redirect URIs</dt>
-    <dd>
-      {% if redirect_uris %}
-        <ul>
-          {% for uri in redirect_uris %}
-            <li>{{ uri }}</li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <span class="wf-tag muted">None</span>
-      {% endif %}
-    </dd>
-
-    <dt>Logo URL</dt>
-    <dd>{% if app.logo_url %}{{ app.logo_url }}{% else %}<span class="wf-tag muted">Not set</span>{% endif %}</dd>
-
-    <dt>Primary color</dt>
-    <dd>
-      {% if app.primary_color %}
-        {{ app.primary_color }}
-      {% else %}
-        <span class="wf-tag muted">Not set</span>
-      {% endif %}
-    </dd>
-
-    <dt>Created by</dt>
-    <dd>{% if app.created_by %}{{ app.created_by }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</dd>
-
-    <dt>Created</dt>
-    <dd>{{ app.created_at }}</dd>
-
-    <dt>Updated</dt>
-    <dd>{{ app.updated_at }}</dd>
-  </dl>
-
-  <hr class="wf-hr">
-
-  <p>
-    <a class="wf-btn primary" href="/admin/applications/{{ app.id }}/edit">Edit</a>
-
-    <form method="post" action="/admin/applications/{{ app.id }}/regenerate-secret"
-          style="display: inline;"
-          onsubmit="return confirm('Regenerate client secret? The old secret will be permanently invalidated and all integrations using it will break.')">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="wf-btn ghost" type="submit">Regenerate secret</button>
-    </form>
-
-    <form method="post" action="/admin/applications/{{ app.id }}/delete"
-          style="display: inline;"
-          onsubmit="return confirm('Permanently delete this application? This will revoke all associated authorization codes, refresh tokens, and consents.')">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="wf-btn danger" type="submit">Delete</button>
-    </form>
-  </p>
-
-  <p><a class="wf-link-quiet" href="/admin/applications">Back to applications</a></p>
+  </div>
 {% endblock %}

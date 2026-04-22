@@ -2,59 +2,64 @@
 
 {% block title %}Edit {{ app.name }} — allowthem{% endblock %}
 
+{% block pagetitle %}EDIT {{ app.name | upper }}{% endblock %}
+{% block crumbs %}ADMIN · APPLICATIONS · {{ app.client_id }} · EDIT{% endblock %}
+
 {% block content %}
-  <h1 class="wf-display-sm">Edit {{ app.name }}</h1>
-
-  {% if error %}
-    <div class="wf-alert err">
-      <span class="wf-bar"></span>
-      <div>{{ error }}</div>
-      <span></span>
-    </div>
-  {% endif %}
-
-  <form method="post" action="/admin/applications/{{ app.id }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-    <label class="wf-label" for="name">Name</label>
-    <input class="wf-input" type="text" id="name" name="name" required value="{{ app.name }}">
-
-    <label class="wf-label">Redirect URIs</label>
-    <div id="uri-list">
-      {% for uri in redirect_uris %}
-        <div style="display: flex; gap: 8px;">
-          <input class="wf-input" type="text" name="redirect_uris"
-                 value="{{ uri }}" placeholder="https://example.com/callback">
-          <button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>
+  <div class="wf-panel">
+    <div class="wf-panel-body">
+      {% if error %}
+        <div class="wf-alert err">
+          <span class="wf-bar"></span>
+          <div>{{ error }}</div>
+          <span></span>
         </div>
-      {% endfor %}
+      {% endif %}
+
+      <form method="post" action="/admin/applications/{{ app.id }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label class="wf-label" for="name">Name</label>
+        <input class="wf-input" type="text" id="name" name="name" required value="{{ app.name }}">
+
+        <label class="wf-label">Redirect URIs</label>
+        <div id="uri-list">
+          {% for uri in redirect_uris %}
+            <div style="display: flex; gap: 8px;">
+              <input class="wf-input" type="text" name="redirect_uris"
+                     value="{{ uri }}" placeholder="https://example.com/callback">
+              <button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>
+            </div>
+          {% endfor %}
+        </div>
+        <p><button class="wf-btn ghost sm" type="button" onclick="addUri()">Add URI</button></p>
+
+        <p>
+          <input type="checkbox" id="is_trusted" name="is_trusted"
+                 {% if app.is_trusted %}checked{% endif %}>
+          <label for="is_trusted">Trusted (skip consent screen)</label>
+        </p>
+
+        <p>
+          <input type="checkbox" id="is_active" name="is_active"
+                 {% if app.is_active %}checked{% endif %}>
+          <label for="is_active">Active</label>
+        </p>
+
+        <label class="wf-label" for="logo_url">Logo URL (optional)</label>
+        <input class="wf-input" type="text" id="logo_url" name="logo_url" value="{{ app.logo_url }}">
+
+        <label class="wf-label" for="primary_color">Primary color (optional)</label>
+        <input class="wf-input" type="text" id="primary_color" name="primary_color"
+               value="{{ app.primary_color }}" placeholder="#3B82F6">
+
+        <p>
+          <button class="wf-btn primary" type="submit">Save changes</button>
+          <a class="wf-link-quiet" href="/admin/applications/{{ app.id }}">Cancel</a>
+        </p>
+      </form>
     </div>
-    <p><button class="wf-btn ghost sm" type="button" onclick="addUri()">Add URI</button></p>
-
-    <p>
-      <input type="checkbox" id="is_trusted" name="is_trusted"
-             {% if app.is_trusted %}checked{% endif %}>
-      <label for="is_trusted">Trusted (skip consent screen)</label>
-    </p>
-
-    <p>
-      <input type="checkbox" id="is_active" name="is_active"
-             {% if app.is_active %}checked{% endif %}>
-      <label for="is_active">Active</label>
-    </p>
-
-    <label class="wf-label" for="logo_url">Logo URL (optional)</label>
-    <input class="wf-input" type="text" id="logo_url" name="logo_url" value="{{ app.logo_url }}">
-
-    <label class="wf-label" for="primary_color">Primary color (optional)</label>
-    <input class="wf-input" type="text" id="primary_color" name="primary_color"
-           value="{{ app.primary_color }}" placeholder="#3B82F6">
-
-    <p>
-      <button class="wf-btn primary" type="submit">Save changes</button>
-      <a class="wf-link-quiet" href="/admin/applications/{{ app.id }}">Cancel</a>
-    </p>
-  </form>
+  </div>
 {% endblock %}
 
 {% block scripts %}

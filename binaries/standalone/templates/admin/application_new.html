@@ -2,60 +2,65 @@
 
 {% block title %}New Application — allowthem{% endblock %}
 
+{% block pagetitle %}NEW APPLICATION{% endblock %}
+{% block crumbs %}ADMIN · APPLICATIONS · NEW{% endblock %}
+
 {% block content %}
-  <h1 class="wf-display-sm">New application</h1>
-
-  {% if error %}
-    <div class="wf-alert err">
-      <span class="wf-bar"></span>
-      <div>{{ error }}</div>
-      <span></span>
-    </div>
-  {% endif %}
-
-  <form method="post" action="/admin/applications">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-    <label class="wf-label" for="name">Name</label>
-    <input class="wf-input" type="text" id="name" name="name" required value="{{ form_name }}">
-
-    <label class="wf-label">Redirect URIs</label>
-    <div id="uri-list">
-      {% if form_redirect_uris %}
-        {% for uri in form_redirect_uris %}
-          <div style="display: flex; gap: 8px;">
-            <input class="wf-input" type="text" name="redirect_uris"
-                   value="{{ uri }}" placeholder="https://example.com/callback">
-            <button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div style="display: flex; gap: 8px;">
-          <input class="wf-input" type="text" name="redirect_uris"
-                 placeholder="https://example.com/callback">
-          <button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>
+  <div class="wf-panel">
+    <div class="wf-panel-body">
+      {% if error %}
+        <div class="wf-alert err">
+          <span class="wf-bar"></span>
+          <div>{{ error }}</div>
+          <span></span>
         </div>
       {% endif %}
+
+      <form method="post" action="/admin/applications">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label class="wf-label" for="name">Name</label>
+        <input class="wf-input" type="text" id="name" name="name" required value="{{ form_name }}">
+
+        <label class="wf-label">Redirect URIs</label>
+        <div id="uri-list">
+          {% if form_redirect_uris %}
+            {% for uri in form_redirect_uris %}
+              <div style="display: flex; gap: 8px;">
+                <input class="wf-input" type="text" name="redirect_uris"
+                       value="{{ uri }}" placeholder="https://example.com/callback">
+                <button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div style="display: flex; gap: 8px;">
+              <input class="wf-input" type="text" name="redirect_uris"
+                     placeholder="https://example.com/callback">
+              <button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>
+            </div>
+          {% endif %}
+        </div>
+        <p><button class="wf-btn ghost sm" type="button" onclick="addUri()">Add URI</button></p>
+
+        <p>
+          <input type="checkbox" id="is_trusted" name="is_trusted"
+                 {% if form_is_trusted %}checked{% endif %}>
+          <label for="is_trusted">Trusted (skip consent screen)</label>
+        </p>
+
+        <label class="wf-label" for="logo_url">Logo URL (optional)</label>
+        <input class="wf-input" type="text" id="logo_url" name="logo_url" value="{{ form_logo_url }}">
+
+        <label class="wf-label" for="primary_color">Primary color (optional)</label>
+        <input class="wf-input" type="text" id="primary_color" name="primary_color"
+               value="{{ form_primary_color }}" placeholder="#3B82F6">
+
+        <p><button class="wf-btn primary" type="submit">Create application</button></p>
+      </form>
+
+      <p><a class="wf-link-quiet" href="/admin/applications">Back to applications</a></p>
     </div>
-    <p><button class="wf-btn ghost sm" type="button" onclick="addUri()">Add URI</button></p>
-
-    <p>
-      <input type="checkbox" id="is_trusted" name="is_trusted"
-             {% if form_is_trusted %}checked{% endif %}>
-      <label for="is_trusted">Trusted (skip consent screen)</label>
-    </p>
-
-    <label class="wf-label" for="logo_url">Logo URL (optional)</label>
-    <input class="wf-input" type="text" id="logo_url" name="logo_url" value="{{ form_logo_url }}">
-
-    <label class="wf-label" for="primary_color">Primary color (optional)</label>
-    <input class="wf-input" type="text" id="primary_color" name="primary_color"
-           value="{{ form_primary_color }}" placeholder="#3B82F6">
-
-    <p><button class="wf-btn primary" type="submit">Create application</button></p>
-  </form>
-
-  <p><a class="wf-link-quiet" href="/admin/applications">Back to applications</a></p>
+  </div>
 {% endblock %}
 
 {% block scripts %}
