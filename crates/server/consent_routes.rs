@@ -276,5 +276,68 @@ mod tests {
             html.contains("Verify your identity"),
             "fragment must render the scope descriptions"
         );
+
+        // Hidden OAuth inputs: guard against silent drops during future
+        // template refactors. All 8 required inputs must render with the
+        // exact name+value pairs from the fixture.
+        assert!(
+            html.contains(r#"name="client_id" value="cid-abc""#),
+            "client_id hidden input missing"
+        );
+        // MiniJinja HTML-escapes `/` to `&#x2f;` in attribute values.
+        assert!(
+            html.contains(
+                r#"name="redirect_uri" value="https:&#x2f;&#x2f;example.com&#x2f;cb""#
+            ),
+            "redirect_uri hidden input missing"
+        );
+        assert!(
+            html.contains(r#"name="response_type" value="code""#),
+            "response_type hidden input missing"
+        );
+        assert!(
+            html.contains(r#"name="scope" value="openid email""#),
+            "scope hidden input missing"
+        );
+        assert!(
+            html.contains(r#"name="state" value="state-xyz""#),
+            "state hidden input missing"
+        );
+        assert!(
+            html.contains(r#"name="code_challenge" value="chal""#),
+            "code_challenge hidden input missing"
+        );
+        assert!(
+            html.contains(r#"name="code_challenge_method" value="S256""#),
+            "code_challenge_method hidden input missing"
+        );
+        assert!(
+            html.contains(r#"name="csrf_token" value="tok""#),
+            "csrf_token hidden input missing"
+        );
+
+        // Fixture has `nonce: None` — the optional hidden input must NOT
+        // render when nonce is absent.
+        assert!(
+            !html.contains(r#"name="nonce""#),
+            "nonce hidden input must not render when nonce is None"
+        );
+    }
+
+    #[test]
+    fn render_consent_fragment_renders_nonce_when_present() {
+        let templates = crate::browser_templates::build_default_browser_env();
+        let config = ConsentConfig {
+            templates,
+            is_production: false,
+        };
+        let mut fields = fixture_fields();
+        fields.nonce = Some("nonce-123".into());
+        let html = render_consent_fragment(&config, &fields).unwrap().0;
+
+        assert!(
+            html.contains(r#"name="nonce" value="nonce-123""#),
+            "nonce hidden input must render when nonce is Some"
+        );
     }
 }
