@@ -81,6 +81,28 @@ pub async fn lookup_branding(
     }
 }
 
+/// Embedder-provided fallback branding, attached to the router via
+/// `Extension<Arc<DefaultBranding>>` when the embedder calls
+/// `AllRoutesBuilder::default_branding`.
+///
+/// Wrapping the `BrandingConfig` in a newtype keeps it disjoint from any
+/// handler that takes `Extension<BrandingConfig>` directly.
+#[derive(Debug, Clone)]
+pub struct DefaultBranding(pub BrandingConfig);
+
+/// Resolve branding for a handler: per-client row if the lookup matches,
+/// else the embedder-supplied default, else `None`.
+pub async fn resolve_branding(
+    ath: &AllowThem,
+    client_id: Option<&ClientId>,
+    default: Option<&BrandingConfig>,
+) -> Option<BrandingConfig> {
+    if let Some(b) = lookup_branding(ath, client_id).await {
+        return Some(b);
+    }
+    default.cloned()
+}
+
 fn parse_hex(hex: &str) -> Option<(u8, u8, u8)> {
     let bytes = hex.as_bytes();
     if bytes.len() != 7 || bytes[0] != b'#' {
@@ -97,6 +119,47 @@ mod tests {
     use super::*;
     use allowthem_core::applications::BrandingConfig;
     use allowthem_core::types::AccentInk;
+    use allowthem_core::{AllowThem, AllowThemBuilder};
+
+    async fn test_ath() -> AllowThem {
+        AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
+            .build()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn resolve_branding_returns_default_when_client_id_is_none() {
+        let ath = test_ath().await;
+        let default = BrandingConfig::new("Fallback Co");
+        let result = resolve_branding(&ath, None, Some(&default)).await;
+        assert_eq!(
+            result.as_ref().map(|b| b.application_name.as_str()),
+            Some("Fallback Co")
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_branding_returns_none_when_no_client_and_no_default() {
+        let ath = test_ath().await;
+        let result = resolve_branding(&ath, None, None).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_branding_returns_default_when_client_id_does_not_match() {
+        let ath = test_ath().await;
+        let default = BrandingConfig::new("Fallback Co");
+        let unknown: allowthem_core::types::ClientId =
+            serde_json::from_str("\"ath_does_not_exist\"").unwrap();
+        let result = resolve_branding(&ath, Some(&unknown), Some(&default)).await;
+        assert_eq!(
+            result.as_ref().map(|b| b.application_name.as_str()),
+            Some("Fallback Co")
+        );
+    }
 
     #[test]
     fn derive_ink_pastels_pair_with_black() {

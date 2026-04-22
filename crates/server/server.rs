@@ -45,7 +45,10 @@ pub use authorize_routes::{
     authorize_post, check_authorization,
 };
 pub use bearer::BearerAuthUser;
-pub use branding::{DEFAULT_ACCENT_HEX, derive_ink, lookup_branding, resolve_accent};
+pub use branding::{
+    DEFAULT_ACCENT_HEX, DefaultBranding, derive_ink, lookup_branding, resolve_accent,
+    resolve_branding,
+};
 pub use browser_error::BrowserError;
 pub use browser_templates::{build_default_browser_env, render as render_template};
 pub use consent_routes::consent_routes;
