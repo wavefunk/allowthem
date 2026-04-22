@@ -103,6 +103,38 @@ pub async fn resolve_branding(
     default.cloned()
 }
 
+/// Projection of `BrandingConfig` into the flat context keys every pre-auth
+/// template reads directly (not via `branding.*` dotted access): `app_name`,
+/// `logo_url`, and the accent quad.
+///
+/// Handlers also emit `branding => branding` as a separate context key so
+/// templates keep their existing dotted access to `splash_*`, `forced_mode`,
+/// and `font_*` fields.
+pub struct BrandingCtx<'a> {
+    pub app_name: &'a str,
+    pub accent: String,
+    pub accent_ink: &'static str,
+    pub accent_light: String,
+    pub accent_ink_light: &'static str,
+    pub logo_url: Option<&'a str>,
+}
+
+impl<'a> BrandingCtx<'a> {
+    pub fn from_branding(branding: Option<&'a BrandingConfig>) -> Self {
+        let (accent, accent_ink, accent_light, accent_ink_light) = resolve_accent(branding);
+        Self {
+            app_name: branding
+                .map(|b| b.application_name.as_str())
+                .unwrap_or("allowthem"),
+            accent,
+            accent_ink,
+            accent_light,
+            accent_ink_light,
+            logo_url: branding.and_then(|b| b.logo_url.as_deref()),
+        }
+    }
+}
+
 fn parse_hex(hex: &str) -> Option<(u8, u8, u8)> {
     let bytes = hex.as_bytes();
     if bytes.len() != 7 || bytes[0] != b'#' {
@@ -285,5 +317,28 @@ mod tests {
         };
         let (_accent, ink, _accent_light, _ink_light) = resolve_accent(Some(&b));
         assert_eq!(ink, "#ffffff");
+    }
+
+    #[test]
+    fn branding_ctx_none_gives_allowthem_defaults() {
+        let ctx = BrandingCtx::from_branding(None);
+        assert_eq!(ctx.app_name, "allowthem");
+        assert_eq!(ctx.accent, "#ffffff");
+        assert_eq!(ctx.accent_ink, "#000000");
+        assert_eq!(ctx.accent_light, "#000000");
+        assert_eq!(ctx.accent_ink_light, "#ffffff");
+        assert!(ctx.logo_url.is_none());
+    }
+
+    #[test]
+    fn branding_ctx_some_projects_fields() {
+        let b = BrandingConfig::new("Fixture Co")
+            .with_accent("#ff00aa", AccentInk::Black)
+            .with_logo_url("https://cdn.example/logo.svg");
+        let ctx = BrandingCtx::from_branding(Some(&b));
+        assert_eq!(ctx.app_name, "Fixture Co");
+        assert_eq!(ctx.accent, "#ff00aa");
+        assert_eq!(ctx.accent_ink, "#000000"); // YIQ pastel → black ink
+        assert_eq!(ctx.logo_url, Some("https://cdn.example/logo.svg"));
     }
 }

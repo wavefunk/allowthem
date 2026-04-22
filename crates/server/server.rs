@@ -46,7 +46,7 @@ pub use authorize_routes::{
 };
 pub use bearer::BearerAuthUser;
 pub use branding::{
-    DEFAULT_ACCENT_HEX, DefaultBranding, derive_ink, lookup_branding, resolve_accent,
+    BrandingCtx, DEFAULT_ACCENT_HEX, DefaultBranding, derive_ink, lookup_branding, resolve_accent,
     resolve_branding,
 };
 pub use browser_error::BrowserError;
