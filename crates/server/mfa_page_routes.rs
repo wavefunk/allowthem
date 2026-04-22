@@ -144,6 +144,35 @@ fn render_mfa_setup_fragment(
     Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
 }
 
+/// Render just the `_auth_main_mfa_recovery.html` partial plus the
+/// `_auth_oob_head.html` OOB head swap, for HTMX fragment responses.
+///
+/// The `.wf-recovery-grid` layout is scoped to the partial via an inline
+/// `<style>` (too specific to promote into `kit.css`), so unlike the setup
+/// and challenge flows, this fragment carries its own grid styles and is
+/// safe even if it's ever swapped into a context that hasn't loaded the
+/// full shell head.
+fn render_mfa_recovery_fragment(
+    config: &MfaPageConfig,
+    recovery_codes: &[String],
+) -> Result<axum::response::Html<String>, BrowserError> {
+    let ctx = context! {
+        recovery_codes,
+        is_production => config.is_production,
+        page_title => "Recovery codes — allowthem",
+        status_hint => "RECOVERY CODES",
+    };
+
+    let main = crate::browser_templates::render(
+        &config.templates,
+        "_partials/_auth_main_mfa_recovery.html",
+        ctx.clone(),
+    )?;
+    let oob =
+        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
+    Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
+}
+
 /// GET /settings/mfa/setup — show QR URI, base32 secret, and TOTP code input.
 ///
 /// Idempotent: if a pending (non-enabled) secret exists, reuses it.
@@ -228,6 +257,11 @@ async fn post_mfa_confirm(
                     None,
                 )
                 .await;
+
+            if crate::hx::is_hx_request(&headers) {
+                let html = render_mfa_recovery_fragment(&config, &recovery_codes)?;
+                return Ok(html.into_response());
+            }
 
             let html = crate::browser_templates::render(
                 &config.templates,
@@ -1051,6 +1085,95 @@ mod tests {
         assert!(
             !html.contains("<html"),
             "HX response must not render the full shell"
+        );
+    }
+
+    #[test]
+    fn render_mfa_recovery_fragment_composes_main_and_oob_head() {
+        let templates = crate::browser_templates::build_default_browser_env();
+        let config = MfaPageConfig {
+            templates,
+            is_production: false,
+            base_url: "http://127.0.0.1:3100".into(),
+        };
+        let codes = vec!["AAAA-BBBB".to_string(), "CCCC-DDDD".to_string()];
+        let html = render_mfa_recovery_fragment(&config, &codes).unwrap().0;
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "fragment must include the <main> root"
+        );
+        assert!(
+            html.contains("<title hx-swap-oob=\"true\">"),
+            "fragment must include the OOB <title> tag"
+        );
+        assert!(
+            html.contains("id=\"wf-screen-label\""),
+            "fragment must include the OOB #wf-screen-label span"
+        );
+        assert!(
+            html.contains("RECOVERY CODES"),
+            "fragment must include the RECOVERY CODES status hint"
+        );
+        assert!(
+            html.contains("AAAA-BBBB"),
+            "fragment must include the rendered recovery codes"
+        );
+        assert!(
+            html.contains("wf-recovery-grid"),
+            "fragment must include the scoped recovery grid styles"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_mfa_confirm_hx_request_returns_recovery_fragment() {
+        let ath = setup().await;
+        let app = test_app(ath.clone());
+        let (user_id, cookie) = create_session(&ath).await;
+        let csrf = get_csrf(&app, &cookie).await;
+
+        let secret = ath.create_mfa_secret(user_id).await.unwrap();
+        let totp = TOTP::new(
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            Secret::Encoded(secret).to_bytes().unwrap(),
+            None,
+            String::new(),
+        )
+        .unwrap();
+        let code = totp.generate_current().unwrap();
+
+        let body_str = format!("code={code}&csrf_token={csrf}");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/settings/mfa/confirm")
+            .header(header::COOKIE, format!("{cookie}; csrf_token={csrf}"))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header("HX-Request", "true")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains("<main class=\"wf-auth-form\">"),
+            "HX response must be a fragment starting at <main>"
+        );
+        assert!(
+            !html.contains("<html"),
+            "HX response must not render the full shell"
+        );
+        assert!(
+            html.contains("recovery-code"),
+            "HX response must render the recovery codes"
         );
     }
 

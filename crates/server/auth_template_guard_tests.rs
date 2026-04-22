@@ -285,6 +285,17 @@ fn auth_main_mfa_setup_has_no_tailwind_or_at_classes() {
     );
 }
 
+#[test]
+fn auth_main_mfa_recovery_has_no_tailwind_or_at_classes() {
+    check_partial(
+        "_partials/_auth_main_mfa_recovery.html",
+        ctx_with(&[(
+            "recovery_codes",
+            Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]),
+        )]),
+    );
+}
+
 /// Render `template_name` with the non-default accent fixture merged onto
 /// `extra_ctx`, then assert base.html's <style> block emitted the pair
 /// verbatim. Shields against a template accidentally overriding

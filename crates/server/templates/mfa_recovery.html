@@ -2,28 +2,4 @@
 
 {% block title %}Recovery codes — allowthem{% endblock %}
 
-{% block form %}
-  <header>
-    <div class="wf-eyebrow">security</div>
-    <h1 class="wf-display-sm">Two-factor authentication enabled</h1>
-  </header>
-
-  <div class="wf-alert warn" role="alert">
-    Save these recovery codes in a secure location. Each code can only be used once.
-    If you lose access to your authenticator app, you can use a recovery code to sign in.
-  </div>
-
-  <div style="border:1px solid var(--hairline);padding:16px">
-    <ul style="list-style:none;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      {% for code in recovery_codes %}
-        <li>
-          <code data-testid="recovery-code" class="wf-kbd" style="width:100%;display:block">{{ code }}</code>
-        </li>
-      {% endfor %}
-    </ul>
-  </div>
-
-  <p class="wf-meta" style="margin-top:16px">
-    <a class="wf-btn primary" href="/settings">Back to settings</a>
-  </p>
-{% endblock %}
+{% block auth_main %}{% include "_partials/_auth_main_mfa_recovery.html" %}{% endblock %}

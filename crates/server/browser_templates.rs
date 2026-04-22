@@ -39,6 +39,8 @@ const AUTH_MAIN_MFA_CHALLENGE_PARTIAL: &str =
     include_str!("templates/_partials/_auth_main_mfa_challenge.html");
 const AUTH_MAIN_MFA_SETUP_PARTIAL: &str =
     include_str!("templates/_partials/_auth_main_mfa_setup.html");
+const AUTH_MAIN_MFA_RECOVERY_PARTIAL: &str =
+    include_str!("templates/_partials/_auth_main_mfa_recovery.html");
 
 /// Register the default browser templates into an existing environment.
 ///
@@ -167,6 +169,11 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
         AUTH_MAIN_MFA_SETUP_PARTIAL,
     )
     .expect("_partials/_auth_main_mfa_setup.html");
+    env.add_template_owned(
+        "_partials/_auth_main_mfa_recovery.html",
+        AUTH_MAIN_MFA_RECOVERY_PARTIAL,
+    )
+    .expect("_partials/_auth_main_mfa_recovery.html");
 }
 
 pub fn build_default_browser_env() -> Arc<Environment<'static>> {
@@ -221,6 +228,7 @@ mod tests {
             "_partials/_auth_main_reset_password.html",
             "_partials/_auth_main_mfa_challenge.html",
             "_partials/_auth_main_mfa_setup.html",
+            "_partials/_auth_main_mfa_recovery.html",
         ] {
             assert!(
                 env.get_template(name).is_ok(),

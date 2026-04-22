@@ -1,0 +1,50 @@
+{# _auth_main_mfa_recovery.html — MFA recovery-codes confirmation column.
+   Renders <main class="wf-auth-form"> standalone so HTMX fragment
+   responses can return just this subtree.
+
+   The .wf-note class (hairline-bordered block wrapping the codes grid)
+   is defined in the shell's <head> <style> block. The single-use
+   .wf-recovery-grid layout is scoped to this partial via an inline
+   <style> — it's too specific to promote into kit.css, and because
+   fragment responses don't update <head>, shipping the style in the
+   partial keeps the grid correct even on HX swaps.
+
+   Expected context (provided by render for mfa_recovery.html / _fragment):
+     recovery_codes, app_name, is_production
+#}
+{% import "_partials/_auth_macros.html" as auth %}
+<main class="wf-auth-form">
+  <div class="wf-auth-top">
+    {{ auth.kicker(app_name, "RECOVERY CODES") }}
+  </div>
+
+  <div class="wf-auth-wrap">
+    <h1>SAVE RECOVERY CODES</h1>
+    <p class="wf-auth-sub">Save these codes somewhere safe.</p>
+
+    <div class="wf-alert warn" role="alert">
+      Save these recovery codes in a secure location. Each code can only be used once.
+      If you lose access to your authenticator app, you can use a recovery code to sign in.
+    </div>
+
+    <div class="wf-note">
+      <ul class="wf-recovery-grid">
+        {% for code in recovery_codes %}
+          <li><code data-testid="recovery-code" class="wf-kbd">{{ code }}</code></li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <style>
+      .wf-recovery-grid {
+        list-style: none; padding: 0; margin: 0;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      }
+      .wf-recovery-grid .wf-kbd { width: 100%; display: block; }
+    </style>
+
+    <p class="wf-meta">
+      <a class="wf-btn primary" href="/settings">BACK TO SETTINGS →</a>
+    </p>
+  </div>
+</main>
