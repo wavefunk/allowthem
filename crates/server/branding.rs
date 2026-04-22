@@ -26,22 +26,41 @@ pub fn derive_ink(hex: &str) -> AccentInk {
     }
 }
 
-/// Resolve the (accent_hex, accent_ink_hex) pair for template emission.
+/// Resolve the accent quad `(accent_dark, accent_ink_dark, accent_light,
+/// accent_ink_light)` for template emission across both color modes.
 ///
-/// Falls back to allowthem's monochrome white-on-dark default when the
-/// integrator has no branding or no accent set. When the integrator sets
-/// an accent but omits ink, YIQ-derives a safe choice via `derive_ink`.
+/// Falls back to allowthem's monochrome default when the integrator has no
+/// branding or no accent set. The default inverts between modes so contrast
+/// is AAA either way: white-on-black in dark mode, black-on-white in light
+/// mode. When the integrator sets an accent, the same brand color is used
+/// in both modes (with YIQ-derived ink) so theme toggles never clobber it.
+/// The light-mode pair is computed symmetrically to the dark-mode pair so a
+/// future `accent_hex_light` override can slot in without signature churn.
 /// Also reads the legacy `primary_color` field so existing tenants keep
 /// working until they migrate to `accent_hex`.
-pub fn resolve_accent(branding: Option<&BrandingConfig>) -> (String, &'static str) {
-    let accent = branding
-        .and_then(|b| b.accent_hex.as_deref().or(b.primary_color.as_deref()))
-        .unwrap_or(DEFAULT_ACCENT_HEX)
-        .to_string();
-    let ink = branding
-        .and_then(|b| b.accent_ink)
-        .unwrap_or_else(|| derive_ink(&accent));
-    (accent, ink.as_hex())
+pub fn resolve_accent(
+    branding: Option<&BrandingConfig>,
+) -> (String, &'static str, String, &'static str) {
+    let branded = branding.and_then(|b| b.accent_hex.as_deref().or(b.primary_color.as_deref()));
+    match branded {
+        Some(hex) => {
+            let accent = hex.to_string();
+            let ink = branding
+                .and_then(|b| b.accent_ink)
+                .unwrap_or_else(|| derive_ink(&accent));
+            let accent_light = accent.clone();
+            let ink_light = branding
+                .and_then(|b| b.accent_ink)
+                .unwrap_or_else(|| derive_ink(&accent_light));
+            (accent, ink.as_hex(), accent_light, ink_light.as_hex())
+        }
+        None => (
+            DEFAULT_ACCENT_HEX.to_string(),
+            "#000000",
+            "#000000".to_string(),
+            "#ffffff",
+        ),
+    }
 }
 
 /// Look up branding for an application by client_id.
@@ -110,9 +129,36 @@ mod tests {
 
     #[test]
     fn resolve_accent_defaults_without_branding() {
-        let (accent, ink) = resolve_accent(None);
+        let (accent, ink, accent_light, ink_light) = resolve_accent(None);
         assert_eq!(accent, "#ffffff");
         assert_eq!(ink, "#000000");
+        assert_eq!(accent_light, "#000000");
+        assert_eq!(ink_light, "#ffffff");
+    }
+
+    #[test]
+    fn resolve_accent_branded_quad_pins_color_in_both_modes() {
+        let b = BrandingConfig {
+            application_name: "test".into(),
+            logo_url: None,
+            primary_color: None,
+            accent_hex: Some("#ff6600".into()),
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        };
+        let (accent, ink, accent_light, ink_light) = resolve_accent(Some(&b));
+        // Same brand color in both modes — theme toggles must not clobber it.
+        assert_eq!(accent, "#ff6600");
+        assert_eq!(accent_light, "#ff6600");
+        // YIQ-derived ink is stable across the symmetric call sites.
+        assert_eq!(ink, ink_light);
     }
 
     #[test]
@@ -132,7 +178,7 @@ mod tests {
             splash_url: None,
             shader_cell_scale: None,
         };
-        let (accent, _ink) = resolve_accent(Some(&b));
+        let (accent, _ink, _accent_light, _ink_light) = resolve_accent(Some(&b));
         assert_eq!(accent, "#00ff00");
     }
 
@@ -153,7 +199,7 @@ mod tests {
             splash_url: None,
             shader_cell_scale: None,
         };
-        let (accent, _ink) = resolve_accent(Some(&b));
+        let (accent, _ink, _accent_light, _ink_light) = resolve_accent(Some(&b));
         assert_eq!(accent, "#ff0000");
     }
 
@@ -174,7 +220,7 @@ mod tests {
             splash_url: None,
             shader_cell_scale: None,
         };
-        let (_accent, ink) = resolve_accent(Some(&b));
+        let (_accent, ink, _accent_light, _ink_light) = resolve_accent(Some(&b));
         assert_eq!(ink, "#ffffff");
     }
 }

@@ -87,7 +87,8 @@ fn render_login_form(
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
-    let (accent_hex, accent_ink_hex) = resolve_accent(branding);
+    let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
+        resolve_accent(branding);
 
     crate::browser_templates::render(
         &config.templates,
@@ -102,6 +103,8 @@ fn render_login_form(
             logo_url => branding.and_then(|b| b.logo_url.as_deref()),
             accent => accent_hex,
             accent_ink => accent_ink_hex,
+            accent_light => accent_light_hex,
+            accent_ink_light => accent_ink_light_hex,
             oauth_providers => &config.oauth_providers,
             is_production => config.is_production,
         },

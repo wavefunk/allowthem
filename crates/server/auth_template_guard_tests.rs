@@ -65,6 +65,8 @@ fn ctx_with(extras: &[(&str, Value)]) -> Value {
     map.insert("csrf_token".into(), Value::from("tok"));
     map.insert("accent".into(), Value::from("#ffffff"));
     map.insert("accent_ink".into(), Value::from("#000000"));
+    map.insert("accent_light".into(), Value::from("#000000"));
+    map.insert("accent_ink_light".into(), Value::from("#ffffff"));
     map.insert("is_production".into(), Value::from(false));
     map.insert("error".into(), Value::from(""));
     map.insert("success".into(), Value::from(false));
