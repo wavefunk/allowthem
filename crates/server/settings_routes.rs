@@ -623,7 +623,9 @@ mod tests {
         assert!(html.contains("testuser"));
         assert!(html.contains("Settings"));
         assert!(html.contains("class=\"wf-app\"") || html.contains("class=\"wf-app "));
-        assert!(!html.contains("class=\"at-app-shell\"") && !html.contains("class=\"at-app-shell "));
+        assert!(
+            !html.contains("class=\"at-app-shell\"") && !html.contains("class=\"at-app-shell ")
+        );
         assert!(html.contains("&#x2f;logout"));
     }
 

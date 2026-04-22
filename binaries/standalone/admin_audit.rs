@@ -470,7 +470,9 @@ mod tests {
         assert!(body.contains("Login"));
         assert!(body.contains("user@example.com"));
         assert!(body.contains("class=\"wf-app\"") || body.contains("class=\"wf-app "));
-        assert!(!body.contains("class=\"at-app-shell\"") && !body.contains("class=\"at-app-shell "));
+        assert!(
+            !body.contains("class=\"at-app-shell\"") && !body.contains("class=\"at-app-shell ")
+        );
     }
 
     #[tokio::test]

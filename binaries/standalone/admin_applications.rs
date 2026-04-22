@@ -562,7 +562,9 @@ mod tests {
         let body = read_body_string(resp).await;
         assert!(body.contains("Test App"));
         assert!(body.contains("class=\"wf-app\"") || body.contains("class=\"wf-app "));
-        assert!(!body.contains("class=\"at-app-shell\"") && !body.contains("class=\"at-app-shell "));
+        assert!(
+            !body.contains("class=\"at-app-shell\"") && !body.contains("class=\"at-app-shell ")
+        );
         assert!(body.contains("&#x2f;admin&#x2f;audit"));
     }
 
