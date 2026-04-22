@@ -33,8 +33,8 @@
        server when branding.forced_mode is set. See §Mode system in the spec. #}
     <script>(function(){try{var m=localStorage.getItem('allowthem:mode');if((m==='dark'||m==='light')&&!document.documentElement.hasAttribute('data-mode-locked')){document.documentElement.dataset.mode=m;}}catch(_e){}})();</script>
 
-    {# Wave Funk CSS bundle — the full style source; served by static_routes. #}
-    <link rel="stylesheet" href="/__allowthem/static/css/fonts.css">
+    {# Wave Funk CSS bundle — three-file contract; served by static_routes.
+       Fonts load transitively via colors_and_type.css's @import. #}
     <link rel="stylesheet" href="/__allowthem/static/css/colors_and_type.css">
     <link rel="stylesheet" href="/__allowthem/static/css/kit.css">
     <link rel="stylesheet" href="/__allowthem/static/css/layouts.css">

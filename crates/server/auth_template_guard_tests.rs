@@ -251,7 +251,6 @@ fn base_html_loads_css_files_in_cascade_order() {
         .unwrap_or_else(|e| panic!("render login.html: {e}"));
 
     let ordered = [
-        "/__allowthem/static/css/fonts.css",
         "/__allowthem/static/css/colors_and_type.css",
         "/__allowthem/static/css/kit.css",
         "/__allowthem/static/css/layouts.css",
