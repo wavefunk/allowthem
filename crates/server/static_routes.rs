@@ -11,6 +11,7 @@ use axum::routing::get;
 
 const COLORS_AND_TYPE_CSS: &[u8] = include_bytes!("assets/static/css/colors_and_type.css");
 const KIT_CSS: &[u8] = include_bytes!("assets/static/css/kit.css");
+const LAYOUTS_CSS: &[u8] = include_bytes!("assets/static/css/layouts.css");
 const FONTS_CSS: &[u8] = include_bytes!("assets/static/css/fonts.css");
 
 const IOSEVKA_400: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-400.woff2");
@@ -37,6 +38,10 @@ pub fn router() -> Router {
         .route(
             "/__allowthem/static/css/kit.css",
             get(|| asset(KIT_CSS, "text/css; charset=utf-8")),
+        )
+        .route(
+            "/__allowthem/static/css/layouts.css",
+            get(|| asset(LAYOUTS_CSS, "text/css; charset=utf-8")),
         )
         .route(
             "/__allowthem/static/css/fonts.css",
@@ -102,6 +107,32 @@ mod tests {
         assert_eq!(ct, "text/css; charset=utf-8");
         let cc = res.headers().get("cache-control").unwrap();
         assert_eq!(cc, "public, max-age=3600");
+    }
+
+    #[tokio::test]
+    async fn serves_layouts_css() {
+        let app = router();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/__allowthem/static/css/layouts.css")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let ct = res.headers().get("content-type").unwrap();
+        assert_eq!(ct, "text/css; charset=utf-8");
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(!body.is_empty(), "layouts.css body is empty");
+        let text = std::str::from_utf8(&body).expect("layouts.css is utf-8");
+        assert!(
+            text.contains(".wf-auth"),
+            "layouts.css missing expected .wf-auth selector"
+        );
     }
 
     #[tokio::test]
