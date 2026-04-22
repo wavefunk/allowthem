@@ -12,7 +12,7 @@ use axum::routing::get;
 const COLORS_AND_TYPE_CSS: &[u8] = include_bytes!("assets/static/css/colors_and_type.css");
 const KIT_CSS: &[u8] = include_bytes!("assets/static/css/kit.css");
 const LAYOUTS_CSS: &[u8] = include_bytes!("assets/static/css/layouts.css");
-const FONTS_CSS: &[u8] = include_bytes!("assets/static/css/fonts.css");
+const IOSEVKA_AILE_CSS: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile.css");
 
 const IOSEVKA_400: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-400.woff2");
 const IOSEVKA_500: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-500.woff2");
@@ -44,8 +44,8 @@ pub fn router() -> Router {
             get(|| asset(LAYOUTS_CSS, "text/css; charset=utf-8")),
         )
         .route(
-            "/__allowthem/static/css/fonts.css",
-            get(|| asset(FONTS_CSS, "text/css; charset=utf-8")),
+            "/__allowthem/static/fonts/iosevka-aile.css",
+            get(|| asset(IOSEVKA_AILE_CSS, "text/css; charset=utf-8")),
         )
         .route(
             "/__allowthem/static/fonts/iosevka-aile-400.woff2",
@@ -133,6 +133,23 @@ mod tests {
             text.contains(".wf-auth"),
             "layouts.css missing expected .wf-auth selector"
         );
+    }
+
+    #[tokio::test]
+    async fn serves_iosevka_aile_css() {
+        let app = router();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/__allowthem/static/fonts/iosevka-aile.css")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let ct = res.headers().get("content-type").unwrap();
+        assert_eq!(ct, "text/css; charset=utf-8");
     }
 
     #[tokio::test]

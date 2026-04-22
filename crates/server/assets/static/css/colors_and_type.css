@@ -17,9 +17,10 @@
 
 /* -------- 1. Fonts -------- */
 /* Primary: Iosevka Aile (quasi-proportional; used for everything).
-   Self-hosted @font-face rules live in fonts.css, served alongside this
-   file from /__allowthem/static/css/. See the fonts.css source for
-   the weight registrations. */
+   Self-hosted from fonts/ — see fonts/iosevka-aile.css for @font-face rules.
+   Weights: 400 body, 500 mid, 600 strong, 800 display. */
+
+@import url("../fonts/iosevka-aile.css");
 
 /* Fallback stack keeps a geometric-monospace feel if Aile fails to load. */
 :root {

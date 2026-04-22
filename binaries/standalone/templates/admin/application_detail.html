@@ -20,54 +20,72 @@
       {% endif %}
 
       <dl class="wf-dl">
-        <dt>Client ID</dt>
-        <dd><code>{{ app.client_id }}</code></dd>
+        <div class="wf-dl-row">
+          <dt>Client ID</dt>
+          <dd><code>{{ app.client_id }}</code></dd>
+        </div>
 
-        <dt>Status</dt>
-        <dd>
-          {% if app.is_active %}
-            <span class="wf-tag ok">Active</span>
-          {% else %}
-            <span class="wf-tag muted">Inactive</span>
-          {% endif %}
-        </dd>
+        <div class="wf-dl-row">
+          <dt>Status</dt>
+          <dd>
+            {% if app.is_active %}
+              <span class="wf-tag ok">Active</span>
+            {% else %}
+              <span class="wf-tag muted">Inactive</span>
+            {% endif %}
+          </dd>
+        </div>
 
-        <dt>Trusted</dt>
-        <dd>{% if app.is_trusted %}Yes{% else %}No{% endif %}</dd>
+        <div class="wf-dl-row">
+          <dt>Trusted</dt>
+          <dd>{% if app.is_trusted %}Yes{% else %}No{% endif %}</dd>
+        </div>
 
-        <dt>Redirect URIs</dt>
-        <dd>
-          {% if redirect_uris %}
-            <ul>
-              {% for uri in redirect_uris %}
-                <li>{{ uri }}</li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <span class="wf-tag muted">None</span>
-          {% endif %}
-        </dd>
+        <div class="wf-dl-row">
+          <dt>Redirect URIs</dt>
+          <dd>
+            {% if redirect_uris %}
+              <ul>
+                {% for uri in redirect_uris %}
+                  <li>{{ uri }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <span class="wf-tag muted">None</span>
+            {% endif %}
+          </dd>
+        </div>
 
-        <dt>Logo URL</dt>
-        <dd>{% if app.logo_url %}{{ app.logo_url }}{% else %}<span class="wf-tag muted">Not set</span>{% endif %}</dd>
+        <div class="wf-dl-row">
+          <dt>Logo URL</dt>
+          <dd>{% if app.logo_url %}{{ app.logo_url }}{% else %}<span class="wf-tag muted">Not set</span>{% endif %}</dd>
+        </div>
 
-        <dt>Primary color</dt>
-        <dd>
-          {% if app.primary_color %}
-            {{ app.primary_color }}
-          {% else %}
-            <span class="wf-tag muted">Not set</span>
-          {% endif %}
-        </dd>
+        <div class="wf-dl-row">
+          <dt>Primary color</dt>
+          <dd>
+            {% if app.primary_color %}
+              {{ app.primary_color }}
+            {% else %}
+              <span class="wf-tag muted">Not set</span>
+            {% endif %}
+          </dd>
+        </div>
 
-        <dt>Created by</dt>
-        <dd>{% if app.created_by %}{{ app.created_by }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</dd>
+        <div class="wf-dl-row">
+          <dt>Created by</dt>
+          <dd>{% if app.created_by %}{{ app.created_by }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</dd>
+        </div>
 
-        <dt>Created</dt>
-        <dd>{{ app.created_at }}</dd>
+        <div class="wf-dl-row">
+          <dt>Created</dt>
+          <dd>{{ app.created_at }}</dd>
+        </div>
 
-        <dt>Updated</dt>
-        <dd>{{ app.updated_at }}</dd>
+        <div class="wf-dl-row">
+          <dt>Updated</dt>
+          <dd>{{ app.updated_at }}</dd>
+        </div>
       </dl>
 
       <p>

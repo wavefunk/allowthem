@@ -19,35 +19,51 @@
       {% endif %}
 
       <dl class="wf-dl">
-        <dt>Email</dt>
-        <dd>{{ user.email }}</dd>
+        <div class="wf-dl-row">
+          <dt>Email</dt>
+          <dd>{{ user.email }}</dd>
+        </div>
 
-        <dt>Username</dt>
-        <dd>{% if user.username %}{{ user.username }}{% else %}<span class="wf-tag muted">Not set</span>{% endif %}</dd>
+        <div class="wf-dl-row">
+          <dt>Username</dt>
+          <dd>{% if user.username %}{{ user.username }}{% else %}<span class="wf-tag muted">Not set</span>{% endif %}</dd>
+        </div>
 
-        <dt>Status</dt>
-        <dd>
-          {% if user.is_active %}
-            <span class="wf-tag ok">Active</span>
-          {% else %}
-            <span class="wf-tag muted">Deactivated</span>
-          {% endif %}
-        </dd>
+        <div class="wf-dl-row">
+          <dt>Status</dt>
+          <dd>
+            {% if user.is_active %}
+              <span class="wf-tag ok">Active</span>
+            {% else %}
+              <span class="wf-tag muted">Deactivated</span>
+            {% endif %}
+          </dd>
+        </div>
 
-        <dt>Email verified</dt>
-        <dd>{% if user.email_verified %}Yes{% else %}No{% endif %}</dd>
+        <div class="wf-dl-row">
+          <dt>Email verified</dt>
+          <dd>{% if user.email_verified %}Yes{% else %}No{% endif %}</dd>
+        </div>
 
-        <dt>MFA</dt>
-        <dd>{% if mfa_enabled %}Enabled{% else %}Not enabled{% endif %}</dd>
+        <div class="wf-dl-row">
+          <dt>MFA</dt>
+          <dd>{% if mfa_enabled %}Enabled{% else %}Not enabled{% endif %}</dd>
+        </div>
 
-        <dt>Registered</dt>
-        <dd>{{ user.created_at }}</dd>
+        <div class="wf-dl-row">
+          <dt>Registered</dt>
+          <dd>{{ user.created_at }}</dd>
+        </div>
 
-        <dt>Last login</dt>
-        <dd>{% if last_login %}{{ last_login }}{% else %}Never{% endif %}</dd>
+        <div class="wf-dl-row">
+          <dt>Last login</dt>
+          <dd>{% if last_login %}{{ last_login }}{% else %}Never{% endif %}</dd>
+        </div>
 
-        <dt>Updated</dt>
-        <dd>{{ user.updated_at }}</dd>
+        <div class="wf-dl-row">
+          <dt>Updated</dt>
+          <dd>{{ user.updated_at }}</dd>
+        </div>
       </dl>
     </div>
   </div>
