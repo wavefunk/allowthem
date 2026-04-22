@@ -282,7 +282,10 @@ mod tests {
         let body = read_body_string(resp).await;
         assert!(body.contains("user@example.com"));
         assert!(body.contains("1.2.3.4"));
-        assert!(body.contains("at-app-shell"));
+        assert!(body.contains("class=\"wf-app\"") || body.contains("class=\"wf-app "));
+        assert!(
+            !body.contains("class=\"at-app-shell\"") && !body.contains("class=\"at-app-shell ")
+        );
     }
 
     #[tokio::test]

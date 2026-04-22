@@ -2,125 +2,143 @@
 
 {% block title %}Audit log — allowthem{% endblock %}
 
-{% block content %}
-  <h1 class="wf-display-sm">Audit log</h1>
-  <p class="wf-meta">{{ total }} event{% if total != 1 %}s{% endif %}</p>
+{% block pagetitle %}AUDIT LOG{% endblock %}
+{% block crumbs %}ADMIN · AUDIT{% endblock %}
+{% block page_meta %}{{ total }} event{% if total != 1 %}s{% endif %}{% endblock %}
+{% block main_class %}has-tablewrap{% endblock %}
 
-  <form method="GET" action="/admin/audit">
-    <label class="wf-label" for="user">User ID</label>
-    <input class="wf-input" type="text" id="user" name="user" value="{{ user }}" placeholder="User ID…">
-
-    <label class="wf-label" for="event">Event</label>
-    <select class="wf-select" id="event" name="event">
-      <option value="">All events</option>
-      <option value="login" {% if event == "login" %}selected{% endif %}>Login</option>
-      <option value="login_failed" {% if event == "login_failed" %}selected{% endif %}>Login failed</option>
-      <option value="logout" {% if event == "logout" %}selected{% endif %}>Logout</option>
-      <option value="register" {% if event == "register" %}selected{% endif %}>Register</option>
-      <option value="password_change" {% if event == "password_change" %}selected{% endif %}>Password change</option>
-      <option value="password_reset" {% if event == "password_reset" %}selected{% endif %}>Password reset</option>
-      <option value="role_assigned" {% if event == "role_assigned" %}selected{% endif %}>Role assigned</option>
-      <option value="role_unassigned" {% if event == "role_unassigned" %}selected{% endif %}>Role unassigned</option>
-      <option value="permission_assigned" {% if event == "permission_assigned" %}selected{% endif %}>Permission assigned</option>
-      <option value="permission_unassigned" {% if event == "permission_unassigned" %}selected{% endif %}>Permission unassigned</option>
-      <option value="session_created" {% if event == "session_created" %}selected{% endif %}>Session created</option>
-      <option value="session_expired" {% if event == "session_expired" %}selected{% endif %}>Session expired</option>
-      <option value="user_updated" {% if event == "user_updated" %}selected{% endif %}>User updated</option>
-      <option value="user_deleted" {% if event == "user_deleted" %}selected{% endif %}>User deleted</option>
-    </select>
-
-    <label class="wf-label" for="outcome">Outcome</label>
-    <select class="wf-select" id="outcome" name="outcome">
-      <option value="">All</option>
-      <option value="success" {% if outcome == "success" %}selected{% endif %}>Success</option>
-      <option value="failure" {% if outcome == "failure" %}selected{% endif %}>Failure</option>
-    </select>
-
-    <label class="wf-label" for="from">From</label>
-    <input class="wf-input" type="date" id="from" name="from" value="{{ from }}">
-
-    <label class="wf-label" for="to">To</label>
-    <input class="wf-input" type="date" id="to" name="to" value="{{ to }}">
-
-    <p>
-      <button class="wf-btn primary" type="submit">Search</button>
+{% block page_content %}
+  <div class="wf-panel" style="margin:16px 24px 0">
+    <div class="wf-panel-head">
+      <div class="wf-panel-title">Filter events</div>
       {% if total > 0 %}
-        <a class="wf-btn ghost" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;format=csv">CSV</a>
-        <a class="wf-btn ghost" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;format=json">JSON</a>
+        <span style="display:inline-flex; gap:8px;">
+          <a class="wf-btn ghost sm" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;format=csv">CSV</a>
+          <a class="wf-btn ghost sm" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;format=json">JSON</a>
+        </span>
       {% endif %}
-    </p>
-  </form>
+    </div>
+    <div class="wf-panel-body">
+      <form method="GET" action="/admin/audit" style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
+        <div>
+          <label class="wf-label" for="user">User ID</label>
+          <input class="wf-input" type="text" id="user" name="user" value="{{ user }}" placeholder="User ID…">
+        </div>
+
+        <div>
+          <label class="wf-label" for="event">Event</label>
+          <select class="wf-select" id="event" name="event">
+            <option value="">All events</option>
+            <option value="login" {% if event == "login" %}selected{% endif %}>Login</option>
+            <option value="login_failed" {% if event == "login_failed" %}selected{% endif %}>Login failed</option>
+            <option value="logout" {% if event == "logout" %}selected{% endif %}>Logout</option>
+            <option value="register" {% if event == "register" %}selected{% endif %}>Register</option>
+            <option value="password_change" {% if event == "password_change" %}selected{% endif %}>Password change</option>
+            <option value="password_reset" {% if event == "password_reset" %}selected{% endif %}>Password reset</option>
+            <option value="role_assigned" {% if event == "role_assigned" %}selected{% endif %}>Role assigned</option>
+            <option value="role_unassigned" {% if event == "role_unassigned" %}selected{% endif %}>Role unassigned</option>
+            <option value="permission_assigned" {% if event == "permission_assigned" %}selected{% endif %}>Permission assigned</option>
+            <option value="permission_unassigned" {% if event == "permission_unassigned" %}selected{% endif %}>Permission unassigned</option>
+            <option value="session_created" {% if event == "session_created" %}selected{% endif %}>Session created</option>
+            <option value="session_expired" {% if event == "session_expired" %}selected{% endif %}>Session expired</option>
+            <option value="user_updated" {% if event == "user_updated" %}selected{% endif %}>User updated</option>
+            <option value="user_deleted" {% if event == "user_deleted" %}selected{% endif %}>User deleted</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="wf-label" for="outcome">Outcome</label>
+          <select class="wf-select" id="outcome" name="outcome">
+            <option value="">All</option>
+            <option value="success" {% if outcome == "success" %}selected{% endif %}>Success</option>
+            <option value="failure" {% if outcome == "failure" %}selected{% endif %}>Failure</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="wf-label" for="from">From</label>
+          <input class="wf-input" type="date" id="from" name="from" value="{{ from }}">
+        </div>
+
+        <div>
+          <label class="wf-label" for="to">To</label>
+          <input class="wf-input" type="date" id="to" name="to" value="{{ to }}">
+        </div>
+
+        <div>
+          <button class="wf-btn primary" type="submit">Search</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   {% if entries %}
-    <table class="wf-table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Event</th>
-          <th>User</th>
-          <th>IP</th>
-          <th>Detail</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for entry in entries %}
-          <tr>
-            <td>{{ entry.created_at }}</td>
-            <td>
-              {% if entry.is_failure %}
-                <span class="wf-tag err">{{ entry.event_label }}</span>
-              {% else %}
-                {{ entry.event_label }}
-              {% endif %}
-            </td>
-            <td>
-              {% if entry.user_email %}
-                <a class="wf-link" href="/admin/users/{{ entry.user_id }}">{{ entry.user_email }}</a>
-              {% elif entry.user_id %}
-                <span title="{{ entry.user_id }}">{{ entry.user_id | truncate(length=12) }}</span>
-              {% else %}
-                &mdash;
-              {% endif %}
-            </td>
-            <td>{% if entry.ip_address %}{{ entry.ip_address }}{% else %}&mdash;{% endif %}</td>
-            <td>
-              {% if entry.detail %}
-                <code>{{ entry.detail }}</code>
-              {% else %}
-                &mdash;
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-
-    {% if total_pages > 1 %}
-      <nav>
-        {% if page > 1 %}
-          <a class="wf-btn sm" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;page={{ page - 1 }}">Previous</a>
-        {% else %}
-          <span class="wf-btn sm" aria-disabled="true">Previous</span>
-        {% endif %}
-
-        {% for n in page_numbers %}
-          {% if n == 0 %}
-            <span>&hellip;</span>
-          {% elif n == page %}
-            <span class="wf-btn primary sm">{{ n }}</span>
-          {% else %}
-            <a class="wf-btn sm" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;page={{ n }}">{{ n }}</a>
-          {% endif %}
-        {% endfor %}
-
-        {% if page < total_pages %}
-          <a class="wf-btn sm" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;page={{ page + 1 }}">Next</a>
-        {% else %}
-          <span class="wf-btn sm" aria-disabled="true">Next</span>
-        {% endif %}
-      </nav>
-    {% endif %}
+    <div class="wf-tablewrap">
+      <div class="wf-tablescroll">
+        <table class="wf-table sticky">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Event</th>
+              <th>User</th>
+              <th>IP</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+              <tr>
+                <td>{{ entry.created_at }}</td>
+                <td>
+                  {% if entry.is_failure %}
+                    <span class="wf-tag err">{{ entry.event_label }}</span>
+                  {% else %}
+                    {{ entry.event_label }}
+                  {% endif %}
+                </td>
+                <td>
+                  {% if entry.user_email %}
+                    <a class="wf-link" href="/admin/users/{{ entry.user_id }}">{{ entry.user_email }}</a>
+                  {% elif entry.user_id %}
+                    <span title="{{ entry.user_id }}">{{ entry.user_id | truncate(length=12) }}</span>
+                  {% else %}
+                    &mdash;
+                  {% endif %}
+                </td>
+                <td>{% if entry.ip_address %}{{ entry.ip_address }}{% else %}&mdash;{% endif %}</td>
+                <td>
+                  {% if entry.detail %}
+                    <code>{{ entry.detail }}</code>
+                  {% else %}
+                    &mdash;
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if total_pages > 1 %}
+        <div class="wf-tablefoot">
+          <span>Showing page {{ page }} of {{ total_pages }} · {{ total }} events</span>
+          <span class="wf-bar-sep"></span>
+          <span class="wf-pager">
+            {% if page > 1 %}
+              <a class="wf-pager-btn" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;page={{ page - 1 }}" aria-label="Previous page">←</a>
+            {% else %}
+              <span class="wf-pager-btn" aria-disabled="true">←</span>
+            {% endif %}
+            <span class="wf-pager-pos">PAGE {{ page }} / {{ total_pages }}</span>
+            {% if page < total_pages %}
+              <a class="wf-pager-btn" href="/admin/audit?user={{ user }}&amp;event={{ event }}&amp;outcome={{ outcome }}&amp;from={{ from }}&amp;to={{ to }}&amp;page={{ page + 1 }}" aria-label="Next page">→</a>
+            {% else %}
+              <span class="wf-pager-btn" aria-disabled="true">→</span>
+            {% endif %}
+          </span>
+        </div>
+      {% endif %}
+    </div>
   {% else %}
-    <p class="wf-empty">No audit events found.</p>
+    <p class="wf-empty" style="padding:24px">No audit events found.</p>
   {% endif %}
 {% endblock %}

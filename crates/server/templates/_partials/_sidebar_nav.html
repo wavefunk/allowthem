@@ -1,22 +1,29 @@
-{# _sidebar_nav.html — role-filtered sidebar used by _app_shell.html.
+{# _sidebar_nav.html — nav items rendered inside _app_shell's
+   <aside class="wf-sidebar"><nav class="wf-nav-list">.
+
    Required context:
      - shell.nav_items : list of { href, label, group: "admin"|"account", active: bool }
    Items arrive pre-ordered: admin entries first, account entries last.
+   Groups render under .wf-nav-section headers; items use .wf-nav-item + .active.
    Renders nothing if `shell` is undefined (lets legacy pages without shell render cleanly).
 #}
 {%- if shell is defined and shell %}
   {%- if shell.is_admin %}
-    <div class="wf-eyebrow">Admin</div>
+    <div class="wf-nav-section">Admin</div>
     {%- for item in shell.nav_items %}
       {%- if item.group == "admin" %}
-        <a class="wf-link{% if not item.active %} wf-link-quiet{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+        <a class="wf-nav-item{% if item.active %} active{% endif %}" href="{{ item.href }}">
+          <span>{{ item.label }}</span>
+        </a>
       {%- endif %}
     {%- endfor %}
   {%- endif %}
-  <div class="wf-eyebrow">Account</div>
+  <div class="wf-nav-section">Account</div>
   {%- for item in shell.nav_items %}
     {%- if item.group == "account" %}
-      <a class="wf-link{% if not item.active %} wf-link-quiet{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+      <a class="wf-nav-item{% if item.active %} active{% endif %}" href="{{ item.href }}">
+        <span>{{ item.label }}</span>
+      </a>
     {%- endif %}
   {%- endfor %}
 {%- endif %}

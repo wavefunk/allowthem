@@ -49,6 +49,33 @@ const SIGN_IN_LINK_PARTIAL: &str = include_str!("templates/_partials/_sign_in_li
 /// `{% extends "_partials/_auth_shell.html" %}` — the surrounding
 /// `<aside class="wf-auth-splash">` / `<div class="wf-auth-top">`
 /// wrappers are owned by the shell and remain stable.
+///
+/// # Integrator-overridable blocks (app shell)
+///
+/// `_partials/_app_shell.html` exposes six named blocks on the
+/// post-auth surface for pageheader / panel / layout customisation.
+/// Each default is empty (or a safe passthrough); built-in admin and
+/// settings pages override them as appropriate:
+///
+/// - `pagetitle` — page title inside `<h1 class="wf-pagetitle">`.
+///   Default: empty.
+/// - `crumbs` — breadcrumb line inside `<div class="wf-crumbs">`.
+///   Default: empty.
+/// - `page_meta` — right-aligned status cluster inside
+///   `<div class="wf-page-meta">` within `.wf-pageheader`. Default: empty.
+/// - `topbar` — row above the pageheader, typically a search or
+///   command-K bar inside `.wf-topbar`. Default: empty.
+/// - `main_class` — modifier class on `<div class="wf-main">`.
+///   Default: `has-header`. List pages override to `has-tablewrap` so
+///   the grid makes room for a `.wf-tablewrap` region below the header.
+/// - `page_content` — replaces the `.wf-scroll > {% block content %}`
+///   body wholesale. Default: passthrough that renders `{% block content %}`
+///   unchanged, so templates predating the pageheader chrome keep working.
+///
+/// All six blocks are safe to override from any child template that
+/// `{% extends "_partials/_app_shell.html" %}`. The surrounding
+/// `.wf-shell` / `.wf-sidebar` / `.wf-main` structure is owned by the
+/// shell and remains stable.
 pub fn add_default_browser_templates(env: &mut Environment<'static>) {
     env.add_template_owned("base.html", BASE_HTML)
         .expect("base.html");

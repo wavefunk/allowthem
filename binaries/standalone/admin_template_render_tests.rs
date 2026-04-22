@@ -167,8 +167,24 @@ fn assert_guardrails(name: &str, body: &str, expect_admin_nav: bool) {
         "{name}: leftover Tailwind utility classes"
     );
     assert!(
-        body.contains("at-app-shell"),
-        "{name}: missing shell body class"
+        body.contains("class=\"wf-app\"") || body.contains("class=\"wf-app "),
+        "{name}: missing wf-app shell body class"
+    );
+    assert!(
+        body.contains("class=\"wf-shell\"") || body.contains("class=\"wf-shell "),
+        "{name}: missing wf-shell wrapper"
+    );
+    assert!(
+        !body.contains("class=\"at-app-shell\"") && !body.contains("class=\"at-app-shell "),
+        "{name}: stale at-app-shell class"
+    );
+    assert!(
+        !body.contains("class=\"at-sidebar\"") && !body.contains("class=\"at-sidebar "),
+        "{name}: stale at-sidebar class"
+    );
+    assert!(
+        !body.contains("class=\"at-main\"") && !body.contains("class=\"at-main "),
+        "{name}: stale at-main class"
     );
     assert!(
         body.contains("allowthem:mode"),
