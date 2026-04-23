@@ -77,6 +77,9 @@ pub struct AllRoutesBuilder {
 
     // CORS for OIDC endpoints
     cors_enabled: bool,
+
+    // Embedder fallback branding
+    default_branding: Option<allowthem_core::applications::BrandingConfig>,
 }
 
 impl Default for AllRoutesBuilder {
@@ -102,6 +105,7 @@ impl AllRoutesBuilder {
             routes: HashSet::new(),
             all: false,
             cors_enabled: false,
+            default_branding: None,
         }
     }
 
@@ -133,6 +137,18 @@ impl AllRoutesBuilder {
     /// the delivery contract. Called at most once; subsequent calls overwrite.
     pub fn events(mut self, tx: AuthEventSender) -> Self {
         self.events_tx = Some(tx);
+        self
+    }
+
+    /// Set a fallback branding used for every pre-auth page when no per-client
+    /// lookup matches (no `client_id` query param, or no row with that id).
+    /// Embedders typically call this once at startup with their own app name,
+    /// accent, and splash metadata.
+    pub fn default_branding(
+        mut self,
+        branding: allowthem_core::applications::BrandingConfig,
+    ) -> Self {
+        self.default_branding = Some(branding);
         self
     }
 
@@ -458,11 +474,20 @@ impl AllRoutesBuilder {
             ));
         }
 
+        let default_branding = self.default_branding.take();
+
         // Apply CSRF middleware to browser routes, then merge non-CSRF routes.
         // Both csrf_middleware and all handlers read AllowThem from extensions.
         // Static assets are merged unconditionally and bypass all middleware.
+        let mut csrf_protected =
+            csrf_protected.layer(axum::middleware::from_fn(crate::csrf::csrf_middleware));
+
+        if let Some(branding) = default_branding {
+            let default = Arc::new(crate::branding::DefaultBranding(branding));
+            csrf_protected = csrf_protected.layer(axum::Extension(default));
+        }
+
         Ok(csrf_protected
-            .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
             .merge(non_csrf)
             .merge(crate::static_routes::router()))
     }
@@ -577,6 +602,25 @@ mod tests {
             .custom_fields_schema(schema)
             .build(&ath);
         assert!(matches!(result, Err(AllRoutesError::InvalidSchema(_))));
+    }
+
+    #[test]
+    fn default_branding_setter_stores_value() {
+        use allowthem_core::applications::BrandingConfig;
+        let builder = AllRoutesBuilder::new().default_branding(BrandingConfig::new("Fixture Co"));
+        assert_eq!(
+            builder
+                .default_branding
+                .as_ref()
+                .map(|b| b.application_name.as_str()),
+            Some("Fixture Co")
+        );
+    }
+
+    #[test]
+    fn default_branding_absent_by_default() {
+        let builder = AllRoutesBuilder::new();
+        assert!(builder.default_branding.is_none());
     }
 
     #[tokio::test]
