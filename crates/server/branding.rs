@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use allowthem_core::AllowThem;
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::types::{AccentInk, ClientId};
+use axum::Extension;
 
 /// Default allowthem accent (white on dark; black on light).
 pub const DEFAULT_ACCENT_HEX: &str = "#ffffff";
@@ -132,6 +135,38 @@ impl<'a> BrandingCtx<'a> {
             accent_ink_light,
             logo_url: branding.and_then(|b| b.logo_url.as_deref()),
         }
+    }
+}
+
+/// Flatten the embedder default-branding extension into the plain reference
+/// form handlers need to feed into `resolve_branding`.
+///
+/// Handlers declare the extractor as
+/// `Option<Extension<Arc<DefaultBranding>>>`; they all then need the inner
+/// `&BrandingConfig`. This helper removes the per-site `as_ref().map(|Extension(d)| &d.0)`
+/// boilerplate.
+pub fn default_branding_ref(
+    ext: &Option<Extension<Arc<DefaultBranding>>>,
+) -> Option<&BrandingConfig> {
+    ext.as_ref().map(|Extension(d)| &d.0)
+}
+
+/// Project branding into the flat template keys every pre-auth page reads:
+/// `branding` (raw, for dotted access to `splash_*`/`forced_mode`/`font_*`),
+/// `app_name`, `logo_url`, and the accent quad.
+///
+/// Use with minijinja's spread syntax to compose with page-specific keys:
+/// `context! { ..branding_context(b), csrf_token, next, ... }`.
+pub fn branding_context(branding: Option<&BrandingConfig>) -> minijinja::Value {
+    let ctx = BrandingCtx::from_branding(branding);
+    minijinja::context! {
+        branding,
+        app_name => ctx.app_name,
+        logo_url => ctx.logo_url,
+        accent => ctx.accent,
+        accent_ink => ctx.accent_ink,
+        accent_light => ctx.accent_light,
+        accent_ink_light => ctx.accent_ink_light,
     }
 }
 
@@ -340,5 +375,59 @@ mod tests {
         assert_eq!(ctx.accent, "#ff00aa");
         assert_eq!(ctx.accent_ink, "#000000"); // YIQ pastel → black ink
         assert_eq!(ctx.logo_url, Some("https://cdn.example/logo.svg"));
+    }
+
+    #[test]
+    fn default_branding_ref_none_passes_through() {
+        let ext: Option<Extension<Arc<DefaultBranding>>> = None;
+        assert!(default_branding_ref(&ext).is_none());
+    }
+
+    #[test]
+    fn default_branding_ref_some_unwraps_to_inner_branding() {
+        let branding = BrandingConfig::new("Acme");
+        let ext = Some(Extension(Arc::new(DefaultBranding(branding))));
+        let got = default_branding_ref(&ext).expect("should unwrap");
+        assert_eq!(got.application_name, "Acme");
+    }
+
+    #[test]
+    fn branding_context_none_emits_allowthem_defaults() {
+        let v = branding_context(None);
+        assert_eq!(v.get_attr("app_name").unwrap().as_str(), Some("allowthem"));
+        assert_eq!(v.get_attr("accent").unwrap().as_str(), Some("#ffffff"));
+        assert_eq!(v.get_attr("accent_ink").unwrap().as_str(), Some("#000000"));
+        assert_eq!(
+            v.get_attr("accent_light").unwrap().as_str(),
+            Some("#000000")
+        );
+        assert_eq!(
+            v.get_attr("accent_ink_light").unwrap().as_str(),
+            Some("#ffffff")
+        );
+        assert!(v.get_attr("logo_url").unwrap().is_none());
+        // `branding` key must still be present (raw, for dotted access).
+        assert!(v.get_attr("branding").is_ok());
+    }
+
+    #[test]
+    fn branding_context_some_projects_all_keys() {
+        let b = BrandingConfig::new("Fixture Co")
+            .with_accent("#ff00aa", AccentInk::Black)
+            .with_logo_url("https://cdn.example/logo.svg");
+        let v = branding_context(Some(&b));
+        assert_eq!(v.get_attr("app_name").unwrap().as_str(), Some("Fixture Co"));
+        assert_eq!(v.get_attr("accent").unwrap().as_str(), Some("#ff00aa"));
+        assert_eq!(v.get_attr("accent_ink").unwrap().as_str(), Some("#000000"));
+        assert_eq!(
+            v.get_attr("logo_url").unwrap().as_str(),
+            Some("https://cdn.example/logo.svg")
+        );
+        // `branding` serializes the raw struct — dotted access should work.
+        let inner = v.get_attr("branding").unwrap();
+        assert_eq!(
+            inner.get_attr("application_name").unwrap().as_str(),
+            Some("Fixture Co")
+        );
     }
 }
