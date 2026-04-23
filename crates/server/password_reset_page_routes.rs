@@ -141,13 +141,8 @@ async fn get_forgot_password(
     let branding = resolve_branding(&ath, None, default).await;
 
     if crate::hx::is_hx_request(&headers) {
-        let html = render_forgot_password_fragment(
-            &config,
-            csrf.as_str(),
-            "",
-            false,
-            branding.as_ref(),
-        )?;
+        let html =
+            render_forgot_password_fragment(&config, csrf.as_str(), "", false, branding.as_ref())?;
         return Ok(html.into_response());
     }
 
@@ -908,10 +903,17 @@ mod tests {
     #[tokio::test]
     async fn render_reset_password_fragment_composes_main_and_oob_head() {
         let (_ath, config) = setup().await;
-        let html =
-            render_reset_password_fragment(&config, "tok", "reset-token-abc", false, false, "", None)
-                .unwrap()
-                .0;
+        let html = render_reset_password_fragment(
+            &config,
+            "tok",
+            "reset-token-abc",
+            false,
+            false,
+            "",
+            None,
+        )
+        .unwrap()
+        .0;
         assert!(
             html.contains("<main class=\"wf-auth-form\">"),
             "fragment must include the <main> root"

@@ -1268,7 +1268,8 @@ mod tests {
 
         #[test]
         fn with_splash_image_url_sets_field() {
-            let b = BrandingConfig::new("Co").with_splash_image_url("https://cdn.example/splash.png");
+            let b =
+                BrandingConfig::new("Co").with_splash_image_url("https://cdn.example/splash.png");
             assert_eq!(
                 b.splash_image_url.as_deref(),
                 Some("https://cdn.example/splash.png")
