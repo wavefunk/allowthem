@@ -11,8 +11,10 @@ use axum::routing::get;
 use minijinja::{Environment, context};
 use serde::Deserialize;
 
+use allowthem_core::applications::BrandingConfig;
 use allowthem_core::{AllowThem, Email, EmailSender};
 
+use crate::branding::{BrandingCtx, DefaultBranding, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 
@@ -54,7 +56,9 @@ fn render_forgot_password_fragment(
     csrf_token: &str,
     error: &str,
     success: bool,
+    branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
+    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         csrf_token,
         success,
@@ -62,6 +66,13 @@ fn render_forgot_password_fragment(
         is_production => config.is_production,
         page_title => "Forgot password — allowthem",
         status_hint => "FORGOT PASSWORD",
+        branding,
+        app_name => bctx.app_name,
+        logo_url => bctx.logo_url,
+        accent => bctx.accent,
+        accent_ink => bctx.accent_ink,
+        accent_light => bctx.accent_light,
+        accent_ink_light => bctx.accent_ink_light,
     };
 
     let main = crate::browser_templates::render(
@@ -83,7 +94,9 @@ fn render_reset_password_fragment(
     invalid_token: bool,
     success: bool,
     error: &str,
+    branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
+    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         csrf_token,
         token,
@@ -93,6 +106,13 @@ fn render_reset_password_fragment(
         is_production => config.is_production,
         page_title => "Reset password — allowthem",
         status_hint => "RESET PASSWORD",
+        branding,
+        app_name => bctx.app_name,
+        logo_url => bctx.logo_url,
+        accent => bctx.accent,
+        accent_ink => bctx.accent_ink,
+        accent_light => bctx.accent_light,
+        accent_ink_light => bctx.accent_ink_light,
     };
 
     let main = crate::browser_templates::render(
@@ -109,6 +129,7 @@ fn render_reset_password_fragment(
 async fn get_forgot_password(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     headers: HeaderMap,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
@@ -116,11 +137,16 @@ async fn get_forgot_password(
         return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
     }
 
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, None, default).await;
+
     if crate::hx::is_hx_request(&headers) {
-        let html = render_forgot_password_fragment(&config, csrf.as_str(), "", false)?;
+        let html =
+            render_forgot_password_fragment(&config, csrf.as_str(), "", false, branding.as_ref())?;
         return Ok(html.into_response());
     }
 
+    let bctx = BrandingCtx::from_branding(branding.as_ref());
     let html = crate::browser_templates::render(
         &config.templates,
         "forgot_password.html",
@@ -129,6 +155,13 @@ async fn get_forgot_password(
             success => false,
             error => "",
             is_production => config.is_production,
+            branding => branding.as_ref(),
+            app_name => bctx.app_name,
+            logo_url => bctx.logo_url,
+            accent => bctx.accent,
+            accent_ink => bctx.accent_ink,
+            accent_light => bctx.accent_light,
+            accent_ink_light => bctx.accent_ink_light,
         },
     )?;
     Ok(html.into_response())
@@ -138,9 +171,14 @@ async fn get_forgot_password(
 async fn post_forgot_password(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     csrf: CsrfToken,
     Form(form): Form<ForgotPasswordForm>,
 ) -> Result<Response, BrowserError> {
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, None, default).await;
+    let bctx = BrandingCtx::from_branding(branding.as_ref());
+
     let email = match Email::new(form.email.clone()) {
         Ok(e) => e,
         Err(_) => {
@@ -152,6 +190,13 @@ async fn post_forgot_password(
                     success => false,
                     error => "Please enter a valid email address.",
                     is_production => config.is_production,
+                    branding => branding.as_ref(),
+                    app_name => bctx.app_name,
+                    logo_url => bctx.logo_url,
+                    accent => bctx.accent,
+                    accent_ink => bctx.accent_ink,
+                    accent_light => bctx.accent_light,
+                    accent_ink_light => bctx.accent_ink_light,
                 },
             )?;
             return Ok(html.into_response());
@@ -175,6 +220,13 @@ async fn post_forgot_password(
             success => true,
             error => "",
             is_production => config.is_production,
+            branding => branding.as_ref(),
+            app_name => bctx.app_name,
+            logo_url => bctx.logo_url,
+            accent => bctx.accent,
+            accent_ink => bctx.accent_ink,
+            accent_light => bctx.accent_light,
+            accent_ink_light => bctx.accent_ink_light,
         },
     )?;
     Ok(html.into_response())
@@ -184,16 +236,28 @@ async fn post_forgot_password(
 async fn get_reset_password(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     headers: HeaderMap,
     csrf: CsrfToken,
     Query(query): Query<ResetTokenQuery>,
 ) -> Result<Response, BrowserError> {
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, None, default).await;
+    let bctx = BrandingCtx::from_branding(branding.as_ref());
+
     let token = match query.token {
         Some(ref t) if !t.is_empty() => t.clone(),
         _ => {
             if crate::hx::is_hx_request(&headers) {
-                let html =
-                    render_reset_password_fragment(&config, csrf.as_str(), "", true, false, "")?;
+                let html = render_reset_password_fragment(
+                    &config,
+                    csrf.as_str(),
+                    "",
+                    true,
+                    false,
+                    "",
+                    branding.as_ref(),
+                )?;
                 return Ok(html.into_response());
             }
             let html = crate::browser_templates::render(
@@ -206,6 +270,13 @@ async fn get_reset_password(
                     success => false,
                     error => "",
                     is_production => config.is_production,
+                    branding => branding.as_ref(),
+                    app_name => bctx.app_name,
+                    logo_url => bctx.logo_url,
+                    accent => bctx.accent,
+                    accent_ink => bctx.accent_ink,
+                    accent_light => bctx.accent_light,
+                    accent_ink_light => bctx.accent_ink_light,
                 },
             )?;
             return Ok(html.into_response());
@@ -216,8 +287,15 @@ async fn get_reset_password(
 
     if valid.is_some() {
         if crate::hx::is_hx_request(&headers) {
-            let html =
-                render_reset_password_fragment(&config, csrf.as_str(), &token, false, false, "")?;
+            let html = render_reset_password_fragment(
+                &config,
+                csrf.as_str(),
+                &token,
+                false,
+                false,
+                "",
+                branding.as_ref(),
+            )?;
             return Ok(html.into_response());
         }
         let html = crate::browser_templates::render(
@@ -230,12 +308,27 @@ async fn get_reset_password(
                 success => false,
                 error => "",
                 is_production => config.is_production,
+                branding => branding.as_ref(),
+                app_name => bctx.app_name,
+                logo_url => bctx.logo_url,
+                accent => bctx.accent,
+                accent_ink => bctx.accent_ink,
+                accent_light => bctx.accent_light,
+                accent_ink_light => bctx.accent_ink_light,
             },
         )?;
         Ok(html.into_response())
     } else {
         if crate::hx::is_hx_request(&headers) {
-            let html = render_reset_password_fragment(&config, csrf.as_str(), "", true, false, "")?;
+            let html = render_reset_password_fragment(
+                &config,
+                csrf.as_str(),
+                "",
+                true,
+                false,
+                "",
+                branding.as_ref(),
+            )?;
             return Ok(html.into_response());
         }
         let html = crate::browser_templates::render(
@@ -248,6 +341,13 @@ async fn get_reset_password(
                 success => false,
                 error => "",
                 is_production => config.is_production,
+                branding => branding.as_ref(),
+                app_name => bctx.app_name,
+                logo_url => bctx.logo_url,
+                accent => bctx.accent,
+                accent_ink => bctx.accent_ink,
+                accent_light => bctx.accent_light,
+                accent_ink_light => bctx.accent_ink_light,
             },
         )?;
         Ok(html.into_response())
@@ -258,9 +358,14 @@ async fn get_reset_password(
 async fn post_reset_password(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     csrf: CsrfToken,
     Form(form): Form<ResetPasswordForm>,
 ) -> Result<Response, BrowserError> {
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, None, default).await;
+    let bctx = BrandingCtx::from_branding(branding.as_ref());
+
     // Validate: passwords match
     if form.new_password != form.confirm_password {
         let html = crate::browser_templates::render(
@@ -273,6 +378,13 @@ async fn post_reset_password(
                 success => false,
                 error => "Passwords do not match",
                 is_production => config.is_production,
+                branding => branding.as_ref(),
+                app_name => bctx.app_name,
+                logo_url => bctx.logo_url,
+                accent => bctx.accent,
+                accent_ink => bctx.accent_ink,
+                accent_light => bctx.accent_light,
+                accent_ink_light => bctx.accent_ink_light,
             },
         )?;
         return Ok(html.into_response());
@@ -290,6 +402,13 @@ async fn post_reset_password(
                 success => false,
                 error => "Password must be at least 8 characters",
                 is_production => config.is_production,
+                branding => branding.as_ref(),
+                app_name => bctx.app_name,
+                logo_url => bctx.logo_url,
+                accent => bctx.accent,
+                accent_ink => bctx.accent_ink,
+                accent_light => bctx.accent_light,
+                accent_ink_light => bctx.accent_ink_light,
             },
         )?;
         return Ok(html.into_response());
@@ -311,6 +430,13 @@ async fn post_reset_password(
                     success => true,
                     error => "",
                     is_production => config.is_production,
+                    branding => branding.as_ref(),
+                    app_name => bctx.app_name,
+                    logo_url => bctx.logo_url,
+                    accent => bctx.accent,
+                    accent_ink => bctx.accent_ink,
+                    accent_light => bctx.accent_light,
+                    accent_ink_light => bctx.accent_ink_light,
                 },
             )?;
             Ok(html.into_response())
@@ -326,6 +452,13 @@ async fn post_reset_password(
                     success => false,
                     error => "",
                     is_production => config.is_production,
+                    branding => branding.as_ref(),
+                    app_name => bctx.app_name,
+                    logo_url => bctx.logo_url,
+                    accent => bctx.accent,
+                    accent_ink => bctx.accent_ink,
+                    accent_light => bctx.accent_light,
+                    accent_ink_light => bctx.accent_ink_light,
                 },
             )?;
             Ok(html.into_response())
@@ -750,7 +883,7 @@ mod tests {
     #[tokio::test]
     async fn render_forgot_password_fragment_composes_main_and_oob_head() {
         let (_ath, config) = setup().await;
-        let html = render_forgot_password_fragment(&config, "tok", "", false)
+        let html = render_forgot_password_fragment(&config, "tok", "", false, None)
             .unwrap()
             .0;
         assert!(
@@ -770,10 +903,17 @@ mod tests {
     #[tokio::test]
     async fn render_reset_password_fragment_composes_main_and_oob_head() {
         let (_ath, config) = setup().await;
-        let html =
-            render_reset_password_fragment(&config, "tok", "reset-token-abc", false, false, "")
-                .unwrap()
-                .0;
+        let html = render_reset_password_fragment(
+            &config,
+            "tok",
+            "reset-token-abc",
+            false,
+            false,
+            "",
+            None,
+        )
+        .unwrap()
+        .0;
         assert!(
             html.contains("<main class=\"wf-auth-form\">"),
             "fragment must include the <main> root"

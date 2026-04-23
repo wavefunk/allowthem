@@ -13,9 +13,11 @@ use chrono::Utc;
 use minijinja::{Environment, context};
 use serde::Deserialize;
 
+use allowthem_core::applications::BrandingConfig;
 use allowthem_core::totp::totp_uri;
 use allowthem_core::{AllowThem, AuditEvent, AuthError, sessions};
 
+use crate::branding::{BrandingCtx, DefaultBranding, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 use crate::error::BrowserAuthRedirect;
@@ -123,7 +125,9 @@ fn render_mfa_setup_fragment(
     totp_uri: &str,
     secret: &str,
     error: &str,
+    branding: Option<&BrandingConfig>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
+    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         csrf_token,
         totp_uri,
@@ -132,6 +136,13 @@ fn render_mfa_setup_fragment(
         is_production => config.is_production,
         page_title => "Set up two-factor authentication — allowthem",
         status_hint => "ENABLE 2FA",
+        branding,
+        app_name => bctx.app_name,
+        logo_url => bctx.logo_url,
+        accent => bctx.accent,
+        accent_ink => bctx.accent_ink,
+        accent_light => bctx.accent_light,
+        accent_ink_light => bctx.accent_ink_light,
     };
 
     let main = crate::browser_templates::render(
@@ -155,12 +166,21 @@ fn render_mfa_setup_fragment(
 fn render_mfa_recovery_fragment(
     config: &MfaPageConfig,
     recovery_codes: &[String],
+    branding: Option<&BrandingConfig>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
+    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         recovery_codes,
         is_production => config.is_production,
         page_title => "Recovery codes — allowthem",
         status_hint => "RECOVERY CODES",
+        branding,
+        app_name => bctx.app_name,
+        logo_url => bctx.logo_url,
+        accent => bctx.accent,
+        accent_ink => bctx.accent_ink,
+        accent_light => bctx.accent_light,
+        accent_ink_light => bctx.accent_ink_light,
     };
 
     let main = crate::browser_templates::render(
@@ -180,6 +200,7 @@ fn render_mfa_recovery_fragment(
 async fn get_mfa_setup(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     uri: Uri,
     csrf: CsrfToken,
     headers: HeaderMap,
@@ -188,6 +209,9 @@ async fn get_mfa_setup(
         Ok(u) => u,
         Err(redirect) => return Ok(redirect),
     };
+
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, None, default).await;
 
     // Reuse pending secret if one exists; create only on first visit
     let secret = match ath.get_pending_mfa_secret(user.id).await? {
@@ -199,10 +223,18 @@ async fn get_mfa_setup(
     let uri = totp_uri(&secret, user.email.as_str(), &issuer);
 
     if crate::hx::is_hx_request(&headers) {
-        let html = render_mfa_setup_fragment(&config, csrf.as_str(), &uri, &secret, "")?;
+        let html = render_mfa_setup_fragment(
+            &config,
+            csrf.as_str(),
+            &uri,
+            &secret,
+            "",
+            branding.as_ref(),
+        )?;
         return Ok(html.into_response());
     }
 
+    let bctx = BrandingCtx::from_branding(branding.as_ref());
     let html = crate::browser_templates::render(
         &config.templates,
         "mfa_setup.html",
@@ -212,6 +244,13 @@ async fn get_mfa_setup(
             totp_uri => &uri,
             error => "",
             is_production => config.is_production,
+            branding => branding.as_ref(),
+            app_name => bctx.app_name,
+            logo_url => bctx.logo_url,
+            accent => bctx.accent,
+            accent_ink => bctx.accent_ink,
+            accent_light => bctx.accent_light,
+            accent_ink_light => bctx.accent_ink_light,
         },
     )?;
     Ok(html.into_response())
@@ -231,6 +270,7 @@ pub struct MfaConfirmForm {
 async fn post_mfa_confirm(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     uri: Uri,
     csrf: CsrfToken,
     headers: HeaderMap,
@@ -240,6 +280,10 @@ async fn post_mfa_confirm(
         Ok(u) => u,
         Err(redirect) => return Ok(redirect),
     };
+
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, None, default).await;
+    let bctx = BrandingCtx::from_branding(branding.as_ref());
 
     let ip = client_ip(&headers);
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
@@ -259,7 +303,8 @@ async fn post_mfa_confirm(
                 .await;
 
             if crate::hx::is_hx_request(&headers) {
-                let html = render_mfa_recovery_fragment(&config, &recovery_codes)?;
+                let html =
+                    render_mfa_recovery_fragment(&config, &recovery_codes, branding.as_ref())?;
                 return Ok(html.into_response());
             }
 
@@ -269,6 +314,13 @@ async fn post_mfa_confirm(
                 context! {
                     recovery_codes => &recovery_codes,
                     is_production => config.is_production,
+                    branding => branding.as_ref(),
+                    app_name => bctx.app_name,
+                    logo_url => bctx.logo_url,
+                    accent => bctx.accent,
+                    accent_ink => bctx.accent_ink,
+                    accent_light => bctx.accent_light,
+                    accent_ink_light => bctx.accent_ink_light,
                 },
             )?;
             Ok(html.into_response())
@@ -291,6 +343,13 @@ async fn post_mfa_confirm(
                     totp_uri => &uri,
                     error => SETUP_INVALID_CODE,
                     is_production => config.is_production,
+                    branding => branding.as_ref(),
+                    app_name => bctx.app_name,
+                    logo_url => bctx.logo_url,
+                    accent => bctx.accent,
+                    accent_ink => bctx.accent_ink,
+                    accent_light => bctx.accent_light,
+                    accent_ink_light => bctx.accent_ink_light,
                 },
             )?;
             Ok(html.into_response())
@@ -358,13 +417,22 @@ fn render_mfa_challenge_fragment(
     config: &MfaPageConfig,
     mfa_token: &str,
     error: &str,
+    branding: Option<&BrandingConfig>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
+    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         mfa_token,
         error,
         is_production => config.is_production,
         page_title => "Two-factor authentication — allowthem",
         status_hint => "TWO-FACTOR",
+        branding,
+        app_name => bctx.app_name,
+        logo_url => bctx.logo_url,
+        accent => bctx.accent,
+        accent_ink => bctx.accent_ink,
+        accent_light => bctx.accent_light,
+        accent_ink_light => bctx.accent_ink_light,
     };
 
     let main = crate::browser_templates::render(
@@ -381,6 +449,7 @@ fn render_mfa_challenge_fragment(
 async fn get_mfa_challenge(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     headers: HeaderMap,
     Query(query): Query<ChallengeQuery>,
 ) -> Result<Response, BrowserError> {
@@ -391,11 +460,15 @@ async fn get_mfa_challenge(
         return Ok((StatusCode::SEE_OTHER, [(LOCATION, "/login".to_string())]).into_response());
     }
 
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, None, default).await;
+
     if crate::hx::is_hx_request(&headers) {
-        let html = render_mfa_challenge_fragment(&config, &query.token, "")?;
+        let html = render_mfa_challenge_fragment(&config, &query.token, "", branding.as_ref())?;
         return Ok(html.into_response());
     }
 
+    let bctx = BrandingCtx::from_branding(branding.as_ref());
     let html = crate::browser_templates::render(
         &config.templates,
         "mfa_challenge.html",
@@ -403,6 +476,13 @@ async fn get_mfa_challenge(
             mfa_token => &query.token,
             error => "",
             is_production => config.is_production,
+            branding => branding.as_ref(),
+            app_name => bctx.app_name,
+            logo_url => bctx.logo_url,
+            accent => bctx.accent,
+            accent_ink => bctx.accent_ink,
+            accent_light => bctx.accent_light,
+            accent_ink_light => bctx.accent_ink_light,
         },
     )?;
     Ok(html.into_response())
@@ -423,9 +503,13 @@ pub struct MfaChallengeForm {
 async fn post_mfa_challenge(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     headers: HeaderMap,
     Form(form): Form<MfaChallengeForm>,
 ) -> Result<Response, BrowserError> {
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, None, default).await;
+    let bctx = BrandingCtx::from_branding(branding.as_ref());
     let ip = headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
@@ -478,6 +562,13 @@ async fn post_mfa_challenge(
                 mfa_token => &form.mfa_token,
                 error => error_msg,
                 is_production => config.is_production,
+                branding => branding.as_ref(),
+                app_name => bctx.app_name,
+                logo_url => bctx.logo_url,
+                accent => bctx.accent,
+                accent_ink => bctx.accent_ink,
+                accent_light => bctx.accent_light,
+                accent_ink_light => bctx.accent_ink_light,
             },
         )?;
         return Ok(html.into_response());
@@ -1030,6 +1121,7 @@ mod tests {
             "otpauth://totp/allowthem:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=allowthem",
             "JBSWY3DPEHPK3PXP",
             "",
+            None,
         )
         .unwrap()
         .0;
@@ -1097,7 +1189,9 @@ mod tests {
             base_url: "http://127.0.0.1:3100".into(),
         };
         let codes = vec!["AAAA-BBBB".to_string(), "CCCC-DDDD".to_string()];
-        let html = render_mfa_recovery_fragment(&config, &codes).unwrap().0;
+        let html = render_mfa_recovery_fragment(&config, &codes, None)
+            .unwrap()
+            .0;
         assert!(
             html.contains("<main class=\"wf-auth-form\">"),
             "fragment must include the <main> root"
@@ -1185,7 +1279,7 @@ mod tests {
             is_production: false,
             base_url: String::new(),
         };
-        let html = render_mfa_challenge_fragment(&config, "mfa-token-abc", "")
+        let html = render_mfa_challenge_fragment(&config, "mfa-token-abc", "", None)
             .unwrap()
             .0;
         assert!(

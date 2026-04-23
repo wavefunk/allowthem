@@ -22,7 +22,7 @@ use allowthem_core::sessions;
 use allowthem_core::types::ClientId;
 use allowthem_core::{AllowThem, AuditEvent, PasswordHash, SessionToken};
 
-use crate::branding::{lookup_branding, resolve_accent};
+use crate::branding::{BrandingCtx, DefaultBranding, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 
@@ -87,8 +87,7 @@ fn render_login_form(
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
-    let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
-        resolve_accent(branding);
+    let ctx = BrandingCtx::from_branding(branding);
 
     crate::browser_templates::render(
         &config.templates,
@@ -99,12 +98,13 @@ fn render_login_form(
             error,
             identifier,
             client_id => client_id.map(|c| c.as_str()),
-            app_name => branding.map(|b| b.application_name.as_str()),
-            logo_url => branding.and_then(|b| b.logo_url.as_deref()),
-            accent => accent_hex,
-            accent_ink => accent_ink_hex,
-            accent_light => accent_light_hex,
-            accent_ink_light => accent_ink_light_hex,
+            branding,
+            app_name => ctx.app_name,
+            logo_url => ctx.logo_url,
+            accent => ctx.accent,
+            accent_ink => ctx.accent_ink,
+            accent_light => ctx.accent_light,
+            accent_ink_light => ctx.accent_ink_light,
             oauth_providers => &config.oauth_providers,
             is_production => config.is_production,
         },
@@ -121,8 +121,7 @@ fn render_login_fragment(
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
-    let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
-        resolve_accent(branding);
+    let bctx = BrandingCtx::from_branding(branding);
 
     let ctx = context! {
         csrf_token,
@@ -130,12 +129,13 @@ fn render_login_fragment(
         error,
         identifier,
         client_id => client_id.map(|c| c.as_str()),
-        app_name => branding.map(|b| b.application_name.as_str()),
-        logo_url => branding.and_then(|b| b.logo_url.as_deref()),
-        accent => accent_hex,
-        accent_ink => accent_ink_hex,
-        accent_light => accent_light_hex,
-        accent_ink_light => accent_ink_light_hex,
+        branding,
+        app_name => bctx.app_name,
+        logo_url => bctx.logo_url,
+        accent => bctx.accent,
+        accent_ink => bctx.accent_ink,
+        accent_light => bctx.accent_light,
+        accent_ink_light => bctx.accent_ink_light,
         oauth_providers => &config.oauth_providers,
         is_production => config.is_production,
         page_title => "Log in — allowthem",
@@ -188,6 +188,7 @@ fn record_login_success(config: &LoginConfig, ip: IpAddr) {
 async fn get_login(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<LoginConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     csrf: CsrfToken,
     Query(query): Query<LoginQuery>,
     headers: HeaderMap,
@@ -204,7 +205,8 @@ async fn get_login(
             .into_response());
     }
 
-    let branding = lookup_branding(&ath, query.client_id.as_ref()).await;
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, query.client_id.as_ref(), default).await;
 
     if crate::hx::is_hx_request(&headers) {
         let html = render_login_fragment(
@@ -235,6 +237,7 @@ async fn get_login(
 async fn post_login(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<LoginConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     csrf: CsrfToken,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
@@ -243,7 +246,8 @@ async fn post_login(
     let ip = addr.ip();
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
     let ip_str = ip.to_string();
-    let branding = lookup_branding(&ath, form.client_id.as_ref()).await;
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, form.client_id.as_ref(), default).await;
 
     // 1. Rate limit check
     if is_rate_limited(&config, ip) {

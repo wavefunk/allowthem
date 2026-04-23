@@ -286,9 +286,7 @@ mod tests {
         );
         // MiniJinja HTML-escapes `/` to `&#x2f;` in attribute values.
         assert!(
-            html.contains(
-                r#"name="redirect_uri" value="https:&#x2f;&#x2f;example.com&#x2f;cb""#
-            ),
+            html.contains(r#"name="redirect_uri" value="https:&#x2f;&#x2f;example.com&#x2f;cb""#),
             "redirect_uri hidden input missing"
         );
         assert!(

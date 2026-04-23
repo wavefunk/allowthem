@@ -19,7 +19,7 @@ use allowthem_core::{
     RegisteredEvent, RegistrationSource, Username, generate_token, hash_token,
 };
 
-use crate::branding::{lookup_branding, resolve_accent};
+use crate::branding::{BrandingCtx, DefaultBranding, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 use crate::custom_fields::{
@@ -52,6 +52,7 @@ struct RegisterQuery {
 async fn get_register(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<RegisterConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     headers: HeaderMap,
     csrf: CsrfToken,
     Query(query): Query<RegisterQuery>,
@@ -60,7 +61,8 @@ async fn get_register(
         return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
     }
 
-    let branding = lookup_branding(&ath, query.client_id.as_ref()).await;
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, query.client_id.as_ref(), default).await;
     let custom_fields = config
         .custom_schema
         .as_ref()
@@ -95,12 +97,14 @@ async fn get_register(
 async fn post_register(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<RegisterConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
     csrf: CsrfToken,
     Query(query): Query<RegisterQuery>,
     headers: HeaderMap,
     Form(form): Form<HashMap<String, String>>,
 ) -> Result<Response, BrowserError> {
-    let branding = lookup_branding(&ath, query.client_id.as_ref()).await;
+    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let branding = resolve_branding(&ath, query.client_id.as_ref(), default).await;
     let cid = query.client_id.as_ref();
     let br = branding.as_ref();
 
@@ -316,9 +320,6 @@ fn render_register_form(
     config: &RegisterConfig,
     params: RegisterFormParams<'_>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
-        resolve_accent(params.branding);
-
     // Build a custom_values map keyed by field name (stripping custom_data[] prefix)
     let custom_values_map: HashMap<&str, &str> = params
         .custom_values
@@ -340,6 +341,7 @@ fn render_register_form(
         custom_fields,
         ..
     } = params;
+    let ctx = BrandingCtx::from_branding(branding);
     crate::browser_templates::render(
         &config.templates,
         "register.html",
@@ -349,12 +351,13 @@ fn render_register_form(
             email,
             username,
             client_id => client_id.map(|c| c.as_str()),
-            app_name => branding.map(|b| b.application_name.as_str()),
-            logo_url => branding.and_then(|b| b.logo_url.as_deref()),
-            accent => accent_hex,
-            accent_ink => accent_ink_hex,
-            accent_light => accent_light_hex,
-            accent_ink_light => accent_ink_light_hex,
+            branding,
+            app_name => ctx.app_name,
+            logo_url => ctx.logo_url,
+            accent => ctx.accent,
+            accent_ink => ctx.accent_ink,
+            accent_light => ctx.accent_light,
+            accent_ink_light => ctx.accent_ink_light,
             is_production => config.is_production,
             custom_fields,
             custom_values => custom_values_map,
@@ -369,9 +372,6 @@ fn render_register_fragment(
     config: &RegisterConfig,
     params: RegisterFormParams<'_>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let (accent_hex, accent_ink_hex, accent_light_hex, accent_ink_light_hex) =
-        resolve_accent(params.branding);
-
     let custom_values_map: HashMap<&str, &str> = params
         .custom_values
         .iter()
@@ -392,6 +392,7 @@ fn render_register_fragment(
         custom_fields,
         ..
     } = params;
+    let bctx = BrandingCtx::from_branding(branding);
 
     let ctx = context! {
         csrf_token,
@@ -399,12 +400,13 @@ fn render_register_fragment(
         email,
         username,
         client_id => client_id.map(|c| c.as_str()),
-        app_name => branding.map(|b| b.application_name.as_str()),
-        logo_url => branding.and_then(|b| b.logo_url.as_deref()),
-        accent => accent_hex,
-        accent_ink => accent_ink_hex,
-        accent_light => accent_light_hex,
-        accent_ink_light => accent_ink_light_hex,
+        branding,
+        app_name => bctx.app_name,
+        logo_url => bctx.logo_url,
+        accent => bctx.accent,
+        accent_ink => bctx.accent_ink,
+        accent_light => bctx.accent_light,
+        accent_ink_light => bctx.accent_ink_light,
         is_production => config.is_production,
         custom_fields,
         custom_values => custom_values_map,
