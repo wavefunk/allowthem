@@ -22,7 +22,7 @@ use allowthem_core::sessions;
 use allowthem_core::types::ClientId;
 use allowthem_core::{AllowThem, AuditEvent, PasswordHash, SessionToken};
 
-use crate::branding::{BrandingCtx, DefaultBranding, resolve_branding};
+use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 
@@ -87,7 +87,6 @@ fn render_login_form(
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
-    let ctx = BrandingCtx::from_branding(branding);
 
     crate::browser_templates::render(
         &config.templates,
@@ -98,15 +97,9 @@ fn render_login_form(
             error,
             identifier,
             client_id => client_id.map(|c| c.as_str()),
-            branding,
-            app_name => ctx.app_name,
-            logo_url => ctx.logo_url,
-            accent => ctx.accent,
-            accent_ink => ctx.accent_ink,
-            accent_light => ctx.accent_light,
-            accent_ink_light => ctx.accent_ink_light,
             oauth_providers => &config.oauth_providers,
             is_production => config.is_production,
+            ..branding_context(branding),
         },
     )
 }
@@ -121,7 +114,6 @@ fn render_login_fragment(
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
-    let bctx = BrandingCtx::from_branding(branding);
 
     let ctx = context! {
         csrf_token,
@@ -129,17 +121,11 @@ fn render_login_fragment(
         error,
         identifier,
         client_id => client_id.map(|c| c.as_str()),
-        branding,
-        app_name => bctx.app_name,
-        logo_url => bctx.logo_url,
-        accent => bctx.accent,
-        accent_ink => bctx.accent_ink,
-        accent_light => bctx.accent_light,
-        accent_ink_light => bctx.accent_ink_light,
         oauth_providers => &config.oauth_providers,
         is_production => config.is_production,
         page_title => "Log in — allowthem",
         status_hint => "SIGN IN",
+        ..branding_context(branding),
     };
 
     let main = crate::browser_templates::render(
@@ -205,7 +191,7 @@ async fn get_login(
             .into_response());
     }
 
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, query.client_id.as_ref(), default).await;
 
     if crate::hx::is_hx_request(&headers) {
@@ -246,7 +232,7 @@ async fn post_login(
     let ip = addr.ip();
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
     let ip_str = ip.to_string();
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, form.client_id.as_ref(), default).await;
 
     // 1. Rate limit check

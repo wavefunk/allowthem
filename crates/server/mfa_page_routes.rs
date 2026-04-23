@@ -17,7 +17,7 @@ use allowthem_core::applications::BrandingConfig;
 use allowthem_core::totp::totp_uri;
 use allowthem_core::{AllowThem, AuditEvent, AuthError, sessions};
 
-use crate::branding::{BrandingCtx, DefaultBranding, resolve_branding};
+use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 use crate::error::BrowserAuthRedirect;
@@ -127,7 +127,6 @@ fn render_mfa_setup_fragment(
     error: &str,
     branding: Option<&BrandingConfig>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         csrf_token,
         totp_uri,
@@ -136,13 +135,7 @@ fn render_mfa_setup_fragment(
         is_production => config.is_production,
         page_title => "Set up two-factor authentication — allowthem",
         status_hint => "ENABLE 2FA",
-        branding,
-        app_name => bctx.app_name,
-        logo_url => bctx.logo_url,
-        accent => bctx.accent,
-        accent_ink => bctx.accent_ink,
-        accent_light => bctx.accent_light,
-        accent_ink_light => bctx.accent_ink_light,
+        ..branding_context(branding),
     };
 
     let main = crate::browser_templates::render(
@@ -168,19 +161,12 @@ fn render_mfa_recovery_fragment(
     recovery_codes: &[String],
     branding: Option<&BrandingConfig>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         recovery_codes,
         is_production => config.is_production,
         page_title => "Recovery codes — allowthem",
         status_hint => "RECOVERY CODES",
-        branding,
-        app_name => bctx.app_name,
-        logo_url => bctx.logo_url,
-        accent => bctx.accent,
-        accent_ink => bctx.accent_ink,
-        accent_light => bctx.accent_light,
-        accent_ink_light => bctx.accent_ink_light,
+        ..branding_context(branding),
     };
 
     let main = crate::browser_templates::render(
@@ -210,7 +196,7 @@ async fn get_mfa_setup(
         Err(redirect) => return Ok(redirect),
     };
 
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
 
     // Reuse pending secret if one exists; create only on first visit
@@ -234,7 +220,6 @@ async fn get_mfa_setup(
         return Ok(html.into_response());
     }
 
-    let bctx = BrandingCtx::from_branding(branding.as_ref());
     let html = crate::browser_templates::render(
         &config.templates,
         "mfa_setup.html",
@@ -244,13 +229,7 @@ async fn get_mfa_setup(
             totp_uri => &uri,
             error => "",
             is_production => config.is_production,
-            branding => branding.as_ref(),
-            app_name => bctx.app_name,
-            logo_url => bctx.logo_url,
-            accent => bctx.accent,
-            accent_ink => bctx.accent_ink,
-            accent_light => bctx.accent_light,
-            accent_ink_light => bctx.accent_ink_light,
+            ..branding_context(branding.as_ref()),
         },
     )?;
     Ok(html.into_response())
@@ -281,9 +260,8 @@ async fn post_mfa_confirm(
         Err(redirect) => return Ok(redirect),
     };
 
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
-    let bctx = BrandingCtx::from_branding(branding.as_ref());
 
     let ip = client_ip(&headers);
     let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
@@ -314,13 +292,7 @@ async fn post_mfa_confirm(
                 context! {
                     recovery_codes => &recovery_codes,
                     is_production => config.is_production,
-                    branding => branding.as_ref(),
-                    app_name => bctx.app_name,
-                    logo_url => bctx.logo_url,
-                    accent => bctx.accent,
-                    accent_ink => bctx.accent_ink,
-                    accent_light => bctx.accent_light,
-                    accent_ink_light => bctx.accent_ink_light,
+                    ..branding_context(branding.as_ref()),
                 },
             )?;
             Ok(html.into_response())
@@ -343,13 +315,7 @@ async fn post_mfa_confirm(
                     totp_uri => &uri,
                     error => SETUP_INVALID_CODE,
                     is_production => config.is_production,
-                    branding => branding.as_ref(),
-                    app_name => bctx.app_name,
-                    logo_url => bctx.logo_url,
-                    accent => bctx.accent,
-                    accent_ink => bctx.accent_ink,
-                    accent_light => bctx.accent_light,
-                    accent_ink_light => bctx.accent_ink_light,
+                    ..branding_context(branding.as_ref()),
                 },
             )?;
             Ok(html.into_response())
@@ -419,20 +385,13 @@ fn render_mfa_challenge_fragment(
     error: &str,
     branding: Option<&BrandingConfig>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         mfa_token,
         error,
         is_production => config.is_production,
         page_title => "Two-factor authentication — allowthem",
         status_hint => "TWO-FACTOR",
-        branding,
-        app_name => bctx.app_name,
-        logo_url => bctx.logo_url,
-        accent => bctx.accent,
-        accent_ink => bctx.accent_ink,
-        accent_light => bctx.accent_light,
-        accent_ink_light => bctx.accent_ink_light,
+        ..branding_context(branding),
     };
 
     let main = crate::browser_templates::render(
@@ -460,7 +419,7 @@ async fn get_mfa_challenge(
         return Ok((StatusCode::SEE_OTHER, [(LOCATION, "/login".to_string())]).into_response());
     }
 
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
 
     if crate::hx::is_hx_request(&headers) {
@@ -468,7 +427,6 @@ async fn get_mfa_challenge(
         return Ok(html.into_response());
     }
 
-    let bctx = BrandingCtx::from_branding(branding.as_ref());
     let html = crate::browser_templates::render(
         &config.templates,
         "mfa_challenge.html",
@@ -476,13 +434,7 @@ async fn get_mfa_challenge(
             mfa_token => &query.token,
             error => "",
             is_production => config.is_production,
-            branding => branding.as_ref(),
-            app_name => bctx.app_name,
-            logo_url => bctx.logo_url,
-            accent => bctx.accent,
-            accent_ink => bctx.accent_ink,
-            accent_light => bctx.accent_light,
-            accent_ink_light => bctx.accent_ink_light,
+            ..branding_context(branding.as_ref()),
         },
     )?;
     Ok(html.into_response())
@@ -507,9 +459,8 @@ async fn post_mfa_challenge(
     headers: HeaderMap,
     Form(form): Form<MfaChallengeForm>,
 ) -> Result<Response, BrowserError> {
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
-    let bctx = BrandingCtx::from_branding(branding.as_ref());
     let ip = headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
@@ -562,13 +513,7 @@ async fn post_mfa_challenge(
                 mfa_token => &form.mfa_token,
                 error => error_msg,
                 is_production => config.is_production,
-                branding => branding.as_ref(),
-                app_name => bctx.app_name,
-                logo_url => bctx.logo_url,
-                accent => bctx.accent,
-                accent_ink => bctx.accent_ink,
-                accent_light => bctx.accent_light,
-                accent_ink_light => bctx.accent_ink_light,
+                ..branding_context(branding.as_ref()),
             },
         )?;
         return Ok(html.into_response());
