@@ -14,7 +14,7 @@ use serde::Deserialize;
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::{AllowThem, Email, EmailSender};
 
-use crate::branding::{BrandingCtx, DefaultBranding, resolve_branding};
+use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 
@@ -58,7 +58,6 @@ fn render_forgot_password_fragment(
     success: bool,
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
-    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         csrf_token,
         success,
@@ -66,13 +65,7 @@ fn render_forgot_password_fragment(
         is_production => config.is_production,
         page_title => "Forgot password — allowthem",
         status_hint => "FORGOT PASSWORD",
-        branding,
-        app_name => bctx.app_name,
-        logo_url => bctx.logo_url,
-        accent => bctx.accent,
-        accent_ink => bctx.accent_ink,
-        accent_light => bctx.accent_light,
-        accent_ink_light => bctx.accent_ink_light,
+        ..branding_context(branding),
     };
 
     let main = crate::browser_templates::render(
@@ -96,7 +89,6 @@ fn render_reset_password_fragment(
     error: &str,
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
-    let bctx = BrandingCtx::from_branding(branding);
     let ctx = context! {
         csrf_token,
         token,
@@ -106,13 +98,7 @@ fn render_reset_password_fragment(
         is_production => config.is_production,
         page_title => "Reset password — allowthem",
         status_hint => "RESET PASSWORD",
-        branding,
-        app_name => bctx.app_name,
-        logo_url => bctx.logo_url,
-        accent => bctx.accent,
-        accent_ink => bctx.accent_ink,
-        accent_light => bctx.accent_light,
-        accent_ink_light => bctx.accent_ink_light,
+        ..branding_context(branding),
     };
 
     let main = crate::browser_templates::render(
@@ -137,7 +123,7 @@ async fn get_forgot_password(
         return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
     }
 
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
 
     if crate::hx::is_hx_request(&headers) {
@@ -146,7 +132,6 @@ async fn get_forgot_password(
         return Ok(html.into_response());
     }
 
-    let bctx = BrandingCtx::from_branding(branding.as_ref());
     let html = crate::browser_templates::render(
         &config.templates,
         "forgot_password.html",
@@ -155,13 +140,7 @@ async fn get_forgot_password(
             success => false,
             error => "",
             is_production => config.is_production,
-            branding => branding.as_ref(),
-            app_name => bctx.app_name,
-            logo_url => bctx.logo_url,
-            accent => bctx.accent,
-            accent_ink => bctx.accent_ink,
-            accent_light => bctx.accent_light,
-            accent_ink_light => bctx.accent_ink_light,
+            ..branding_context(branding.as_ref()),
         },
     )?;
     Ok(html.into_response())
@@ -175,9 +154,8 @@ async fn post_forgot_password(
     csrf: CsrfToken,
     Form(form): Form<ForgotPasswordForm>,
 ) -> Result<Response, BrowserError> {
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
-    let bctx = BrandingCtx::from_branding(branding.as_ref());
 
     let email = match Email::new(form.email.clone()) {
         Ok(e) => e,
@@ -190,13 +168,7 @@ async fn post_forgot_password(
                     success => false,
                     error => "Please enter a valid email address.",
                     is_production => config.is_production,
-                    branding => branding.as_ref(),
-                    app_name => bctx.app_name,
-                    logo_url => bctx.logo_url,
-                    accent => bctx.accent,
-                    accent_ink => bctx.accent_ink,
-                    accent_light => bctx.accent_light,
-                    accent_ink_light => bctx.accent_ink_light,
+                    ..branding_context(branding.as_ref()),
                 },
             )?;
             return Ok(html.into_response());
@@ -220,13 +192,7 @@ async fn post_forgot_password(
             success => true,
             error => "",
             is_production => config.is_production,
-            branding => branding.as_ref(),
-            app_name => bctx.app_name,
-            logo_url => bctx.logo_url,
-            accent => bctx.accent,
-            accent_ink => bctx.accent_ink,
-            accent_light => bctx.accent_light,
-            accent_ink_light => bctx.accent_ink_light,
+            ..branding_context(branding.as_ref()),
         },
     )?;
     Ok(html.into_response())
@@ -241,9 +207,8 @@ async fn get_reset_password(
     csrf: CsrfToken,
     Query(query): Query<ResetTokenQuery>,
 ) -> Result<Response, BrowserError> {
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
-    let bctx = BrandingCtx::from_branding(branding.as_ref());
 
     let token = match query.token {
         Some(ref t) if !t.is_empty() => t.clone(),
@@ -270,13 +235,7 @@ async fn get_reset_password(
                     success => false,
                     error => "",
                     is_production => config.is_production,
-                    branding => branding.as_ref(),
-                    app_name => bctx.app_name,
-                    logo_url => bctx.logo_url,
-                    accent => bctx.accent,
-                    accent_ink => bctx.accent_ink,
-                    accent_light => bctx.accent_light,
-                    accent_ink_light => bctx.accent_ink_light,
+                    ..branding_context(branding.as_ref()),
                 },
             )?;
             return Ok(html.into_response());
@@ -308,13 +267,7 @@ async fn get_reset_password(
                 success => false,
                 error => "",
                 is_production => config.is_production,
-                branding => branding.as_ref(),
-                app_name => bctx.app_name,
-                logo_url => bctx.logo_url,
-                accent => bctx.accent,
-                accent_ink => bctx.accent_ink,
-                accent_light => bctx.accent_light,
-                accent_ink_light => bctx.accent_ink_light,
+                ..branding_context(branding.as_ref()),
             },
         )?;
         Ok(html.into_response())
@@ -341,13 +294,7 @@ async fn get_reset_password(
                 success => false,
                 error => "",
                 is_production => config.is_production,
-                branding => branding.as_ref(),
-                app_name => bctx.app_name,
-                logo_url => bctx.logo_url,
-                accent => bctx.accent,
-                accent_ink => bctx.accent_ink,
-                accent_light => bctx.accent_light,
-                accent_ink_light => bctx.accent_ink_light,
+                ..branding_context(branding.as_ref()),
             },
         )?;
         Ok(html.into_response())
@@ -362,9 +309,8 @@ async fn post_reset_password(
     csrf: CsrfToken,
     Form(form): Form<ResetPasswordForm>,
 ) -> Result<Response, BrowserError> {
-    let default = default_branding.as_ref().map(|Extension(d)| &d.0);
+    let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
-    let bctx = BrandingCtx::from_branding(branding.as_ref());
 
     // Validate: passwords match
     if form.new_password != form.confirm_password {
@@ -378,13 +324,7 @@ async fn post_reset_password(
                 success => false,
                 error => "Passwords do not match",
                 is_production => config.is_production,
-                branding => branding.as_ref(),
-                app_name => bctx.app_name,
-                logo_url => bctx.logo_url,
-                accent => bctx.accent,
-                accent_ink => bctx.accent_ink,
-                accent_light => bctx.accent_light,
-                accent_ink_light => bctx.accent_ink_light,
+                ..branding_context(branding.as_ref()),
             },
         )?;
         return Ok(html.into_response());
@@ -402,13 +342,7 @@ async fn post_reset_password(
                 success => false,
                 error => "Password must be at least 8 characters",
                 is_production => config.is_production,
-                branding => branding.as_ref(),
-                app_name => bctx.app_name,
-                logo_url => bctx.logo_url,
-                accent => bctx.accent,
-                accent_ink => bctx.accent_ink,
-                accent_light => bctx.accent_light,
-                accent_ink_light => bctx.accent_ink_light,
+                ..branding_context(branding.as_ref()),
             },
         )?;
         return Ok(html.into_response());
@@ -430,13 +364,7 @@ async fn post_reset_password(
                     success => true,
                     error => "",
                     is_production => config.is_production,
-                    branding => branding.as_ref(),
-                    app_name => bctx.app_name,
-                    logo_url => bctx.logo_url,
-                    accent => bctx.accent,
-                    accent_ink => bctx.accent_ink,
-                    accent_light => bctx.accent_light,
-                    accent_ink_light => bctx.accent_ink_light,
+                    ..branding_context(branding.as_ref()),
                 },
             )?;
             Ok(html.into_response())
@@ -452,13 +380,7 @@ async fn post_reset_password(
                     success => false,
                     error => "",
                     is_production => config.is_production,
-                    branding => branding.as_ref(),
-                    app_name => bctx.app_name,
-                    logo_url => bctx.logo_url,
-                    accent => bctx.accent,
-                    accent_ink => bctx.accent_ink,
-                    accent_light => bctx.accent_light,
-                    accent_ink_light => bctx.accent_ink_light,
+                    ..branding_context(branding.as_ref()),
                 },
             )?;
             Ok(html.into_response())
