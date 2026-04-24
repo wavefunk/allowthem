@@ -1,0 +1,33 @@
+{# _auth_shell.html — 2-column auth layout: splash left, form right.
+   Extends base.html. Child pages override {% block auth_main %}.
+#}
+{% extends "base.html" %}
+
+{% block html_attrs %}{% if branding and branding.forced_mode %}data-mode="{{ branding.forced_mode }}" data-mode-locked{% endif %}{% endblock %}
+
+{% block body_class %}wf-auth{% endblock %}
+
+{% block head %}
+<style>
+  .wf-auth {
+    grid-template-rows: 1fr 22px 22px;
+  }
+  .wf-auth > .wf-modeline   { grid-column: 1 / -1; }
+  .wf-auth > .wf-minibuffer { grid-column: 1 / -1; }
+  html[data-mode-locked] [data-mode-toggle] { display: none; }
+</style>
+{% endblock %}
+
+{% block body_content %}
+  <aside class="wf-auth-splash">
+    {% block splash_content %}{% include "_partials/_splash.html" %}{% endblock %}
+  </aside>
+  {% block auth_main %}{% endblock %}
+  {% include "_partials/_modeline.html" %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="/__allowthem/static/js/mode-toggle.js" defer></script>
+  <script src="/__allowthem/static/js/shader-ascii.js" defer></script>
+{% endblock %}

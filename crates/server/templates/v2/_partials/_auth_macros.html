@@ -1,0 +1,59 @@
+{# _auth_macros.html — reusable building blocks for auth form partials.
+   Usage:
+     {% import "_partials/_auth_macros.html" as auth %}
+     {{ auth.kicker(app_name, "Sign in", swap_href="/register", ...) }}
+#}
+
+{% macro kicker(app_name, section, swap_href="", swap_label="", swap_prefix="") %}
+  <span>{{ (app_name or "allowthem") }} · {{ section }}</span>
+  {% if swap_href %}
+    <a href="{{ swap_href }}"
+       hx-get="{{ swap_href }}"
+       hx-target=".wf-auth-form"
+       hx-swap="outerHTML"
+       hx-push-url="true"
+       class="wf-accent"
+       style="text-decoration: none">{{ swap_prefix }} {{ swap_label }} →</a>
+  {% endif %}
+{% endmacro %}
+
+{% macro tabs(active) %}
+  <div class="wf-tabs" role="tablist">
+    <a role="tab"
+       class="{% if active == 'signin' %}is-active{% endif %}"
+       href="/login"
+       hx-get="/login"
+       hx-target=".wf-auth-form"
+       hx-swap="outerHTML"
+       hx-push-url="true">Sign in</a>
+    <a role="tab"
+       class="{% if active == 'signup' %}is-active{% endif %}"
+       href="/register"
+       hx-get="/register"
+       hx-target=".wf-auth-form"
+       hx-swap="outerHTML"
+       hx-push-url="true">Sign up</a>
+  </div>
+{% endmacro %}
+
+{% macro oauth_grid(providers, next="") %}
+  {% if providers %}
+    <div class="wf-divider-txt">or</div>
+    <div class="wf-grid cols-2 wf-gap-2">
+      {% for p in providers %}
+        <a class="wf-btn sm"
+           href="/oauth/{{ p }}/authorize{% if next %}?next={{ next }}{% endif %}">
+          {{ p }}
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro terms_footer() %}
+  <p class="wf-caption wf-mt-6">
+    By continuing, you agree to our
+    <a href="/terms">Terms</a> and
+    <a href="/privacy">Privacy</a>.
+  </p>
+{% endmacro %}
