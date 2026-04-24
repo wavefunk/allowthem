@@ -1,8 +1,7 @@
-{# _auth_main_register.html — register form column; height parity with login.
-   Renders <main class="wf-auth-form"> standalone so HTMX fragment responses
-   can return just this subtree.
+{# _auth_main_register.html — registration form column.
+   Renders <main class="wf-auth-form"> standalone for HTMX fragment responses.
 
-   Expected context (provided by render_register_form / _fragment):
+   Expected context:
      csrf_token, email, username, error, client_id, app_name, logo_url,
      custom_fields, custom_values, is_production
 #}
@@ -14,19 +13,20 @@
 {%- endif -%}
 <main class="wf-auth-form">
   <div class="wf-auth-top">
-    {{ auth.kicker(app_name, "CREATE ACCOUNT",
+    {{ auth.kicker(app_name, "Create account",
                    swap_href=login_href,
-                   swap_label="SIGN IN",
-                   swap_prefix="HAVE AN ACCOUNT?") }}
+                   swap_label="Sign in",
+                   swap_prefix="Have an account?") }}
   </div>
 
   <div class="wf-auth-wrap">
     {% if logo_url and logo_url is startingwith("https://") %}
-      <img class="wf-auth-logo" src="{{ logo_url }}" alt="{{ app_name }}">
+      <img src="{{ logo_url }}" alt="{{ app_name }}"
+           style="max-height: 48px; margin-bottom: var(--space-4);">
     {% endif %}
 
-    <h1>CREATE ACCOUNT</h1>
-    <p class="wf-auth-sub">Lets get you setup!</p>
+    <h1>Create account</h1>
+    <p class="wf-auth-sub">Let's get you set up.</p>
 
     {{ auth.tabs(active="signup") }}
 
@@ -39,22 +39,23 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
       <div class="wf-field">
-        <label class="wf-label" for="email">EMAIL</label>
+        <label class="wf-label" for="email">Email</label>
         <input class="wf-input" id="email" name="email" type="email"
                value="{{ email }}" required autocomplete="email">
       </div>
 
       <div class="wf-field">
-        <label class="wf-label" for="username">USERNAME <span class="wf-meta">(optional)</span></label>
+        <label class="wf-label" for="username">Username</label>
         <input class="wf-input" id="username" name="username" type="text"
-               value="{{ username }}" autocomplete="username">
+               value="{{ username }}" autocomplete="username"
+               placeholder="Optional">
       </div>
 
       {% if custom_fields %}
         {% for field in custom_fields %}
           <div class="wf-field">
             <label class="wf-label" for="custom_data_{{ field.name }}">
-              {{ field.label }}{% if not field.required %} <span class="wf-meta">(optional)</span>{% endif %}
+              {{ field.label }}
             </label>
             {% if field.field_type == "textarea" %}
               <textarea class="wf-textarea"
@@ -63,34 +64,34 @@
                         {% if field.required %}required{% endif %}
                         {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
                         {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}
+                        {% if not field.required %}placeholder="Optional"{% endif %}
                         >{{ custom_values[field.name] | default("", true) }}</textarea>
             {% elif field.field_type == "select" %}
               <select class="wf-select"
                       id="custom_data_{{ field.name }}"
                       name="custom_data[{{ field.name }}]"
                       {% if field.required %}required{% endif %}>
-                <option value="">Select...</option>
+                <option value="">Select…</option>
                 {% for opt in field.enum_values %}
                   <option value="{{ opt }}" {% if custom_values[field.name] == opt ~ "" %}selected{% endif %}>{{ opt }}</option>
                 {% endfor %}
               </select>
             {% elif field.field_type == "checkbox" %}
-              <div class="wf-f wf-ai-c wf-gap-2">
-                <input type="checkbox"
+              <label class="wf-check-row">
+                <input type="checkbox" class="wf-check"
                        id="custom_data_{{ field.name }}"
                        name="custom_data[{{ field.name }}]"
                        value="true"
                        {% if custom_values[field.name] == "true" %}checked{% endif %}>
-                {% if field.help_text %}
-                  <span class="wf-meta">{{ field.help_text }}</span>
-                {% endif %}
-              </div>
+                {% if field.help_text %}{{ field.help_text }}{% endif %}
+              </label>
             {% elif field.field_type == "number" %}
               <input class="wf-input" type="number"
                      id="custom_data_{{ field.name }}"
                      name="custom_data[{{ field.name }}]"
                      value="{{ custom_values[field.name] | default(field.default_value | default('', true), true) }}"
                      {% if field.required %}required{% endif %}
+                     {% if not field.required %}placeholder="Optional"{% endif %}
                      {% if field.minimum is defined and field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
                      {% if field.maximum is defined and field.maximum is not none %}max="{{ field.maximum }}"{% endif %}>
             {% else %}
@@ -99,29 +100,30 @@
                      name="custom_data[{{ field.name }}]"
                      value="{{ custom_values[field.name] | default(field.default_value | default('', true), true) }}"
                      {% if field.required %}required{% endif %}
+                     {% if not field.required %}placeholder="Optional"{% endif %}
                      {% if field.min_length %}minlength="{{ field.min_length }}"{% endif %}
                      {% if field.max_length %}maxlength="{{ field.max_length }}"{% endif %}>
             {% endif %}
             {% if field.help_text and field.field_type != "checkbox" %}
-              <p class="wf-meta">{{ field.help_text }}</p>
+              <div class="wf-field-hint">{{ field.help_text }}</div>
             {% endif %}
           </div>
         {% endfor %}
       {% endif %}
 
       <div class="wf-field">
-        <label class="wf-label" for="password">PASSWORD</label>
+        <label class="wf-label" for="password">Password</label>
         <input class="wf-input" id="password" name="password" type="password"
                required minlength="8" autocomplete="new-password">
       </div>
 
       <div class="wf-field">
-        <label class="wf-label" for="password_confirm">CONFIRM PASSWORD</label>
+        <label class="wf-label" for="password_confirm">Confirm password</label>
         <input class="wf-input" id="password_confirm" name="password_confirm"
                type="password" required minlength="8" autocomplete="new-password">
       </div>
 
-      <button type="submit" class="wf-btn primary">CREATE ACCOUNT →</button>
+      <button type="submit" class="wf-btn primary lg">Create account →</button>
     </form>
 
     {{ auth.oauth_grid(oauth_providers) }}

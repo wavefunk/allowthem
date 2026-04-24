@@ -1,15 +1,7 @@
 {# _auth_main_consent.html — OAuth consent screen column.
-   Renders <main class="wf-auth-form"> standalone so HTMX fragment
-   responses can return just this subtree.
+   Renders <main class="wf-auth-form"> standalone for HTMX fragment responses.
 
-   The .wf-note class (hairline-bordered block wrapping the scope list)
-   is defined in the shell's <head> <style> block. The single-use
-   .wf-consent-scopes layout is scoped to this partial via an inline
-   <style> — it's too specific to promote into kit.css, and because
-   fragment responses don't update <head>, shipping the style in the
-   partial keeps the list correct even on HX swaps.
-
-   Expected context (provided by get_authorize / render_consent_fragment):
+   Expected context:
      application_name, app_name, logo_url, scope_items,
      client_id, redirect_uri, response_type, scope, state_param,
      code_challenge, code_challenge_method, nonce, csrf_token,
@@ -18,22 +10,23 @@
 {% import "_partials/_auth_macros.html" as auth %}
 <main class="wf-auth-form">
   <div class="wf-auth-top">
-    {{ auth.kicker(app_name, "CONSENT") }}
+    {{ auth.kicker(app_name, "Consent") }}
   </div>
 
   <div class="wf-auth-wrap">
     {% if logo_url and logo_url is startingwith("https://") %}
-      <img class="wf-auth-logo" src="{{ logo_url }}" alt="{{ application_name }}">
+      <img src="{{ logo_url }}" alt="{{ application_name }}"
+           style="max-height: 48px; margin-bottom: var(--space-4);">
     {% endif %}
 
     <h1>{{ application_name }}</h1>
     <p class="wf-auth-sub">wants to access the following:</p>
 
-    <div class="wf-note">
+    <div class="wf-framed" style="flex-direction: column; align-items: stretch;">
       <ul class="wf-consent-scopes">
         {% for item in scope_items %}
           <li>
-            <span aria-hidden="true" class="wf-consent-tick">&#10003;</span>
+            <span aria-hidden="true" style="color: var(--ok);">✓</span>
             <span>{{ item.description }}</span>
           </li>
         {% endfor %}
@@ -46,7 +39,6 @@
         display: flex; flex-direction: column; gap: 8px;
       }
       .wf-consent-scopes li { display: flex; gap: 8px; align-items: flex-start; }
-      .wf-consent-tick { color: var(--ok); }
     </style>
 
     <form method="post" action="/oauth/authorize" class="wf-f wf-col wf-gap-3">
@@ -60,10 +52,10 @@
       {% if nonce %}<input type="hidden" name="nonce" value="{{ nonce }}">{% endif %}
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-      <button type="submit" name="consent" value="approve" class="wf-btn primary">ALLOW →</button>
-      <button type="submit" name="consent" value="deny" class="wf-btn">DENY</button>
+      <button type="submit" name="consent" value="approve" class="wf-btn primary lg">Allow →</button>
+      <button type="submit" name="consent" value="deny" class="wf-btn">Deny</button>
     </form>
 
-    <p class="wf-meta">Authorizing will redirect you to {{ redirect_uri }}</p>
+    <p class="wf-caption" style="margin-top: var(--space-4);">Authorizing will redirect you to {{ redirect_uri }}</p>
   </div>
 </main>
