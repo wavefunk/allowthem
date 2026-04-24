@@ -190,7 +190,7 @@ fn assert_guardrails(name: &str, body: &str, expect_admin_nav: bool) {
         body.contains("allowthem:mode"),
         "{name}: missing FOUC bootstrap"
     );
-    assert!(body.contains("wf-statusbar"), "{name}: missing status bar");
+    assert!(body.contains("wf-modeline"), "{name}: missing modeline");
     assert!(body.contains("wf-"), "{name}: no wf-* kit class found");
     assert!(
         body.contains(&enc("/settings")),

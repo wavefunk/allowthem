@@ -2,7 +2,7 @@
    Renders <main class="wf-auth-form"> standalone for HTMX fragment responses.
 
    Expected context:
-     application_name, app_name, scope_items,
+     application_name, app_name, logo_url, scope_items,
      client_id, redirect_uri, response_type, scope, state_param,
      code_challenge, code_challenge_method, nonce, csrf_token,
      is_production
@@ -14,6 +14,11 @@
   </div>
 
   <div class="wf-auth-wrap">
+    {% if logo_url and logo_url is startingwith("https://") %}
+      <img src="{{ logo_url }}" alt="{{ application_name }}"
+           class="wf-mb-4" height="48">
+    {% endif %}
+
     <h1>{{ application_name }}</h1>
     <p class="wf-auth-sub">wants to access the following:</p>
 
