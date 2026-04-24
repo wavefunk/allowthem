@@ -14,7 +14,7 @@ use crate::browser_templates::add_default_browser_templates;
 const REQUIRED_PAGE: &[&str] = &[
     "wf-auth",
     "wf-auth-splash",
-    "wf-statusbar",
+    "wf-modeline",
     "wf-auth-form",
     "wf-auth-top",
     "wf-auth-wrap",

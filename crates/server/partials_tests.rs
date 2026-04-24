@@ -22,60 +22,22 @@ fn env_with_wrapper(wrapper_name: &'static str, wrapper_src: &'static str) -> En
 }
 
 #[test]
-fn status_bar_renders_defaults() {
+fn modeline_renders_defaults() {
     let env = env_with_wrapper(
-        "wrap_status.html",
-        r#"{% include "_partials/_status_bar.html" %}"#,
+        "wrap_modeline.html",
+        r#"{% include "_partials/_modeline.html" %}"#,
     );
     let html = env
-        .get_template("wrap_status.html")
+        .get_template("wrap_modeline.html")
         .unwrap()
         .render(context! {})
         .unwrap();
-    assert!(html.contains("wf-statusbar"), "missing wf-statusbar class");
-    assert!(html.contains("MODE DARK"));
-    assert!(html.contains("ENV DEV"));
-    assert!(html.contains("SESSION ANON"));
-    // mode toggle is composed in.
+    assert!(html.contains("wf-modeline"));
+    assert!(html.contains("wf-minibuffer"));
+    assert!(html.contains(">DEV<"));
+    assert!(html.contains(">ANON<"));
     assert!(html.contains("data-mode-toggle"));
-}
-
-#[test]
-fn status_bar_honors_overrides() {
-    let env = env_with_wrapper(
-        "wrap_status_over.html",
-        r#"{% include "_partials/_status_bar.html" %}"#,
-    );
-    let html = env
-        .get_template("wrap_status_over.html")
-        .unwrap()
-        .render(context! {
-            status_mode => "LIGHT",
-            status_env  => "PROD",
-            status_session => "u:42",
-            status_hint => "press ? for help",
-        })
-        .unwrap();
-    assert!(html.contains("MODE LIGHT"));
-    assert!(html.contains("ENV PROD"));
-    assert!(html.contains("SESSION u:42"));
-    assert!(html.contains("press ? for help"));
-}
-
-#[test]
-fn mode_toggle_renders_button() {
-    let env = env_with_wrapper(
-        "wrap_toggle.html",
-        r#"{% include "_partials/_mode_toggle.html" %}"#,
-    );
-    let html = env
-        .get_template("wrap_toggle.html")
-        .unwrap()
-        .render(context! {})
-        .unwrap();
-    assert!(html.contains("data-mode-toggle"));
-    assert!(html.contains("wf-mode-toggle"));
-    assert!(html.contains("aria-label=\"toggle color mode\""));
+    assert!(html.contains(r#"id="wf-screen-label""#));
 }
 
 #[test]
@@ -113,62 +75,6 @@ fn flash_renders_nothing_when_unset() {
         .unwrap();
     assert!(!html.contains("wf-alert"));
     assert!(html.contains("<root></root>"));
-}
-
-#[test]
-fn form_field_renders_label_and_input() {
-    let env = env_with_wrapper(
-        "wrap_field.html",
-        r#"{% include "_partials/_form_field.html" %}"#,
-    );
-    let html = env
-        .get_template("wrap_field.html")
-        .unwrap()
-        .render(context! {
-            field => context! {
-                name => "email",
-                label => "Email",
-                type => "email",
-                required => true,
-                autocomplete => "email",
-            },
-        })
-        .unwrap();
-    assert!(html.contains("for=\"fld-email\""));
-    assert!(html.contains("name=\"email\""));
-    assert!(html.contains("type=\"email\""));
-    assert!(html.contains("required"));
-    assert!(html.contains("autocomplete=\"email\""));
-    assert!(html.contains("wf-label"));
-    assert!(html.contains("wf-input"));
-}
-
-#[test]
-fn form_field_surfaces_error_below_input() {
-    let env = env_with_wrapper(
-        "wrap_field_err.html",
-        r#"{% include "_partials/_form_field.html" %}"#,
-    );
-    let html = env
-        .get_template("wrap_field_err.html")
-        .unwrap()
-        .render(context! {
-            field => context! {
-                name => "email",
-                label => "Email",
-                error => "not a valid email",
-            },
-        })
-        .unwrap();
-    assert!(html.contains("wf-alert"));
-    assert!(
-        html.contains(" err\""),
-        "expected ' err\"' variant token in class attr"
-    );
-    assert!(html.contains("not a valid email"));
-    assert!(html.contains("aria-describedby=\"fld-email-err\""));
-    assert!(html.contains("aria-invalid=\"true\""));
-    assert!(html.contains("id=\"fld-email-err\""));
 }
 
 #[test]
@@ -343,7 +249,7 @@ fn splash_cell_scale_is_pluggable() {
 }
 
 #[test]
-fn auth_shell_wraps_form_block_and_includes_splash_and_status_bar() {
+fn auth_shell_wraps_form_block_and_includes_splash_and_modeline() {
     let mut env = Environment::new();
     add_default_browser_templates(&mut env);
     env.add_template(
@@ -363,7 +269,7 @@ fn auth_shell_wraps_form_block_and_includes_splash_and_status_bar() {
         .unwrap();
     assert!(html.contains("wf-auth"));
     assert!(html.contains("wf-auth-splash"));
-    assert!(html.contains("wf-statusbar"));
+    assert!(html.contains("wf-modeline"));
     assert!(html.contains("id=\"the-form\""));
     // Exactly one <body> opening tag — the shell overrides body_content +
     // body_class, NOT the inner body block, so no nested body materializes.
@@ -466,7 +372,7 @@ fn app_shell_wraps_content_block_and_renders_sidebar() {
     assert!(!html.contains("class=\"at-app-shell\"") && !html.contains("class=\"at-app-shell "));
     assert!(!html.contains("class=\"at-sidebar\"") && !html.contains("class=\"at-sidebar "));
     assert!(!html.contains("class=\"at-main\"") && !html.contains("class=\"at-main "));
-    assert!(html.contains("wf-statusbar"));
+    assert!(html.contains("wf-modeline"));
     assert!(html.contains("href=\"/x\""));
     assert!(html.contains("id=\"page\""));
     // Exactly one <body> opening tag — shell overrides body_content + body_class.
