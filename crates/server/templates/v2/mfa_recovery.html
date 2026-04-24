@@ -1,0 +1,5 @@
+{% extends "_partials/_auth_shell.html" %}
+
+{% block title %}Recovery codes{% if app_name %} — {{ app_name }}{% endif %} — allowthem{% endblock %}
+
+{% block auth_main %}{% include "_partials/_auth_main_mfa_recovery.html" %}{% endblock %}

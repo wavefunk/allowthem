@@ -1,0 +1,18 @@
+{% extends "_partials/_auth_shell.html" %}
+
+{% block title %}Two-factor authentication{% if app_name %} — {{ app_name }}{% endif %} — allowthem{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <style>
+    /* CSS-only toggle: hide recovery input by default, show when checkbox checked. */
+    #recovery-section { display: none; }
+    #totp-section { display: block; }
+    #use_recovery:checked ~ #totp-section { display: none; }
+    #use_recovery:checked ~ #recovery-section { display: block; }
+    /* Hide the actual checkbox — the <label for="use_recovery"> acts as the toggle. */
+    #use_recovery { position: absolute; left: -9999px; }
+  </style>
+{% endblock %}
+
+{% block auth_main %}{% include "_partials/_auth_main_mfa_challenge.html" %}{% endblock %}
