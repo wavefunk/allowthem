@@ -16,7 +16,7 @@
             referrerpolicy="no-referrer"
             allow=""
             loading="lazy"
-            class="wf-splash-frame"
+            style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0;"
             title="{{ application_name | default('allowthem') }} splash">
     </iframe>
   {% elif branding and branding.splash_image_url %}
@@ -25,14 +25,14 @@
             data-shape-source="image"
             data-shape-image="{{ branding.splash_image_url | safe }}"
             aria-hidden="true"></canvas>
-    <pre class="ascii" style="display:none">{{ application_name | default("allowthem") }}</pre>
+    <pre class="wf-ascii" style="display:none">{{ application_name | default("allowthem") }}</pre>
   {% elif branding and branding.splash_primitive %}
     <canvas data-shader-ascii
             data-cell-scale="{{ branding.shader_cell_scale | default(22) }}"
             data-shape-source="primitive"
             data-shape-primitive="{{ branding.splash_primitive | lower }}"
             aria-hidden="true"></canvas>
-    <pre class="ascii" style="display:none">{{ application_name | default("allowthem") }}</pre>
+    <pre class="wf-ascii" style="display:none">{{ application_name | default("allowthem") }}</pre>
   {% else %}
     {% set _text = branding.splash_text if branding and branding.splash_text else application_name | default('allowthem') %}
     {% set _scale = branding.shader_cell_scale if branding and branding.shader_cell_scale else 22 %}
@@ -41,5 +41,5 @@
             data-shape-source="text"
             data-shape-text="{{ _text }}"
             aria-hidden="true"></canvas>
-  <pre class="ascii" style="display:none">{{ _text }}</pre>
+  <pre class="wf-ascii" style="display:none">{{ _text }}</pre>
 {% endif %}

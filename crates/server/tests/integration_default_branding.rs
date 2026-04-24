@@ -54,8 +54,8 @@ async fn login_uses_default_branding_when_no_client_id() {
     let html = std::str::from_utf8(&body).unwrap();
 
     assert!(
-        html.contains("FIXTURE CO"),
-        "expected kicker uppercase 'FIXTURE CO' in login HTML, got:\n{}",
+        html.contains("Fixture Co"),
+        "expected kicker with tenant name 'Fixture Co' in login HTML, got:\n{}",
         &html[..html.len().min(800)]
     );
     assert!(
@@ -90,8 +90,8 @@ async fn login_falls_back_to_allowthem_when_no_default() {
     let html = std::str::from_utf8(&body).unwrap();
 
     assert!(
-        html.contains("ALLOWTHEM"),
-        "expected default kicker 'ALLOWTHEM' in login HTML, got:\n{}",
+        html.contains("allowthem"),
+        "expected default kicker 'allowthem' in login HTML, got:\n{}",
         &html[..html.len().min(800)]
     );
 }
@@ -124,8 +124,8 @@ async fn login_with_unknown_client_id_falls_back_to_default() {
     let html = std::str::from_utf8(&body).unwrap();
 
     assert!(
-        html.contains("FIXTURE CO"),
-        "expected default kicker 'FIXTURE CO' when client_id doesn't match, got:\n{}",
+        html.contains("Fixture Co"),
+        "expected default kicker 'Fixture Co' when client_id doesn't match, got:\n{}",
         &html[..html.len().min(800)]
     );
     assert!(
