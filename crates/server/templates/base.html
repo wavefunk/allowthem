@@ -33,26 +33,30 @@
        server when branding.forced_mode is set. See §Mode system in the spec. #}
     <script>(function(){try{var m=localStorage.getItem('allowthem:mode');if((m==='dark'||m==='light')&&!document.documentElement.hasAttribute('data-mode-locked')){document.documentElement.dataset.mode=m;}}catch(_e){}})();</script>
 
-    {# Wave Funk CSS bundle — three-file contract; served by static_routes.
-       Fonts load transitively via colors_and_type.css's @import. #}
-    <link rel="stylesheet" href="/__allowthem/static/css/colors_and_type.css">
-    <link rel="stylesheet" href="/__allowthem/static/css/kit.css">
-    <link rel="stylesheet" href="/__allowthem/static/css/layouts.css">
+    {# Wave Funk design system — five-file contract; served by static_routes.
+       Martian Grotesk loads via @font-face in 01-tokens.css.
+       Martian Mono loads via Google Fonts @import in 01-tokens.css. #}
+    <link rel="stylesheet" href="/__allowthem/static/css/01-tokens.css">
+    <link rel="stylesheet" href="/__allowthem/static/css/02-base.css">
+    <link rel="stylesheet" href="/__allowthem/static/css/03-layout.css">
+    <link rel="stylesheet" href="/__allowthem/static/css/04-components.css">
+    <link rel="stylesheet" href="/__allowthem/static/css/05-utilities.css">
 
     {% block theme %}
+    {% if accent %}
     <style>
         :root {
-            --accent: {{ accent | default("#ffffff") }};
+            --accent: {{ accent }};
             --accent-ink: {{ accent_ink | default("#000000") }};
-            --accent-hover: color-mix(in oklch, var(--accent), black 15%);
-            --accent-press: color-mix(in oklch, var(--accent), black 25%);
-            --accent-ring:  color-mix(in oklch, var(--accent), white 25%);
         }
+        {% if accent_light %}
         html[data-mode="light"] {
-            --accent: {{ accent_light | default("#000000") }};
+            --accent: {{ accent_light }};
             --accent-ink: {{ accent_ink_light | default("#ffffff") }};
         }
+        {% endif %}
     </style>
+    {% endif %}
     {% endblock %}
 
     {% block head %}{% endblock %}

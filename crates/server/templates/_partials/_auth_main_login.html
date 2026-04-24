@@ -34,7 +34,7 @@
       {% include "_partials/_flash.html" %}
     {% endif %}
 
-    <form method="post" action="/login" class="wf-f wf-col wf-gap-4">
+    <form method="post" action="/login" class="wf-f wf-col wf-gap-8">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
       {% if client_id %}<input type="hidden" name="client_id" value="{{ client_id }}">{% endif %}
@@ -47,7 +47,7 @@
       </div>
 
       <div class="wf-field">
-        <div class="wf-f wf-jc-sb wf-ai-baseline" style="min-height:14px">
+        <div class="wf-f wf-jc-sb wf-ai-b" style="min-height:14px">
           <span class="wf-label">PASSWORD</span>
           <a href="/forgot-password" hx-boost="true"
              class="wf-link-quiet wf-t-xs wf-upper">FORGOT?</a>

@@ -4,7 +4,7 @@
 // data-* attributes. Renders a WebGL2 ASCII-like glyph field masked by a
 // shape (text / image / primitive). Respects prefers-reduced-motion and
 // gracefully degrades when WebGL2 is unavailable (the template provides
-// a sibling <pre class="ascii"> fallback).
+// a sibling <pre class="wf-ascii"> fallback).
 //
 // Public "API" (all optional except data-shader-ascii):
 //   data-cell-scale        number of rows vertically (default 22)
@@ -149,7 +149,7 @@
 
   function hideCanvasShowFallback(canvas) {
     canvas.style.display = "none";
-    var fallback = canvas.parentElement && canvas.parentElement.querySelector("pre.ascii");
+    var fallback = canvas.parentElement && canvas.parentElement.querySelector("pre.wf-ascii");
     if (fallback) fallback.style.display = "block";
   }
 

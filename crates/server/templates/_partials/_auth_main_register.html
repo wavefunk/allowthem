@@ -26,7 +26,7 @@
     {% endif %}
 
     <h1>CREATE ACCOUNT</h1>
-    <p class="wf-auth-sub">Start with a free workspace.</p>
+    <p class="wf-auth-sub">Lets get you setup!</p>
 
     {{ auth.tabs(active="signup") }}
 
@@ -110,11 +110,7 @@
       {% endif %}
 
       <div class="wf-field">
-        {# Invisible row to match login's FORGOT? link height. #}
-        <div class="wf-f wf-jc-sb wf-ai-baseline" style="min-height:14px;visibility:hidden" aria-hidden="true">
-          <span class="wf-label">PASSWORD</span>
-          <span class="wf-t-xs wf-upper">—</span>
-        </div>
+        <label class="wf-label" for="password">PASSWORD</label>
         <input class="wf-input" id="password" name="password" type="password"
                required minlength="8" autocomplete="new-password">
       </div>
