@@ -1,0 +1,97 @@
+{# _app_shell.html — sidebar + main + modeline for post-auth pages.
+
+   Inheritance chain:
+     base.html
+       └── _partials/_app_shell.html   (this file)
+             └── settings.html, admin/applications_*, admin/users_*,
+                 admin/sessions_list.html, admin/audit_log.html
+
+   Child responsibility:
+     - fill {% block page_content %} with the page body (or {% block content %}
+       for backwards compat — page_content wraps content by default).
+     - fill {% block sidebar_nav %} with role-filtered nav links.
+     - optionally override {% block pagetitle %}, {% block crumbs %},
+       {% block page_meta %}, {% block topbar %}, and {% block main_class %}
+       (defaults to "has-header"; list pages use "has-tablewrap").
+
+   Block overrides this shell sets on base.html:
+     - html_attrs    data-mode / data-mode-locked when branding.forced_mode is set
+     - body_class    "wf-app"
+     - body_content  shell + main + modeline (no second <body> tag)
+     - head          app grid CSS
+     - scripts       mode-toggle.js (super() preserves HTMX)
+
+   Expected context:
+     - branding (optional BrandingConfig; forced_mode drives html_attrs)
+     - application_name (optional string)
+     - status_* keys (optional; see _modeline.html)
+     - csrf_token, is_production (from the renderer)
+
+   Shell chrome comes from upstream Wave Funk layouts.css — .wf-app / .wf-shell
+   / .wf-sidebar / .wf-main own the grid; responsive sidebar collapse is built
+   into .wf-sidebar itself.
+#}
+{% extends "base.html" %}
+
+{% block html_attrs %}{% if branding and branding.forced_mode %}data-mode="{{ branding.forced_mode }}" data-mode-locked{% endif %}{% endblock %}
+
+{% block body_class %}wf-app{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <style>
+    .wf-app {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      grid-template-rows: 56px 1fr 22px 22px;
+      grid-template-areas:
+        "side  top"
+        "side  main"
+        "ml    ml"
+        "mb    mb";
+      height: 100vh;
+    }
+    .wf-app > .wf-sidebar    { grid-area: side; }
+    .wf-app > .wf-main       { grid-area: main; overflow: auto; }
+    .wf-app > .wf-modeline   { grid-area: ml; }
+    .wf-app > .wf-minibuffer { grid-area: mb; }
+    html[data-mode-locked] [data-mode-toggle] { display: none; }
+    @media (max-width: 900px) {
+      .wf-app { grid-template-columns: 1fr; grid-template-areas: "top" "main" "ml" "mb"; }
+      .wf-app > .wf-sidebar { display: none; }
+    }
+  </style>
+{% endblock %}
+
+{% block body_content %}
+  <div class="wf-shell">
+    <aside class="wf-sidebar" aria-label="primary navigation">
+      <div class="wf-brand">
+        <span class="wf-brand-name">{{ (shell.application_name if shell is defined else app_name) or application_name or "allowthem" }}</span>
+      </div>
+      <nav class="wf-nav-list">
+        {% block sidebar_nav %}{% include "_partials/_sidebar_nav.html" %}{% endblock %}
+      </nav>
+    </aside>
+    <div class="wf-main {% block main_class %}has-header{% endblock %}">
+      {% block topbar %}{% endblock %}
+      <div class="wf-pageheader">
+        <div>
+          <div class="wf-crumbs">{% block crumbs %}{% endblock %}</div>
+          <h1 class="wf-pagetitle">{% block pagetitle %}{% endblock %}</h1>
+        </div>
+        <div class="wf-page-meta">{% block page_meta %}{% endblock %}</div>
+      </div>
+      {% include "_partials/_flash.html" %}
+      <div class="wf-scroll">
+        {% block page_content %}{% block content %}{% endblock %}{% endblock %}
+      </div>
+    </div>
+  </div>
+  {% include "_partials/_modeline.html" %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="/__allowthem/static/js/mode-toggle.js" defer></script>
+{% endblock %}
