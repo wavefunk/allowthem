@@ -14,29 +14,21 @@
     <h1>Save recovery codes</h1>
     <p class="wf-auth-sub">Save these codes somewhere safe.</p>
 
-    <div class="wf-alert warn" role="alert">
+    <div class="wf-alert warn wf-mt-5" role="alert">
       <div class="wf-alert-bar"></div>
       Save these recovery codes in a secure location. Each code can only be used once.
       If you lose access to your authenticator app, you can use a recovery code to sign in.
     </div>
 
-    <div class="wf-framed" style="flex-direction: column; align-items: stretch;">
-      <ul class="wf-recovery-grid">
+    <div class="wf-framed wf-mt-5">
+      <div class="wf-grid cols-2 wf-gap-2">
         {% for code in recovery_codes %}
-          <li><code data-testid="recovery-code" class="wf-kbd">{{ code }}</code></li>
+          <code data-testid="recovery-code" class="wf-kbd wf-w-full">{{ code }}</code>
         {% endfor %}
-      </ul>
+      </div>
     </div>
 
-    <style>
-      .wf-recovery-grid {
-        list-style: none; padding: 0; margin: 0;
-        display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-      }
-      .wf-recovery-grid .wf-kbd { width: 100%; display: block; }
-    </style>
-
-    <p style="margin-top: var(--space-4);">
+    <p class="wf-mt-4">
       <a class="wf-btn primary" href="/settings">Back to settings →</a>
     </p>
   </div>

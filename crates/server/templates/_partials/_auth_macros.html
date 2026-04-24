@@ -1,16 +1,9 @@
 {# _auth_macros.html — reusable building blocks for auth form partials.
-
-   All uppercase rendering happens via CSS (text-transform: uppercase).
-   HTML source stays in sentence case for readability.
-
    Usage:
      {% import "_partials/_auth_macros.html" as auth %}
      {{ auth.kicker(app_name, "Sign in", swap_href="/register", ...) }}
 #}
 
-{# Eyebrow kicker for wf-auth-top. Shows app name · section label,
-   with an optional navigation link on the right.
-#}
 {% macro kicker(app_name, section, swap_href="", swap_label="", swap_prefix="") %}
   <span>{{ (app_name or "allowthem") }} · {{ section }}</span>
   {% if swap_href %}
@@ -19,13 +12,11 @@
        hx-target=".wf-auth-form"
        hx-swap="outerHTML"
        hx-push-url="true"
-       style="color: var(--accent); text-decoration: none;">{{ swap_prefix }} {{ swap_label }} →</a>
+       class="wf-accent"
+       style="text-decoration: none">{{ swap_prefix }} {{ swap_label }} →</a>
   {% endif %}
 {% endmacro %}
 
-{# Sign-in / sign-up tab switcher. HTMX swaps the form column
-   without a full page reload.
-#}
 {% macro tabs(active) %}
   <div class="wf-tabs" role="tablist">
     <a role="tab"
@@ -45,11 +36,10 @@
   </div>
 {% endmacro %}
 
-{# OAuth provider button grid. Renders nothing if providers is empty. #}
 {% macro oauth_grid(providers, next="") %}
   {% if providers %}
     <div class="wf-divider-txt">or</div>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+    <div class="wf-grid cols-2 wf-gap-2">
       {% for p in providers %}
         <a class="wf-btn sm"
            href="/oauth/{{ p }}/authorize{% if next %}?next={{ next }}{% endif %}">
@@ -60,9 +50,8 @@
   {% endif %}
 {% endmacro %}
 
-{# Terms-of-service / privacy-policy footer. #}
 {% macro terms_footer() %}
-  <p class="wf-fg-muted wf-t-xs" style="margin-top: var(--space-6);">
+  <p class="wf-caption wf-mt-6">
     By continuing, you agree to our
     <a href="/terms">Terms</a> and
     <a href="/privacy">Privacy</a>.

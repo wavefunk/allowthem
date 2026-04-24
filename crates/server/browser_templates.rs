@@ -5,39 +5,39 @@ use minijinja::Environment;
 
 use crate::browser_error::BrowserError;
 
-const BASE_HTML: &str = include_str!("templates/v2/base.html");
-const LOGIN_HTML: &str = include_str!("templates/v2/login.html");
-const REGISTER_HTML: &str = include_str!("templates/v2/register.html");
-const SETTINGS_HTML: &str = include_str!("templates/v2/settings.html");
-const CONSENT_HTML: &str = include_str!("templates/v2/consent.html");
-const FORGOT_PASSWORD_HTML: &str = include_str!("templates/v2/forgot_password.html");
-const RESET_PASSWORD_HTML: &str = include_str!("templates/v2/reset_password.html");
-const MFA_SETUP_HTML: &str = include_str!("templates/v2/mfa_setup.html");
-const MFA_RECOVERY_HTML: &str = include_str!("templates/v2/mfa_recovery.html");
-const MFA_CHALLENGE_HTML: &str = include_str!("templates/v2/mfa_challenge.html");
-const MODELINE_PARTIAL: &str = include_str!("templates/v2/_partials/_modeline.html");
-const FLASH_PARTIAL: &str = include_str!("templates/v2/_partials/_flash.html");
-const SPLASH_PARTIAL: &str = include_str!("templates/v2/_partials/_splash.html");
-const AUTH_SHELL_PARTIAL: &str = include_str!("templates/v2/_partials/_auth_shell.html");
-const APP_SHELL_PARTIAL: &str = include_str!("templates/v2/_partials/_app_shell.html");
-const SIDEBAR_NAV_PARTIAL: &str = include_str!("templates/v2/_partials/_sidebar_nav.html");
-const AUTH_MACROS_PARTIAL: &str = include_str!("templates/v2/_partials/_auth_macros.html");
-const AUTH_OOB_HEAD_PARTIAL: &str = include_str!("templates/v2/_partials/_auth_oob_head.html");
-const AUTH_MAIN_LOGIN_PARTIAL: &str = include_str!("templates/v2/_partials/_auth_main_login.html");
+const BASE_HTML: &str = include_str!("templates/base.html");
+const LOGIN_HTML: &str = include_str!("templates/login.html");
+const REGISTER_HTML: &str = include_str!("templates/register.html");
+const SETTINGS_HTML: &str = include_str!("templates/settings.html");
+const CONSENT_HTML: &str = include_str!("templates/consent.html");
+const FORGOT_PASSWORD_HTML: &str = include_str!("templates/forgot_password.html");
+const RESET_PASSWORD_HTML: &str = include_str!("templates/reset_password.html");
+const MFA_SETUP_HTML: &str = include_str!("templates/mfa_setup.html");
+const MFA_RECOVERY_HTML: &str = include_str!("templates/mfa_recovery.html");
+const MFA_CHALLENGE_HTML: &str = include_str!("templates/mfa_challenge.html");
+const MODELINE_PARTIAL: &str = include_str!("templates/_partials/_modeline.html");
+const FLASH_PARTIAL: &str = include_str!("templates/_partials/_flash.html");
+const SPLASH_PARTIAL: &str = include_str!("templates/_partials/_splash.html");
+const AUTH_SHELL_PARTIAL: &str = include_str!("templates/_partials/_auth_shell.html");
+const APP_SHELL_PARTIAL: &str = include_str!("templates/_partials/_app_shell.html");
+const SIDEBAR_NAV_PARTIAL: &str = include_str!("templates/_partials/_sidebar_nav.html");
+const AUTH_MACROS_PARTIAL: &str = include_str!("templates/_partials/_auth_macros.html");
+const AUTH_OOB_HEAD_PARTIAL: &str = include_str!("templates/_partials/_auth_oob_head.html");
+const AUTH_MAIN_LOGIN_PARTIAL: &str = include_str!("templates/_partials/_auth_main_login.html");
 const AUTH_MAIN_REGISTER_PARTIAL: &str =
-    include_str!("templates/v2/_partials/_auth_main_register.html");
+    include_str!("templates/_partials/_auth_main_register.html");
 const AUTH_MAIN_FORGOT_PW_PARTIAL: &str =
-    include_str!("templates/v2/_partials/_auth_main_forgot_password.html");
+    include_str!("templates/_partials/_auth_main_forgot_password.html");
 const AUTH_MAIN_RESET_PW_PARTIAL: &str =
-    include_str!("templates/v2/_partials/_auth_main_reset_password.html");
+    include_str!("templates/_partials/_auth_main_reset_password.html");
 const AUTH_MAIN_MFA_CHALLENGE_PARTIAL: &str =
-    include_str!("templates/v2/_partials/_auth_main_mfa_challenge.html");
+    include_str!("templates/_partials/_auth_main_mfa_challenge.html");
 const AUTH_MAIN_MFA_SETUP_PARTIAL: &str =
-    include_str!("templates/v2/_partials/_auth_main_mfa_setup.html");
+    include_str!("templates/_partials/_auth_main_mfa_setup.html");
 const AUTH_MAIN_MFA_RECOVERY_PARTIAL: &str =
-    include_str!("templates/v2/_partials/_auth_main_mfa_recovery.html");
+    include_str!("templates/_partials/_auth_main_mfa_recovery.html");
 const AUTH_MAIN_CONSENT_PARTIAL: &str =
-    include_str!("templates/v2/_partials/_auth_main_consent.html");
+    include_str!("templates/_partials/_auth_main_consent.html");
 
 /// Register the default browser templates into an existing environment.
 ///

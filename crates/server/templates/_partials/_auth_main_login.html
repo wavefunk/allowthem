@@ -2,7 +2,7 @@
    Renders <main class="wf-auth-form"> standalone for HTMX fragment responses.
 
    Expected context:
-     csrf_token, identifier, error, next, client_id, app_name, logo_url,
+     csrf_token, identifier, error, next, client_id, app_name,
      oauth_providers, is_production
 #}
 {% import "_partials/_auth_macros.html" as auth %}
@@ -20,22 +20,21 @@
   </div>
 
   <div class="wf-auth-wrap">
-    {% if logo_url and logo_url is startingwith("https://") %}
-      <img src="{{ logo_url }}" alt="{{ app_name }}"
-           style="max-height: 48px; margin-bottom: var(--space-4);">
-    {% endif %}
-
     <h1>Sign in</h1>
     <p class="wf-auth-sub">Welcome back.</p>
 
-    {{ auth.tabs(active="signin") }}
+    <div class="wf-mt-5">
+      {{ auth.tabs(active="signin") }}
+    </div>
 
     {% if error %}
       {% set flash = { "kind": "err", "message": error } %}
-      {% include "_partials/_flash.html" %}
+      <div class="wf-mt-4">
+        {% include "_partials/_flash.html" %}
+      </div>
     {% endif %}
 
-    <form method="post" action="/login" class="wf-f wf-col wf-gap-8">
+    <form method="post" action="/login" class="wf-f wf-col wf-gap-5 wf-mt-5">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
       {% if client_id %}<input type="hidden" name="client_id" value="{{ client_id }}">{% endif %}
@@ -48,17 +47,17 @@
       </div>
 
       <div class="wf-field">
-        <div class="wf-f wf-jc-sb wf-ai-b" style="min-height: 14px;">
+        <div class="wf-f wf-jc-sb wf-ai-b">
           <label class="wf-label" for="password">Password</label>
           <a href="/forgot-password" hx-boost="true"
-             class="wf-caption"
-             style="color: var(--fg-muted); text-decoration: none;">Forgot?</a>
+             class="wf-fg-muted wf-caption"
+             style="text-decoration: none">Forgot?</a>
         </div>
         <input class="wf-input" id="password" name="password"
                type="password" autocomplete="current-password" required>
       </div>
 
-      <button type="submit" class="wf-btn primary lg">Sign in →</button>
+      <button type="submit" class="wf-btn primary lg wf-w-full">Sign in →</button>
     </form>
 
     {{ auth.oauth_grid(oauth_providers, next=next) }}

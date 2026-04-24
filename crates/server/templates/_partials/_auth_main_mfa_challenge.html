@@ -19,10 +19,10 @@
 
     {% if error %}
       {% set flash = { "kind": "err", "message": error } %}
-      {% include "_partials/_flash.html" %}
+      <div class="wf-mt-4">{% include "_partials/_flash.html" %}</div>
     {% endif %}
 
-    <form method="post" action="/mfa/challenge" class="wf-f wf-col wf-gap-4">
+    <form method="post" action="/mfa/challenge" class="wf-f wf-col wf-gap-5 wf-mt-5">
       <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
 
       <input type="checkbox" id="use_recovery" name="use_recovery">
@@ -40,10 +40,10 @@
                autocomplete="off">
       </div>
 
-      <button type="submit" class="wf-btn primary lg">Verify →</button>
+      <button type="submit" class="wf-btn primary lg wf-w-full">Verify →</button>
 
       <p class="wf-caption">
-        <label for="use_recovery" style="cursor: pointer; color: var(--fg-muted); text-decoration: none;">Use recovery code</label>
+        <label for="use_recovery">Use recovery code</label>
       </p>
     </form>
   </div>

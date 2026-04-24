@@ -1,12 +1,5 @@
 {# _auth_shell.html — 2-column auth layout: splash left, form right.
-
-   Extends base.html. Child pages override {% block auth_main %} by
-   including their _auth_main_<page>.html partial, which renders the
-   full <main class="wf-auth-form"> subtree (HTMX-swappable standalone).
-
-   Integrator-overridable blocks:
-     - splash_content   contents of the splash aside
-     - auth_main        the entire right-column form area
+   Extends base.html. Child pages override {% block auth_main %}.
 #}
 {% extends "base.html" %}
 
@@ -14,12 +7,23 @@
 
 {% block body_class %}wf-auth{% endblock %}
 
+{% block head %}
+<style>
+  .wf-auth {
+    grid-template-rows: 1fr 22px 22px;
+  }
+  .wf-auth > .wf-modeline   { grid-column: 1 / -1; }
+  .wf-auth > .wf-minibuffer { grid-column: 1 / -1; }
+  html[data-mode-locked] [data-mode-toggle] { display: none; }
+</style>
+{% endblock %}
+
 {% block body_content %}
   <aside class="wf-auth-splash">
     {% block splash_content %}{% include "_partials/_splash.html" %}{% endblock %}
   </aside>
   {% block auth_main %}{% endblock %}
-  {% include "_partials/_status_bar.html" %}
+  {% include "_partials/_modeline.html" %}
 {% endblock %}
 
 {% block scripts %}

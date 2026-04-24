@@ -16,32 +16,24 @@
   <div class="wf-auth-wrap">
     {% if logo_url and logo_url is startingwith("https://") %}
       <img src="{{ logo_url }}" alt="{{ application_name }}"
-           style="max-height: 48px; margin-bottom: var(--space-4);">
+           class="wf-mb-4" height="48">
     {% endif %}
 
     <h1>{{ application_name }}</h1>
     <p class="wf-auth-sub">wants to access the following:</p>
 
-    <div class="wf-framed" style="flex-direction: column; align-items: stretch;">
-      <ul class="wf-consent-scopes">
+    <div class="wf-framed wf-mt-5">
+      <ul class="wf-f wf-col wf-gap-2 wf-p-0">
         {% for item in scope_items %}
-          <li>
-            <span aria-hidden="true" style="color: var(--ok);">✓</span>
+          <li class="wf-f wf-gap-2 wf-ai-s">
+            <span class="wf-ok" aria-hidden="true">✓</span>
             <span>{{ item.description }}</span>
           </li>
         {% endfor %}
       </ul>
     </div>
 
-    <style>
-      .wf-consent-scopes {
-        list-style: none; padding: 0; margin: 0;
-        display: flex; flex-direction: column; gap: 8px;
-      }
-      .wf-consent-scopes li { display: flex; gap: 8px; align-items: flex-start; }
-    </style>
-
-    <form method="post" action="/oauth/authorize" class="wf-f wf-col wf-gap-3">
+    <form method="post" action="/oauth/authorize" class="wf-f wf-col wf-gap-3 wf-mt-5">
       <input type="hidden" name="client_id" value="{{ client_id }}">
       <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
       <input type="hidden" name="response_type" value="{{ response_type }}">
@@ -52,10 +44,12 @@
       {% if nonce %}<input type="hidden" name="nonce" value="{{ nonce }}">{% endif %}
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-      <button type="submit" name="consent" value="approve" class="wf-btn primary lg">Allow →</button>
-      <button type="submit" name="consent" value="deny" class="wf-btn">Deny</button>
+      <button type="submit" name="consent" value="approve"
+              class="wf-btn primary lg wf-w-full">Allow →</button>
+      <button type="submit" name="consent" value="deny"
+              class="wf-btn wf-w-full">Deny</button>
     </form>
 
-    <p class="wf-caption" style="margin-top: var(--space-4);">Authorizing will redirect you to {{ redirect_uri }}</p>
+    <p class="wf-caption wf-mt-4">Authorizing will redirect you to {{ redirect_uri }}</p>
   </div>
 </main>

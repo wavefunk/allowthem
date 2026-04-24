@@ -1,6 +1,6 @@
 {% extends "_partials/_auth_shell.html" %}
 
-{% block title %}Two-factor authentication — allowthem{% endblock %}
+{% block title %}Two-factor authentication{% if app_name %} — {{ app_name }}{% endif %} — allowthem{% endblock %}
 
 {% block head %}
   {{ super() }}

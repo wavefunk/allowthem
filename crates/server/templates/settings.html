@@ -10,9 +10,9 @@
       <div class="wf-panel-title">Profile</div>
     </div>
     <div class="wf-panel-body">
-      {% if profile_error %}<div class="wf-alert err">{{ profile_error }}</div>{% endif %}
-      {% if profile_success %}<div class="wf-alert ok">{{ profile_success }}</div>{% endif %}
-      <form method="post" action="/settings" style="display: flex; flex-direction: column; gap: var(--space-5); max-width: 520px;">
+      {% if profile_error %}<div class="wf-alert err"><div class="wf-alert-bar"></div>{{ profile_error }}</div>{% endif %}
+      {% if profile_success %}<div class="wf-alert ok"><div class="wf-alert-bar"></div>{{ profile_success }}</div>{% endif %}
+      <form method="post" action="/settings" class="wf-f wf-col wf-gap-5">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="wf-field">
           <label class="wf-label" for="email">Email</label>
@@ -22,7 +22,7 @@
           <label class="wf-label" for="username">Username</label>
           <input class="wf-input" type="text" id="username" name="username" value="{{ username }}" autocomplete="username">
         </div>
-        <div style="display: flex; justify-content: flex-end;">
+        <div class="wf-f wf-jc-e">
           <button class="wf-btn primary" type="submit">Save profile</button>
         </div>
       </form>
@@ -34,9 +34,9 @@
       <div class="wf-panel-title">Change password</div>
     </div>
     <div class="wf-panel-body">
-      {% if password_error %}<div class="wf-alert err">{{ password_error }}</div>{% endif %}
-      {% if password_success %}<div class="wf-alert ok">{{ password_success }}</div>{% endif %}
-      <form method="post" action="/settings/password" style="display: flex; flex-direction: column; gap: var(--space-5); max-width: 520px;">
+      {% if password_error %}<div class="wf-alert err"><div class="wf-alert-bar"></div>{{ password_error }}</div>{% endif %}
+      {% if password_success %}<div class="wf-alert ok"><div class="wf-alert-bar"></div>{{ password_success }}</div>{% endif %}
+      <form method="post" action="/settings/password" class="wf-f wf-col wf-gap-5">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="wf-field">
           <label class="wf-label" for="current_password">Current password</label>
@@ -50,7 +50,7 @@
           <label class="wf-label" for="new_password_confirm">Confirm new password</label>
           <input class="wf-input" type="password" id="new_password_confirm" name="new_password_confirm" required minlength="8" autocomplete="new-password">
         </div>
-        <div style="display: flex; justify-content: flex-end;">
+        <div class="wf-f wf-jc-e">
           <button class="wf-btn primary" type="submit">Change password</button>
         </div>
       </form>

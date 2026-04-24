@@ -14,31 +14,33 @@
     <h1>Enable 2FA</h1>
     <p class="wf-auth-sub">Scan the QR or enter the secret, then verify.</p>
 
-    <div class="wf-framed" style="flex-direction: column; align-items: stretch;">
-      <div data-testid="totp-uri" style="word-break: break-all; font-size: 11px; color: var(--fg-muted);">{{ totp_uri }}</div>
-      <div style="font-size: 11px; color: var(--fg-muted);">
+    <div class="wf-framed wf-f wf-col wf-gap-3 wf-mt-5">
+      <div data-testid="totp-uri" class="wf-t-xs wf-fg-muted">{{ totp_uri }}</div>
+      <div class="wf-t-xs wf-fg-muted">
         Secret key:
-        <code data-testid="totp-secret" class="wf-kbd" style="margin-left: 8px;">{{ secret }}</code>
+        <code data-testid="totp-secret" class="wf-kbd">{{ secret }}</code>
       </div>
     </div>
 
     {% if error %}
       {% set flash = { "kind": "err", "message": error } %}
-      {% include "_partials/_flash.html" %}
+      <div class="wf-mt-4">{% include "_partials/_flash.html" %}</div>
     {% endif %}
 
-    <form method="post" action="/settings/mfa/confirm" class="wf-f wf-col wf-gap-4">
+    <form method="post" action="/settings/mfa/confirm" class="wf-f wf-col wf-gap-5 wf-mt-5">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
       <div class="wf-field">
         <label class="wf-label" for="code">Enter the 6-digit code</label>
         <input class="wf-input" type="text" id="code" name="code"
                required autocomplete="one-time-code" inputmode="numeric"
                maxlength="6" pattern="[0-9]{6}">
       </div>
-      <button type="submit" class="wf-btn primary lg">Verify and enable →</button>
+
+      <button type="submit" class="wf-btn primary lg wf-w-full">Verify and enable →</button>
     </form>
 
-    <p class="wf-caption" style="margin-top: var(--space-4);">
+    <p class="wf-caption wf-mt-4">
       <a href="/settings">Back to settings</a>
     </p>
   </div>
