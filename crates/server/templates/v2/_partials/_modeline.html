@@ -1,0 +1,30 @@
+{# _modeline.html — modeline + minibuffer footer.
+   Replaces the old _status_bar.html + _mode_toggle.html.
+
+   Expected context (all optional):
+     - status_env     : string (defaults to "DEV")
+     - status_session : string (defaults to "ANON")
+#}
+<div class="wf-modeline" role="status" aria-label="Modeline">
+  <span class="wf-ml-seg wf-ml-chevron">AT</span>
+  <span class="wf-ml-seg">{{ status_env | default("DEV") }}</span>
+  <span class="wf-ml-fill" aria-hidden="true"></span>
+  <span id="wf-screen-label" class="wf-ml-seg"></span>
+  <span class="wf-ml-seg">{{ status_session | default("ANON") }}</span>
+  <span class="wf-ml-seg"
+        data-mode-toggle
+        title="Toggle color mode"
+        aria-label="Toggle color mode"
+        tabindex="0"
+        role="button">
+    <span class="wf-kbd">m</span>
+  </span>
+</div>
+<div class="wf-minibuffer" role="log" aria-live="polite" aria-label="Echo area">
+  <span class="wf-minibuffer-prompt">λ</span>
+  <span class="wf-minibuffer-msg" id="mb-msg"></span>
+  <span class="wf-minibuffer-time" id="mb-time"></span>
+  <div class="wf-minibuffer-history" id="mb-history" aria-hidden="true">
+    <div class="row is-empty"><span class="msg">No messages yet.</span></div>
+  </div>
+</div>
