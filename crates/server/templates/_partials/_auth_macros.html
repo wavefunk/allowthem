@@ -1,78 +1,70 @@
-{# _auth_macros.html — reusable building blocks for auth main partials.
+{# _auth_macros.html — reusable building blocks for auth form partials.
 
-   These macros compose the upstream design-system/ui_kits/auth aesthetic.
-   All CSS utility classes (.wf-f, .wf-col, .wf-gap-4, .wf-jc-sb, .wf-ai-c,
-   .wf-tabs, .wf-divider-txt, .wf-mta) live in layouts.css (kit refresh z3b-C3).
+   All uppercase rendering happens via CSS (text-transform: uppercase).
+   HTML source stays in sentence case for readability.
 
    Usage:
      {% import "_partials/_auth_macros.html" as auth %}
-     {{ auth.kicker(app_name, "SIGN IN") }}
+     {{ auth.kicker(app_name, "Sign in", swap_href="/register", ...) }}
 #}
 
-{# Renders the .wf-auth-top content: eyebrow kicker on the left +
-   optional swap link on the right.
-   - app_name: tenant name, uppercased. Falls back to "ALLOWTHEM".
-   - section:  flow label (e.g. "SIGN IN", "CREATE ACCOUNT").
-   - swap_href / swap_label / swap_prefix: optional. When swap_href is
-     truthy, renders `{{ prefix }} <a ...>{{ label }}</a>` on the right.
+{# Eyebrow kicker for wf-auth-top. Shows app name · section label,
+   with an optional navigation link on the right.
 #}
 {% macro kicker(app_name, section, swap_href="", swap_label="", swap_prefix="") %}
-  <span class="wf-eyebrow">{{ (app_name or "allowthem") | upper }} / {{ section }}</span>
+  <span>{{ (app_name or "allowthem") }} · {{ section }}</span>
   {% if swap_href %}
-    <span>{{ swap_prefix }}
-      <a href="{{ swap_href }}"
-         hx-get="{{ swap_href }}"
-         hx-target=".wf-auth-form"
-         hx-swap="outerHTML"
-         hx-push-url="true"
-         class="wf-link-quiet">{{ swap_label }}</a>
-    </span>
+    <a href="{{ swap_href }}"
+       hx-get="{{ swap_href }}"
+       hx-target=".wf-auth-form"
+       hx-swap="outerHTML"
+       hx-push-url="true"
+       style="color: var(--accent); text-decoration: none;">{{ swap_prefix }} {{ swap_label }} →</a>
   {% endif %}
 {% endmacro %}
 
-{# Renders the .wf-tabs strip for login/register only.
-   - active: "signin" | "signup"
+{# Sign-in / sign-up tab switcher. HTMX swaps the form column
+   without a full page reload.
 #}
 {% macro tabs(active) %}
   <div class="wf-tabs" role="tablist">
     <a role="tab"
-       class="{% if active == 'signin' %}active{% endif %}"
+       class="{% if active == 'signin' %}is-active{% endif %}"
        href="/login"
        hx-get="/login"
        hx-target=".wf-auth-form"
        hx-swap="outerHTML"
-       hx-push-url="true">SIGN IN</a>
+       hx-push-url="true">Sign in</a>
     <a role="tab"
-       class="{% if active == 'signup' %}active{% endif %}"
+       class="{% if active == 'signup' %}is-active{% endif %}"
        href="/register"
        hx-get="/register"
        hx-target=".wf-auth-form"
        hx-swap="outerHTML"
-       hx-push-url="true">SIGN UP</a>
+       hx-push-url="true">Sign up</a>
   </div>
 {% endmacro %}
 
-{# Renders the "OR" divider and 2-up OAuth button grid. No-op if
-   providers is empty. #}
+{# OAuth provider button grid. Renders nothing if providers is empty. #}
 {% macro oauth_grid(providers, next="") %}
   {% if providers %}
-    <div class="wf-divider-txt">OR</div>
-    <div class="wf-oauth-grid">
-      {% for provider in providers %}
-        <a class="wf-btn"
-           href="/oauth/{{ provider }}/authorize{% if next %}?next={{ next }}{% endif %}">
-          {{ provider | upper }}
+    <div class="wf-divider-txt">or</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+      {% for p in providers %}
+        <a class="wf-btn sm"
+           href="/oauth/{{ p }}/authorize{% if next %}?next={{ next }}{% endif %}">
+          {{ p }}
         </a>
       {% endfor %}
     </div>
   {% endif %}
 {% endmacro %}
 
-{# Renders the terms/privacy footer. #}
+{# Terms-of-service / privacy-policy footer. #}
 {% macro terms_footer() %}
-  <div class="wf-auth-terms">
+  <p class="wf-fg-muted wf-t-xs" style="margin-top: var(--space-6);">
     By continuing, you agree to our
-    <a href="/terms" class="wf-link">Terms</a> and
-    <a href="/privacy" class="wf-link">Privacy</a>.
-  </div>
+    <a href="/terms">Terms</a> and
+    <a href="/privacy">Privacy</a>.
+  </p>
 {% endmacro %}

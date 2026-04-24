@@ -349,7 +349,7 @@ fn auth_shell_wraps_form_block_and_includes_splash_and_status_bar() {
     env.add_template(
         "auth_child.html",
         r#"{% extends "_partials/_auth_shell.html" %}
-           {% block form %}<section id="the-form">hi</section>{% endblock %}"#,
+           {% block auth_main %}<main class="wf-auth-form"><section id="the-form">hi</section></main>{% endblock %}"#,
     )
     .unwrap();
     let html = env
@@ -380,7 +380,7 @@ fn auth_shell_without_forced_mode_emits_no_html_attrs() {
     env.add_template(
         "auth_child_nofm.html",
         r#"{% extends "_partials/_auth_shell.html" %}
-           {% block form %}<section>x</section>{% endblock %}"#,
+           {% block auth_main %}<main class="wf-auth-form"><section>x</section></main>{% endblock %}"#,
     )
     .unwrap();
     let html = env
@@ -413,7 +413,7 @@ fn auth_shell_with_forced_mode_emits_locked_attrs() {
     env.add_template(
         "auth_child_fm.html",
         r#"{% extends "_partials/_auth_shell.html" %}
-           {% block form %}<section>x</section>{% endblock %}"#,
+           {% block auth_main %}<main class="wf-auth-form"><section>x</section></main>{% endblock %}"#,
     )
     .unwrap();
     let mut b = mock_branding();

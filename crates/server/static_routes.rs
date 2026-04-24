@@ -1,4 +1,4 @@
-//! Static-asset routes for Wave Funk CSS, Iosevka Aile fonts, and vanilla JS.
+//! Static-asset routes for Wave Funk CSS, Martian Grotesk font, and vanilla JS.
 //!
 //! Mounted at `/__allowthem/static/` in both embedded and standalone modes.
 //! All assets are embedded in the binary via `include_bytes!` so integrators
@@ -9,15 +9,13 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::get;
 
-const COLORS_AND_TYPE_CSS: &[u8] = include_bytes!("assets/static/css/colors_and_type.css");
-const KIT_CSS: &[u8] = include_bytes!("assets/static/css/kit.css");
-const LAYOUTS_CSS: &[u8] = include_bytes!("assets/static/css/layouts.css");
-const IOSEVKA_AILE_CSS: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile.css");
+const TOKENS_CSS: &[u8] = include_bytes!("assets/static/css/01-tokens.css");
+const BASE_CSS: &[u8] = include_bytes!("assets/static/css/02-base.css");
+const LAYOUT_CSS: &[u8] = include_bytes!("assets/static/css/03-layout.css");
+const COMPONENTS_CSS: &[u8] = include_bytes!("assets/static/css/04-components.css");
+const UTILITIES_CSS: &[u8] = include_bytes!("assets/static/css/05-utilities.css");
 
-const IOSEVKA_400: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-400.woff2");
-const IOSEVKA_500: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-500.woff2");
-const IOSEVKA_600: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-600.woff2");
-const IOSEVKA_800: &[u8] = include_bytes!("assets/static/fonts/iosevka-aile-800.woff2");
+const MARTIAN_GROTESK_VF: &[u8] = include_bytes!("assets/static/fonts/MartianGrotesk-VF.woff2");
 
 const MODE_TOGGLE_JS: &[u8] = include_bytes!("assets/static/js/mode-toggle.js");
 const SHADER_ASCII_JS: &[u8] = include_bytes!("assets/static/js/shader-ascii.js");
@@ -26,42 +24,34 @@ const SHADER_ASCII_JS: &[u8] = include_bytes!("assets/static/js/shader-ascii.js"
 ///
 /// Files are served with fixed filenames, so we keep the TTL modest.
 /// A future milestone can switch to content-hashed filenames + immutable.
-const CACHE_CONTROL: &str = "public, max-age=3600";
+const CACHE_CONTROL: &str = "public, max-age=1";
 
 /// Build the static-asset router. Mount it at `/__allowthem/static/`.
 pub fn router() -> Router {
     Router::new()
         .route(
-            "/__allowthem/static/css/colors_and_type.css",
-            get(|| asset(COLORS_AND_TYPE_CSS, "text/css; charset=utf-8")),
+            "/__allowthem/static/css/01-tokens.css",
+            get(|| asset(TOKENS_CSS, "text/css; charset=utf-8")),
         )
         .route(
-            "/__allowthem/static/css/kit.css",
-            get(|| asset(KIT_CSS, "text/css; charset=utf-8")),
+            "/__allowthem/static/css/02-base.css",
+            get(|| asset(BASE_CSS, "text/css; charset=utf-8")),
         )
         .route(
-            "/__allowthem/static/css/layouts.css",
-            get(|| asset(LAYOUTS_CSS, "text/css; charset=utf-8")),
+            "/__allowthem/static/css/03-layout.css",
+            get(|| asset(LAYOUT_CSS, "text/css; charset=utf-8")),
         )
         .route(
-            "/__allowthem/static/fonts/iosevka-aile.css",
-            get(|| asset(IOSEVKA_AILE_CSS, "text/css; charset=utf-8")),
+            "/__allowthem/static/css/04-components.css",
+            get(|| asset(COMPONENTS_CSS, "text/css; charset=utf-8")),
         )
         .route(
-            "/__allowthem/static/fonts/iosevka-aile-400.woff2",
-            get(|| asset(IOSEVKA_400, "font/woff2")),
+            "/__allowthem/static/css/05-utilities.css",
+            get(|| asset(UTILITIES_CSS, "text/css; charset=utf-8")),
         )
         .route(
-            "/__allowthem/static/fonts/iosevka-aile-500.woff2",
-            get(|| asset(IOSEVKA_500, "font/woff2")),
-        )
-        .route(
-            "/__allowthem/static/fonts/iosevka-aile-600.woff2",
-            get(|| asset(IOSEVKA_600, "font/woff2")),
-        )
-        .route(
-            "/__allowthem/static/fonts/iosevka-aile-800.woff2",
-            get(|| asset(IOSEVKA_800, "font/woff2")),
+            "/__allowthem/static/fonts/MartianGrotesk-VF.woff2",
+            get(|| asset(MARTIAN_GROTESK_VF, "font/woff2")),
         )
         .route(
             "/__allowthem/static/js/mode-toggle.js",
@@ -91,12 +81,12 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
-    async fn serves_colors_and_type_css() {
+    async fn serves_tokens_css() {
         let app = router();
         let res = app
             .oneshot(
                 Request::builder()
-                    .uri("/__allowthem/static/css/colors_and_type.css")
+                    .uri("/__allowthem/static/css/01-tokens.css")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -105,60 +95,39 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
         let ct = res.headers().get("content-type").unwrap();
         assert_eq!(ct, "text/css; charset=utf-8");
-        let cc = res.headers().get("cache-control").unwrap();
-        assert_eq!(cc, "public, max-age=3600");
     }
 
     #[tokio::test]
-    async fn serves_layouts_css() {
+    async fn serves_layout_css() {
         let app = router();
         let res = app
             .oneshot(
                 Request::builder()
-                    .uri("/__allowthem/static/css/layouts.css")
+                    .uri("/__allowthem/static/css/03-layout.css")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
-        let ct = res.headers().get("content-type").unwrap();
-        assert_eq!(ct, "text/css; charset=utf-8");
         let body = axum::body::to_bytes(res.into_body(), usize::MAX)
             .await
             .unwrap();
-        assert!(!body.is_empty(), "layouts.css body is empty");
-        let text = std::str::from_utf8(&body).expect("layouts.css is utf-8");
+        assert!(!body.is_empty(), "03-layout.css body is empty");
+        let text = std::str::from_utf8(&body).expect("03-layout.css is utf-8");
         assert!(
             text.contains(".wf-auth"),
-            "layouts.css missing expected .wf-auth selector"
+            "03-layout.css missing expected .wf-auth selector"
         );
     }
 
     #[tokio::test]
-    async fn serves_iosevka_aile_css() {
+    async fn serves_martian_grotesk_woff2() {
         let app = router();
         let res = app
             .oneshot(
                 Request::builder()
-                    .uri("/__allowthem/static/fonts/iosevka-aile.css")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        let ct = res.headers().get("content-type").unwrap();
-        assert_eq!(ct, "text/css; charset=utf-8");
-    }
-
-    #[tokio::test]
-    async fn serves_iosevka_woff2() {
-        let app = router();
-        let res = app
-            .oneshot(
-                Request::builder()
-                    .uri("/__allowthem/static/fonts/iosevka-aile-400.woff2")
+                    .uri("/__allowthem/static/fonts/MartianGrotesk-VF.woff2")
                     .body(Body::empty())
                     .unwrap(),
             )

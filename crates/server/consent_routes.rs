@@ -261,8 +261,8 @@ mod tests {
             "fragment must include the CONSENT status hint"
         );
         assert!(
-            html.contains("TEST APP"),
-            "fragment must include the uppercased tenant in the kicker"
+            html.contains("Test App"),
+            "fragment must include the tenant name in the kicker"
         );
         assert!(
             html.contains("Authorize Test App — allowthem"),

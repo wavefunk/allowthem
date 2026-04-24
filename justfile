@@ -27,7 +27,7 @@ watch:
 
 # Run the standalone server
 dev:
-    cargo run -p allowthem
+    cargo run -p allowthem --bin allowthem
 
 # Run SQLx migrations
 migrate:

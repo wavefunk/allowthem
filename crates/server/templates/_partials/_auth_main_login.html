@@ -1,7 +1,7 @@
-{# _auth_main_login.html — login form column. Renders <main class="wf-auth-form">
-   standalone so HTMX fragment responses can return just this subtree.
+{# _auth_main_login.html — login form column.
+   Renders <main class="wf-auth-form"> standalone for HTMX fragment responses.
 
-   Expected context (provided by render_login_form in login_routes.rs):
+   Expected context:
      csrf_token, identifier, error, next, client_id, app_name, logo_url,
      oauth_providers, is_production
 #}
@@ -13,18 +13,19 @@
 {%- endif -%}
 <main class="wf-auth-form">
   <div class="wf-auth-top">
-    {{ auth.kicker(app_name, "SIGN IN",
+    {{ auth.kicker(app_name, "Sign in",
                    swap_href=register_href,
-                   swap_label="CREATE ACCOUNT",
-                   swap_prefix="NEW HERE?") }}
+                   swap_label="Create account",
+                   swap_prefix="New here?") }}
   </div>
 
   <div class="wf-auth-wrap">
     {% if logo_url and logo_url is startingwith("https://") %}
-      <img class="wf-auth-logo" src="{{ logo_url }}" alt="{{ app_name }}">
+      <img src="{{ logo_url }}" alt="{{ app_name }}"
+           style="max-height: 48px; margin-bottom: var(--space-4);">
     {% endif %}
 
-    <h1>SIGN IN</h1>
+    <h1>Sign in</h1>
     <p class="wf-auth-sub">Welcome back.</p>
 
     {{ auth.tabs(active="signin") }}
@@ -34,29 +35,30 @@
       {% include "_partials/_flash.html" %}
     {% endif %}
 
-    <form method="post" action="/login" class="wf-f wf-col wf-gap-4">
+    <form method="post" action="/login" class="wf-f wf-col wf-gap-8">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
       {% if client_id %}<input type="hidden" name="client_id" value="{{ client_id }}">{% endif %}
 
       <div class="wf-field">
-        <label class="wf-label" for="identifier">EMAIL OR USERNAME</label>
+        <label class="wf-label" for="identifier">Email or username</label>
         <input class="wf-input" id="identifier" name="identifier"
                type="text" value="{{ identifier }}"
                autocomplete="username" required>
       </div>
 
       <div class="wf-field">
-        <div class="wf-f wf-jc-sb wf-ai-baseline" style="min-height:14px">
-          <span class="wf-label">PASSWORD</span>
+        <div class="wf-f wf-jc-sb wf-ai-b" style="min-height: 14px;">
+          <label class="wf-label" for="password">Password</label>
           <a href="/forgot-password" hx-boost="true"
-             class="wf-link-quiet wf-t-xs wf-upper">FORGOT?</a>
+             class="wf-caption"
+             style="color: var(--fg-muted); text-decoration: none;">Forgot?</a>
         </div>
         <input class="wf-input" id="password" name="password"
                type="password" autocomplete="current-password" required>
       </div>
 
-      <button type="submit" class="wf-btn primary">SIGN IN →</button>
+      <button type="submit" class="wf-btn primary lg">Sign in →</button>
     </form>
 
     {{ auth.oauth_grid(oauth_providers, next=next) }}

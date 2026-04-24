@@ -178,6 +178,7 @@ async fn main() -> Result<()> {
     // auth routes already carry inject shim from AllRoutesBuilder::build()
     let app = Router::new()
         .route("/health", get(health))
+        .route("/", get(health))
         .nest_service("/static", ServeDir::new("binaries/standalone/static"))
         .merge(admin_router)
         .merge(routes);
@@ -194,7 +195,7 @@ async fn main() -> Result<()> {
     tracing::info!("listening on {}", config.bind);
     axum::serve(
         listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        app,
     )
     .with_graceful_shutdown(shutdown_signal())
     .await?;
@@ -525,8 +526,8 @@ mod tests {
             "prod-only CSS path must be gone"
         );
         assert!(
-            html.contains("/__allowthem/static/css/kit.css"),
-            "kit CSS still served"
+            html.contains("/__allowthem/static/css/04-components.css"),
+            "design system components CSS still served"
         );
     }
 

@@ -4,7 +4,7 @@
    Required context:
      - shell.nav_items : list of { href, label, group: "admin"|"account", active: bool }
    Items arrive pre-ordered: admin entries first, account entries last.
-   Groups render under .wf-nav-section headers; items use .wf-nav-item + .active.
+   Groups render under .wf-nav-section headers; items use .wf-nav-item + .is-active.
    Renders nothing if `shell` is undefined (lets legacy pages without shell render cleanly).
 #}
 {%- if shell is defined and shell %}
@@ -12,7 +12,7 @@
     <div class="wf-nav-section">Admin</div>
     {%- for item in shell.nav_items %}
       {%- if item.group == "admin" %}
-        <a class="wf-nav-item{% if item.active %} active{% endif %}" href="{{ item.href }}">
+        <a class="wf-nav-item{% if item.active %} is-active{% endif %}" href="{{ item.href }}">
           <span>{{ item.label }}</span>
         </a>
       {%- endif %}
@@ -21,7 +21,7 @@
   <div class="wf-nav-section">Account</div>
   {%- for item in shell.nav_items %}
     {%- if item.group == "account" %}
-      <a class="wf-nav-item{% if item.active %} active{% endif %}" href="{{ item.href }}">
+      <a class="wf-nav-item{% if item.active %} is-active{% endif %}" href="{{ item.href }}">
         <span>{{ item.label }}</span>
       </a>
     {%- endif %}
