@@ -14,6 +14,7 @@ mod admin_template_render_tests;
 mod all_standalone_templates_guard_tests;
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{Router, response::IntoResponse, routing::get};
@@ -195,7 +196,7 @@ async fn main() -> Result<()> {
     tracing::info!("listening on {}", config.bind);
     axum::serve(
         listener,
-        app,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
     .await?;
@@ -769,8 +770,8 @@ mod consent_tests {
         assert!(body.contains("wants to access the following:"), "prompt");
         assert!(body.contains("Verify your identity"), "openid scope");
         assert!(body.contains("View your email address"), "email scope");
-        assert!(body.contains("ALLOW"), "allow button");
-        assert!(body.contains("DENY"), "deny button");
+        assert!(body.contains("Allow"), "allow button");
+        assert!(body.contains("Deny"), "deny button");
         assert!(
             body.contains(r#"name="state" value="teststate""#),
             "state field"
@@ -1070,8 +1071,8 @@ mod consent_tests {
         );
         assert!(body.contains("CONSENT"), "status_hint CONSENT must render");
         assert!(
-            body.contains("HXAPP"),
-            "app_name must render in the kicker (uppercased)"
+            body.contains("HxApp"),
+            "app_name must render in the kicker"
         );
     }
 }

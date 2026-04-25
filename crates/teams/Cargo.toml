@@ -11,7 +11,7 @@ repository.workspace = true
 path = "./teams.rs"
 
 [dependencies]
-allowthem-core = { path = "../core", version = "0.0.3" }
+allowthem-core = { path = "../core", version = "0.0.4" }
 sqlx.workspace = true
 chrono.workspace = true
 uuid.workspace = true

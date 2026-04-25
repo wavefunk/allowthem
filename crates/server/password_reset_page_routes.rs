@@ -8,6 +8,7 @@ use axum::http::StatusCode;
 use axum::http::header::COOKIE;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
+use axum_htmx::{HxBoosted, HxRequest};
 use minijinja::{Environment, context};
 use serde::Deserialize;
 
@@ -118,6 +119,8 @@ async fn get_forgot_password(
     default_branding: Option<Extension<Arc<DefaultBranding>>>,
     headers: HeaderMap,
     csrf: CsrfToken,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
 ) -> Result<Response, BrowserError> {
     if is_authenticated(&ath, &headers).await {
         return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
@@ -126,7 +129,7 @@ async fn get_forgot_password(
     let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
 
-    if crate::hx::is_hx_request(&headers) {
+    if request && !boosted {
         let html =
             render_forgot_password_fragment(&config, csrf.as_str(), "", false, branding.as_ref())?;
         return Ok(html.into_response());
@@ -203,9 +206,10 @@ async fn get_reset_password(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<PasswordResetPageConfig>,
     default_branding: Option<Extension<Arc<DefaultBranding>>>,
-    headers: HeaderMap,
     csrf: CsrfToken,
     Query(query): Query<ResetTokenQuery>,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
 ) -> Result<Response, BrowserError> {
     let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
@@ -213,7 +217,7 @@ async fn get_reset_password(
     let token = match query.token {
         Some(ref t) if !t.is_empty() => t.clone(),
         _ => {
-            if crate::hx::is_hx_request(&headers) {
+            if request && !boosted {
                 let html = render_reset_password_fragment(
                     &config,
                     csrf.as_str(),
@@ -245,7 +249,7 @@ async fn get_reset_password(
     let valid = ath.db().validate_reset_token(&token).await?;
 
     if valid.is_some() {
-        if crate::hx::is_hx_request(&headers) {
+        if request && !boosted {
             let html = render_reset_password_fragment(
                 &config,
                 csrf.as_str(),
@@ -272,7 +276,7 @@ async fn get_reset_password(
         )?;
         Ok(html.into_response())
     } else {
-        if crate::hx::is_hx_request(&headers) {
+        if request && !boosted {
             let html = render_reset_password_fragment(
                 &config,
                 csrf.as_str(),

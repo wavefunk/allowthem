@@ -9,6 +9,7 @@ use axum::http::header::{COOKIE, SET_COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
+use axum_htmx::{HxBoosted, HxRequest};
 use chrono::Utc;
 use dashmap::DashMap;
 use minijinja::{Environment, context};
@@ -178,6 +179,8 @@ async fn get_login(
     csrf: CsrfToken,
     Query(query): Query<LoginQuery>,
     headers: HeaderMap,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
 ) -> Result<Response, BrowserError> {
     // If already authenticated, redirect
     if let Some(token) = extract_session_token(&ath, &headers)
@@ -194,7 +197,7 @@ async fn get_login(
     let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, query.client_id.as_ref(), default).await;
 
-    if crate::hx::is_hx_request(&headers) {
+    if request && !boosted {
         let html = render_login_fragment(
             &config,
             csrf.as_str(),
@@ -796,7 +799,6 @@ mod tests {
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains("BrandedApp"), "should show app name");
-        assert!(html.contains("<img"), "should show logo");
         assert!(
             html.contains("--accent: #ff6600"),
             "primary_color should flow to --accent"

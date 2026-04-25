@@ -5,6 +5,7 @@ use axum::extract::{Extension, Query};
 use axum::http::HeaderMap;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
+use axum_htmx::{HxBoosted, HxRequest};
 use minijinja::{Environment, context};
 use serde::Serialize;
 
@@ -99,11 +100,6 @@ fn build_render_fields(data: &ConsentNeededData, csrf_token: &str) -> ConsentRen
 
 /// Render just the `_auth_main_consent.html` partial plus the
 /// `_auth_oob_head.html` OOB head swap, for HTMX fragment responses.
-///
-/// The `.wf-consent-scopes` layout is scoped to the partial via an inline
-/// `<style>` (too specific to promote into `kit.css`), so this fragment
-/// carries its own scope-list styles and is safe even if swapped into a
-/// context that hasn't loaded the full shell head.
 fn render_consent_fragment(
     config: &ConsentConfig,
     fields: &ConsentRenderFields,
@@ -179,13 +175,15 @@ async fn get_authorize(
     csrf: CsrfToken,
     headers: HeaderMap,
     Query(params): Query<AuthorizeParams>,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
 ) -> Result<Response, BrowserError> {
     match check_authorization(&ath, &headers, &params).await {
         AuthorizeOutcome::Redirect(resp) => Ok(resp),
         AuthorizeOutcome::ConsentNeeded(data) => {
             let fields = build_render_fields(&data, csrf.as_str());
 
-            if crate::hx::is_hx_request(&headers) {
+            if request && !boosted {
                 let html = render_consent_fragment(&config, &fields)?;
                 return Ok(html.into_response());
             }
@@ -269,8 +267,8 @@ mod tests {
             "fragment must include the tenant-specific page_title"
         );
         assert!(
-            html.contains("wf-consent-scopes"),
-            "fragment must include the scoped scope-list styles"
+            html.contains("wf-framed"),
+            "fragment must include the scope list container"
         );
         assert!(
             html.contains("Verify your identity"),

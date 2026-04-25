@@ -346,7 +346,8 @@ body.wf-app { overflow: hidden; height: 100vh; }
   border-right: var(--border-1) solid var(--hairline);
   display: flex; flex-direction: column;
   padding: var(--space-6); color: var(--fg);
-  position: relative; overflow: hidden;
+    position: relative; overflow: hidden;
+    justify-content: center;
 }
 .wf-auth-ascii {
   margin: auto 0; color: var(--accent);

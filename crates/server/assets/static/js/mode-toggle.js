@@ -54,6 +54,9 @@
       window.localStorage.setItem(KEY, next);
     } catch (_e) {}
     paintButtons();
+    if (window.wfEcho) {
+      window.wfEcho("Switched to " + next + " mode.", { kind: "info" });
+    }
   });
 
   paintButtons();

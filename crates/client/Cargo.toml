@@ -11,7 +11,7 @@ repository.workspace = true
 path = "./client.rs"
 
 [dependencies]
-allowthem-core = { path = "../core", version = "0.0.3" }
+allowthem-core = { path = "../core", version = "0.0.4" }
 jsonwebtoken.workspace = true
 reqwest.workspace = true
 tokio.workspace = true

@@ -1,0 +1,5 @@
+[jobs.run]
+command = ["cargo", "run", "--bin", "allowthem"]
+background = false
+on_change_strategy = "kill_then_restart"
+watch = ["crates", "binaries"]

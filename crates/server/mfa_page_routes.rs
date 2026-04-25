@@ -9,6 +9,7 @@ use axum::http::Uri;
 use axum::http::header::{LOCATION, SET_COOKIE, USER_AGENT};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use axum_htmx::{HxBoosted, HxRequest};
 use chrono::Utc;
 use minijinja::{Environment, context};
 use serde::Deserialize;
@@ -150,12 +151,6 @@ fn render_mfa_setup_fragment(
 
 /// Render just the `_auth_main_mfa_recovery.html` partial plus the
 /// `_auth_oob_head.html` OOB head swap, for HTMX fragment responses.
-///
-/// The `.wf-recovery-grid` layout is scoped to the partial via an inline
-/// `<style>` (too specific to promote into `kit.css`), so unlike the setup
-/// and challenge flows, this fragment carries its own grid styles and is
-/// safe even if it's ever swapped into a context that hasn't loaded the
-/// full shell head.
 fn render_mfa_recovery_fragment(
     config: &MfaPageConfig,
     recovery_codes: &[String],
@@ -190,6 +185,8 @@ async fn get_mfa_setup(
     uri: Uri,
     csrf: CsrfToken,
     headers: HeaderMap,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
 ) -> Result<Response, BrowserError> {
     let user = match require_browser_user(&ath, &headers, uri.path()).await {
         Ok(u) => u,
@@ -208,7 +205,7 @@ async fn get_mfa_setup(
     let issuer = derive_issuer(&config.base_url);
     let uri = totp_uri(&secret, user.email.as_str(), &issuer);
 
-    if crate::hx::is_hx_request(&headers) {
+    if request && !boosted {
         let html = render_mfa_setup_fragment(
             &config,
             csrf.as_str(),
@@ -253,6 +250,8 @@ async fn post_mfa_confirm(
     uri: Uri,
     csrf: CsrfToken,
     headers: HeaderMap,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
     Form(form): Form<MfaConfirmForm>,
 ) -> Result<Response, BrowserError> {
     let user = match require_browser_user(&ath, &headers, uri.path()).await {
@@ -280,7 +279,7 @@ async fn post_mfa_confirm(
                 )
                 .await;
 
-            if crate::hx::is_hx_request(&headers) {
+            if request && !boosted {
                 let html =
                     render_mfa_recovery_fragment(&config, &recovery_codes, branding.as_ref())?;
                 return Ok(html.into_response());
@@ -409,8 +408,9 @@ async fn get_mfa_challenge(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
     default_branding: Option<Extension<Arc<DefaultBranding>>>,
-    headers: HeaderMap,
     Query(query): Query<ChallengeQuery>,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
 ) -> Result<Response, BrowserError> {
     // Validate token is still alive (don't consume it)
     let user_id = ath.db().validate_mfa_challenge(&query.token).await?;
@@ -422,7 +422,7 @@ async fn get_mfa_challenge(
     let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
 
-    if crate::hx::is_hx_request(&headers) {
+    if request && !boosted {
         let html = render_mfa_challenge_fragment(&config, &query.token, "", branding.as_ref())?;
         return Ok(html.into_response());
     }
@@ -1158,8 +1158,8 @@ mod tests {
             "fragment must include the rendered recovery codes"
         );
         assert!(
-            html.contains("wf-recovery-grid"),
-            "fragment must include the scoped recovery grid styles"
+            html.contains("wf-grid"),
+            "fragment must include the recovery code grid"
         );
     }
 

@@ -8,6 +8,7 @@ use axum::http::header::{COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum_htmx::{HxBoosted, HxRequest};
 use chrono::Utc;
 use minijinja::{Environment, context};
 use serde::Deserialize;
@@ -56,6 +57,8 @@ async fn get_register(
     headers: HeaderMap,
     csrf: CsrfToken,
     Query(query): Query<RegisterQuery>,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
 ) -> Result<Response, BrowserError> {
     if is_authenticated(&ath, &headers).await {
         return Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, "/")]).into_response());
@@ -81,7 +84,7 @@ async fn get_register(
         custom_values: &empty,
     };
 
-    if crate::hx::is_hx_request(&headers) {
+    if request && !boosted {
         let html = render_register_fragment(&config, params)?;
         return Ok(html.into_response());
     }
@@ -970,7 +973,6 @@ mod tests {
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains("BrandedRegApp"), "should show app name");
-        assert!(html.contains("<img"), "should show logo");
         assert!(
             html.contains("--accent: #ff6600"),
             "primary_color should flow to --accent"

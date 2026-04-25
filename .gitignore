@@ -20,3 +20,5 @@ tests/e2e/.seeded-client-id
 
 # Personal task file (symlink to user's org file)
 tasks.org
+/node_modules/
+/.playwright-cli/
