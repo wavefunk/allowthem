@@ -11,7 +11,7 @@ repository.workspace = true
 path = "./server.rs"
 
 [dependencies]
-allowthem-core = { path = "../core", version = "0.0.4" }
+allowthem-core = { path = "../core", version = "0.0.5" }
 axum.workspace = true
 axum-htmx = "0.8.1"
 base64ct.workspace = true

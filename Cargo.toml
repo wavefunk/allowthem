@@ -4,7 +4,7 @@ resolver = "3"
 
 
 [workspace.package]
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Wave Funk"]
 description = "allowthem — embeddable authentication system"
 edition = "2024"
