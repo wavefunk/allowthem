@@ -1,0 +1,17 @@
+- title: Dual-mode architecture
+  description: Embed as a library or deploy as a standalone service. Consuming projects code against an AuthClient trait — flip between modes with a config change.
+
+- title: OIDC / OAuth2
+  description: Authorization code flow with RS256 tokens and a JWKS endpoint. Google and GitHub providers built in. Account linking for users with multiple auth methods.
+
+- title: MFA / TOTP
+  description: Authenticator app setup with QR codes and recovery codes. Enforced or optional per configuration. TOTP secrets encrypted at rest.
+
+- title: Per-tenant branding
+  description: Accent color, custom fonts, splash screen, forced dark or light mode. Each application gets its own branded auth experience.
+
+- title: Lifecycle events
+  description: Async hooks for registration, login, password changes, and more. Integrate with your own notification, analytics, or provisioning systems.
+
+- title: Teams & roles
+  description: Multi-tenant user grouping with configurable role-based permissions. No enforced hierarchy — define whatever role model fits your application.

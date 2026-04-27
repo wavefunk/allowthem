@@ -2,19 +2,111 @@
 data:
   nav:
     file: "nav.yaml"
+  features:
+    file: "features.yaml"
 seo:
   title: "allowthem — authentication for wavefunk"
+  description: "An embeddable authentication system. Use as a library or deploy as a standalone OIDC provider."
 schema:
   type: WebSite
 ---
 {% extends "_base.html" %}
 
-{% block title %}allowthem{% endblock %}
+{% block title %}allowthem — authentication for wavefunk{% endblock %}
 
 {% block body %}
 {% include "_partials/nav.html" %}
-<div class="wf-hero">
-  <h1>ALLOWTHEM</h1>
-  <p class="wf-hero-sub">Site under construction.</p>
-</div>
+
+<section class="wf-hero">
+  <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); margin-bottom: var(--space-5); display: flex; align-items: center; gap: 10px;">
+    <span style="width: 24px; height: 1px; background: var(--accent); display: inline-block;"></span>
+    AUTHENTICATION FOR WAVEFUNK
+  </div>
+  <h1>One auth system, every project.</h1>
+  <p class="wf-hero-sub">An embeddable authentication system for all wavefunk projects. Use as a Rust library or deploy as a standalone OIDC provider. Same AuthClient trait either way.</p>
+  <div class="wf-hero-actions">
+    <a {{ link_to("/docs/overview.html") }} class="wf-btn lg primary">Read the docs</a>
+    <a href="https://github.com/wavefunk/allowthem" class="wf-btn lg" target="_blank" rel="noopener">View on GitHub</a>
+  </div>
+</section>
+
+<section style="padding: var(--space-9) var(--space-6); border-bottom: 1px solid var(--hairline);">
+  <div style="margin-bottom: var(--space-7);">
+    <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); margin-bottom: var(--space-3);">FEATURES</div>
+    <h2 style="margin: 0;">Everything you need.</h2>
+  </div>
+  <div class="wf-grid cols-3">
+    {% for feat in features %}
+    <div class="wf-card" style="padding: var(--space-5);">
+      <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: var(--fg-faint); margin-bottom: var(--space-5);">— 0{{ loop.index }}</div>
+      <h3 style="font-size: 20px; margin: 0 0 var(--space-2);">{{ feat.title }}</h3>
+      <p style="font-size: 13px; line-height: 1.65; color: var(--fg-muted); margin: 0;">{{ feat.description }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section style="padding: var(--space-9) var(--space-6); border-bottom: 1px solid var(--hairline);">
+  <div style="margin-bottom: var(--space-7);">
+    <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); margin-bottom: var(--space-3);">HOW IT WORKS</div>
+    <h2 style="margin: 0;">Three steps to auth.</h2>
+  </div>
+  <div class="wf-grid cols-3">
+    <div class="wf-card" style="padding: var(--space-5);">
+      <div style="font-family: var(--font-mono); font-size: 32px; font-weight: 800; color: var(--fg-faint); letter-spacing: -0.02em; margin-bottom: var(--space-4);">01</div>
+      <h3 style="font-size: 16px; margin: 0 0 var(--space-2);">Add the crate</h3>
+      <pre style="margin-top: var(--space-3);"><code>[dependencies]
+allowthem-core = "0.1"</code></pre>
+    </div>
+    <div class="wf-card" style="padding: var(--space-5);">
+      <div style="font-family: var(--font-mono); font-size: 32px; font-weight: 800; color: var(--fg-faint); letter-spacing: -0.02em; margin-bottom: var(--space-4);">02</div>
+      <h3 style="font-size: 16px; margin: 0 0 var(--space-2);">Implement AuthClient</h3>
+      <p style="font-size: 13px; line-height: 1.65; color: var(--fg-muted); margin: 0 0 var(--space-3);">Wire auth into your Axum app with the trait.</p>
+      <pre><code>impl AuthClient for MyApp {
+    // configure, authenticate, authorize
+}</code></pre>
+    </div>
+    <div class="wf-card" style="padding: var(--space-5);">
+      <div style="font-family: var(--font-mono); font-size: 32px; font-weight: 800; color: var(--fg-faint); letter-spacing: -0.02em; margin-bottom: var(--space-4);">03</div>
+      <h3 style="font-size: 16px; margin: 0 0 var(--space-2);">Ship it</h3>
+      <p style="font-size: 13px; line-height: 1.65; color: var(--fg-muted); margin: 0 0 var(--space-3);">Embedded mode runs in-process. Standalone is its own binary with admin UI.</p>
+      <pre><code>$ cargo run --bin allowthem</code></pre>
+    </div>
+  </div>
+</section>
+
+<section style="padding: var(--space-9) var(--space-6); text-align: center; border-bottom: 1px solid var(--hairline);">
+  <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); margin-bottom: var(--space-3);">GET STARTED</div>
+  <h2 style="margin: 0 auto var(--space-3);">Start building today.</h2>
+  <p style="color: var(--fg-muted); margin: 0 auto var(--space-6); font-size: 16px;">One crate. Every auth feature you need.</p>
+  <div style="display: flex; gap: var(--space-3); justify-content: center;">
+    <a {{ link_to("/docs/overview.html") }} class="wf-btn lg primary">Read the docs</a>
+    <a href="https://github.com/wavefunk/allowthem" class="wf-btn lg" target="_blank" rel="noopener">View on GitHub</a>
+  </div>
+</section>
+
+<footer class="wf-footer-grid">
+  <div>
+    <div class="wf-wordmark" style="margin-bottom: var(--space-3);">
+      <div style="width: 20px; height: 20px; background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 800; font-size: 12px;">A</div>
+      <span class="wf-wordmark-name">ALLOWTHEM</span>
+    </div>
+    <p style="font-size: 12px; color: var(--fg-muted); max-width: 32ch; line-height: 1.55; font-family: var(--font-mono);">Authentication for wavefunk projects. Embed as a library or deploy standalone.</p>
+  </div>
+  <div>
+    <h4>DOCS</h4>
+    <a {{ link_to("/docs/overview.html") }}>Overview</a>
+    <a {{ link_to("/docs/quickstart-embedded.html") }}>Getting started</a>
+    <a {{ link_to("/docs/index.html") }}>All docs</a>
+  </div>
+  <div>
+    <h4>LINKS</h4>
+    <a href="https://github.com/wavefunk/allowthem" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://wavefunk.io" target="_blank" rel="noopener">wavefunk.io</a>
+  </div>
+  <div>
+    <h4>PROJECT</h4>
+    <a href="https://wavefunk.io" target="_blank" rel="noopener">wavefunk.io</a>
+  </div>
+</footer>
 {% endblock %}
