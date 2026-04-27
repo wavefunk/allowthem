@@ -53,3 +53,11 @@ test-e2e:
 # Run Playwright e2e across chromium, firefox, webkit (manual; no CI)
 test-e2e-all-browsers:
     cd tests/e2e && npx playwright test --project=main --project=firefox --project=webkit
+
+# Build the documentation website
+docs-build:
+    cd website && eigen build
+
+# Run the documentation website dev server
+docs-dev:
+    cd website && eigen dev --port 3001
