@@ -1,0 +1,261 @@
+# ── Overview ──────────────────────────────────────────────────────────────────
+
+- title: "Overview"
+  slug: overview
+  category: Overview
+  description: "What allowthem is, dual-mode architecture, and when to use each mode."
+  content: |
+    # Overview
+
+    allowthem is an embeddable authentication system for wavefunk projects. It can run as a Rust library (embedded mode) or as a standalone OIDC provider (external mode). Consuming projects code against an `AuthClient` trait, so switching between modes requires only a configuration change.
+
+    ## Dual-mode architecture
+
+    **Embedded mode** — add `allowthem-core` as a dependency. Tables live in your database with an `allowthem_` prefix. Sessions, passwords, MFA, roles — all managed in-process.
+
+    **Standalone mode** — run the `allowthem` binary as a separate service. It exposes OIDC endpoints, signs RS256 tokens, publishes a JWKS endpoint, and provides an admin UI for user management.
+
+    ## When to use which
+
+    Use embedded mode when you want auth as a library with full control over the database and configuration. Use standalone mode when you need a shared identity provider across multiple services.
+
+# ── Getting Started ───────────────────────────────────────────────────────────
+
+- title: "Quickstart: Embedded"
+  slug: quickstart-embedded
+  category: Getting Started
+  description: "Add allowthem as a library, implement AuthClient, and run."
+  content: |
+    # Quickstart: Embedded
+
+    Add allowthem to your Axum application as a library dependency.
+
+    ## Install
+
+    ```toml
+    [dependencies]
+    allowthem-core = "0.1"
+    allowthem-server = "0.1"
+    ```
+
+    ## Implement AuthClient
+
+    Wire the trait into your application. This gives you login, registration, sessions, and MFA with zero external dependencies.
+
+    *Detailed walkthrough coming soon.*
+
+- title: "Quickstart: Standalone"
+  slug: quickstart-standalone
+  category: Getting Started
+  description: "Run allowthem as a standalone OIDC provider with admin UI."
+  content: |
+    # Quickstart: Standalone
+
+    Deploy allowthem as its own binary with a built-in admin interface.
+
+    ## Run the server
+
+    ```bash
+    cargo run --bin allowthem
+    ```
+
+    The server starts on `http://localhost:3000` with login, registration, and admin routes.
+
+    *Detailed walkthrough coming soon.*
+
+# ── Guides ────────────────────────────────────────────────────────────────────
+
+- title: "Branding & Theming"
+  slug: branding
+  category: Guides
+  description: "Customize accent color, fonts, splash screen, and forced mode per application."
+  content: |
+    # Branding & Theming
+
+    Each application registered in allowthem can have its own branded auth experience. Configuration fields: accent color, accent ink, custom font URL, font family, splash text, splash image, splash primitive, and forced mode.
+
+    *Detailed guide coming soon.*
+
+- title: "MFA / TOTP"
+  slug: mfa
+  category: Guides
+  description: "Set up authenticator-based two-factor authentication with recovery codes."
+  content: |
+    # MFA / TOTP
+
+    allowthem supports TOTP-based multi-factor authentication via authenticator apps. Users scan a QR code during setup and receive recovery codes for account recovery.
+
+    *Detailed guide coming soon.*
+
+- title: "OAuth Providers"
+  slug: oauth-providers
+  category: Guides
+  description: "Configure Google and GitHub OAuth login with account linking."
+  content: |
+    # OAuth Providers
+
+    Built-in support for Google and GitHub OAuth2 login. Users can link multiple OAuth accounts to a single allowthem identity.
+
+    *Detailed guide coming soon.*
+
+- title: "Lifecycle Events"
+  slug: lifecycle-events
+  category: Guides
+  description: "Subscribe to async hooks for registration, login, password changes."
+  content: |
+    # Lifecycle Events
+
+    allowthem emits async events for key auth actions: user registered, login occurred, password changed, MFA enabled, and more. Subscribe via a channel to integrate with your own systems.
+
+    *Detailed guide coming soon.*
+
+- title: "Teams & Roles"
+  slug: teams-roles
+  category: Guides
+  description: "Multi-tenant user grouping with configurable permissions."
+  content: |
+    # Teams & Roles
+
+    Organize users into teams with role-based access control. Roles and permissions are integrator-defined — allowthem enforces them without imposing a hierarchy.
+
+    *Detailed guide coming soon.*
+
+- title: "Audit Logging"
+  slug: audit-logging
+  category: Guides
+  description: "What auth events are logged and how to query the audit trail."
+  content: |
+    # Audit Logging
+
+    Every authentication action is recorded: logins, failed attempts, registrations, password resets, MFA changes, session revocations. Query the audit log via the admin UI or programmatically.
+
+    *Detailed guide coming soon.*
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+
+- title: "Server Configuration"
+  slug: server-config
+  category: Configuration
+  description: "TOML configuration file reference and environment variable overrides."
+  content: |
+    # Server Configuration
+
+    The standalone server reads configuration from a TOML file. Every setting can be overridden via environment variables.
+
+    *Full reference coming soon.*
+
+- title: "JWT Settings"
+  slug: jwt-settings
+  category: Configuration
+  description: "RS256 vs HS256, key management, JWKS endpoint configuration."
+  content: |
+    # JWT Settings
+
+    Embedded mode uses HS256 (symmetric, integrator-supplied secret). Standalone mode uses RS256 (asymmetric, allowthem manages the keypair and publishes via JWKS).
+
+    *Full reference coming soon.*
+
+- title: "Session Tuning"
+  slug: session-tuning
+  category: Configuration
+  description: "TTL, sliding window, cookie settings, and session storage."
+  content: |
+    # Session Tuning
+
+    Sessions use SHA-256 hashed tokens stored in the database. Configure TTL, sliding-window renewal, cookie flags (HttpOnly, SameSite, Secure), and maximum concurrent sessions.
+
+    *Full reference coming soon.*
+
+# ── API Reference ─────────────────────────────────────────────────────────────
+
+- title: "AuthClient Trait"
+  slug: authclient-trait
+  category: API Reference
+  description: "The core trait consuming projects implement to integrate auth."
+  content: |
+    # AuthClient Trait
+
+    `AuthClient` is the primary integration point. Consuming projects implement this trait to get authentication, session management, and authorization. The trait is mode-aware: embedded mode handles everything in-process; external mode delegates to the OIDC provider.
+
+    *Trait documentation coming soon.*
+
+- title: "Middleware & Extractors"
+  slug: middleware-extractors
+  category: API Reference
+  description: "Axum middleware for auth guards and session extraction."
+  content: |
+    # Middleware & Extractors
+
+    allowthem provides Axum middleware for session validation and extractors for accessing the authenticated user in route handlers.
+
+    *API documentation coming soon.*
+
+- title: "Error Types"
+  slug: error-types
+  category: API Reference
+  description: "Error handling patterns and the error type hierarchy."
+  content: |
+    # Error Types
+
+    allowthem uses a structured error hierarchy. Auth failures, validation errors, and internal errors are all typed for pattern matching.
+
+    *Error reference coming soon.*
+
+# ── Database ──────────────────────────────────────────────────────────────────
+
+- title: "Schema Overview"
+  slug: schema-overview
+  category: Database
+  description: "Database tables, relationships, and the allowthem_ prefix."
+  content: |
+    # Schema Overview
+
+    allowthem uses SQLite via SQLx. In embedded mode, tables are prefixed with `allowthem_` to avoid collisions. In standalone mode, no prefix is used.
+
+    *Schema documentation coming soon.*
+
+- title: "Migrations"
+  slug: migrations
+  category: Database
+  description: "Running migrations, creating new ones, and the SQLx offline cache."
+  content: |
+    # Migrations
+
+    Migrations live in `crates/core/migrations/`. Run `just migrate` to apply. After changing queries, run `just sqlx-prepare` to update the offline cache.
+
+    *Migration guide coming soon.*
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+
+- title: "Standalone Binary"
+  slug: standalone-binary
+  category: Deployment
+  description: "Building and running the standalone allowthem server."
+  content: |
+    # Standalone Binary
+
+    Build the standalone binary with `cargo build -p allowthem --release`. The binary includes all auth endpoints, the admin UI, and static asset serving.
+
+    *Deployment guide coming soon.*
+
+- title: "Reverse Proxy"
+  slug: reverse-proxy
+  category: Deployment
+  description: "Nginx and Caddy configuration for running behind a reverse proxy."
+  content: |
+    # Reverse Proxy
+
+    In production, run allowthem behind a reverse proxy for TLS termination and load balancing.
+
+    *Configuration examples coming soon.*
+
+- title: "Environment Variables"
+  slug: environment-variables
+  category: Deployment
+  description: "Complete reference of environment variables for configuration."
+  content: |
+    # Environment Variables
+
+    Every configuration option can be set via environment variables. This is the recommended approach for production deployments.
+
+    *Full reference coming soon.*
