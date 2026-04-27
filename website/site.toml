@@ -1,0 +1,42 @@
+[site]
+name = "allowthem"
+base_url = "https://allowthem.wavefunk.io"
+
+[site.seo]
+title = "allowthem — authentication for wavefunk"
+description = "An embeddable authentication system. Use as a library or deploy as a standalone OIDC provider."
+
+[build]
+fragments = true
+fragment_dir = "_fragments"
+content_block = "doc_content"
+oob_blocks = ["sidebar"]
+minify = true
+clean_links = true
+
+[build.critical_css]
+enabled = true
+max_inline_size = 50000
+preload_full = true
+
+[build.bundling]
+enabled = true
+css = true
+tree_shake_css = true
+
+[build.content_hash]
+enabled = true
+
+[build.view_transitions]
+enabled = true
+
+[sitemap]
+enabled = true
+
+[robots]
+enabled = true
+sitemap = true
+
+[[robots.rules]]
+user_agent = "*"
+allow = ["/"]
