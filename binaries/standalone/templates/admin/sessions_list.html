@@ -9,19 +9,8 @@
 
 {% block page_content %}
   <style>
-    .sessions-table { table-layout: fixed; width: 100%; }
-    .sessions-table th:nth-child(1),
-    .sessions-table td:nth-child(1) { width: 22%; }
-    .sessions-table th:nth-child(2),
-    .sessions-table td:nth-child(2) { width: 12%; }
-    .sessions-table th:nth-child(3),
-    .sessions-table td:nth-child(3) { width: 26%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sessions-table th:nth-child(4),
-    .sessions-table td:nth-child(4),
-    .sessions-table th:nth-child(5),
-    .sessions-table td:nth-child(5) { width: 14%; }
-    .sessions-table th:nth-child(6),
-    .sessions-table td:nth-child(6) { width: 12%; }
+    .sessions-table { min-width: 800px; width: 100%; }
+    .sessions-table td:nth-child(3) { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .wf-row-highlight { background: var(--accent-a10, rgba(59,130,246,0.08)); }
   </style>
   {% if filter_user_email %}
