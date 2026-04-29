@@ -1,0 +1,54 @@
+{# terms.html — Terms of Service placeholder page. #}
+{% extends "base.html" %}
+
+{% block title %}Terms of Service — allowthem{% endblock %}
+
+{% block head %}
+<style>
+  .wf-prose {
+    max-width: 42rem;
+    margin: var(--sp-6) auto;
+    padding: 0 var(--sp-4);
+    line-height: 1.6;
+  }
+  .wf-prose h1 { margin-bottom: var(--sp-2); }
+  .wf-prose h2 { margin-top: var(--sp-5); margin-bottom: var(--sp-2); }
+  .wf-prose p  { margin-bottom: var(--sp-3); }
+  .wf-prose-meta { opacity: 0.6; margin-bottom: var(--sp-4); }
+  .wf-prose-back { display: inline-block; margin-bottom: var(--sp-4); }
+</style>
+{% endblock %}
+
+{% block body_content %}
+<article class="wf-prose">
+  <a class="wf-prose-back" href="/">&larr; Back</a>
+  <h1>Terms of Service</h1>
+  <p class="wf-prose-meta">Last updated: April 2026</p>
+
+  <h2>1. Acceptance of terms</h2>
+  <p>By accessing or using the allowthem authentication service, you agree to be
+     bound by these Terms of Service. If you do not agree, do not use the service.</p>
+
+  <h2>2. Description of service</h2>
+  <p>allowthem provides authentication and identity management. The service is
+     offered as-is for use by authorized applications.</p>
+
+  <h2>3. User accounts</h2>
+  <p>You are responsible for maintaining the confidentiality of your account
+     credentials. You agree to notify the administrator immediately of any
+     unauthorized use of your account.</p>
+
+  <h2>4. Acceptable use</h2>
+  <p>You agree not to misuse the service. This includes attempting to gain
+     unauthorized access, interfering with the service, or using the service
+     for any unlawful purpose.</p>
+
+  <h2>5. Limitation of liability</h2>
+  <p>The service is provided without warranties of any kind. In no event shall
+     the operators be liable for any damages arising from your use of the service.</p>
+
+  <h2>6. Changes to terms</h2>
+  <p>These terms may be updated from time to time. Continued use of the service
+     after changes constitutes acceptance of the revised terms.</p>
+</article>
+{% endblock %}

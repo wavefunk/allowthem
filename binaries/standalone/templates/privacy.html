@@ -1,0 +1,56 @@
+{# privacy.html — Privacy Policy placeholder page. #}
+{% extends "base.html" %}
+
+{% block title %}Privacy Policy — allowthem{% endblock %}
+
+{% block head %}
+<style>
+  .wf-prose {
+    max-width: 42rem;
+    margin: var(--sp-6) auto;
+    padding: 0 var(--sp-4);
+    line-height: 1.6;
+  }
+  .wf-prose h1 { margin-bottom: var(--sp-2); }
+  .wf-prose h2 { margin-top: var(--sp-5); margin-bottom: var(--sp-2); }
+  .wf-prose p  { margin-bottom: var(--sp-3); }
+  .wf-prose-meta { opacity: 0.6; margin-bottom: var(--sp-4); }
+  .wf-prose-back { display: inline-block; margin-bottom: var(--sp-4); }
+</style>
+{% endblock %}
+
+{% block body_content %}
+<article class="wf-prose">
+  <a class="wf-prose-back" href="/">&larr; Back</a>
+  <h1>Privacy Policy</h1>
+  <p class="wf-prose-meta">Last updated: April 2026</p>
+
+  <h2>1. Information we collect</h2>
+  <p>allowthem collects your email address and, optionally, a username when you
+     create an account. If you link third-party accounts (e.g. Google, GitHub),
+     we store the provider name and associated email.</p>
+
+  <h2>2. How we use your information</h2>
+  <p>Your information is used solely for authentication and account management.
+     We do not sell, share, or distribute your personal data to third parties.</p>
+
+  <h2>3. Data storage</h2>
+  <p>Account data is stored in a local database managed by the service operator.
+     Session tokens are used for authentication and expire according to the
+     configured session policy.</p>
+
+  <h2>4. Security</h2>
+  <p>Passwords are hashed using industry-standard algorithms. Two-factor
+     authentication is available for additional account security. Session
+     data is transmitted over encrypted connections when configured.</p>
+
+  <h2>5. Your rights</h2>
+  <p>You may update or delete your account information through the settings
+     page. Contact the service administrator for data export or deletion
+     requests.</p>
+
+  <h2>6. Changes to this policy</h2>
+  <p>This policy may be updated from time to time. Changes will be reflected
+     in the "Last updated" date above.</p>
+</article>
+{% endblock %}
