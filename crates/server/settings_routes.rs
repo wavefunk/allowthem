@@ -63,7 +63,8 @@ fn render_settings(
     csrf_token: &str,
     ctx: &SettingsContext,
 ) -> Result<Html<String>, BrowserError> {
-    let shell = ShellContext::new(ctx.is_admin, "/settings", "allowthem");
+    let shell = ShellContext::new(ctx.is_admin, "/settings", "allowthem")
+        .with_session(&ctx.email);
     crate::browser_templates::render(
         &config.templates,
         "settings.html",
