@@ -1,10 +1,13 @@
 use axum::extract::{Path, Query, State};
+use axum::http::header::COOKIE;
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, Router};
 use minijinja::context;
 use serde::Deserialize;
 
+use allowthem_core::parse_session_cookie;
 use allowthem_core::sessions::ListSessionsParams;
 use allowthem_core::types::{SessionId, UserId};
 use allowthem_server::{BrowserAdminUser, CsrfToken, ShellContext};
@@ -44,6 +47,7 @@ pub fn routes() -> Router<AppState> {
 pub async fn list(
     State(state): State<AppState>,
     BrowserAdminUser(_user): BrowserAdminUser,
+    headers: HeaderMap,
     Query(params): Query<SessionListQuery>,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
@@ -69,6 +73,9 @@ pub async fn list(
         (None, None)
     };
 
+    // Resolve the admin's own session ID for the "current session" indicator.
+    let current_session_id = resolve_current_session_id(&state, &headers).await;
+
     let total_pages = if result.total == 0 {
         0
     } else {
@@ -88,10 +95,20 @@ pub async fn list(
             filter_user_email,
             filter_user_id,
             csrf_token => csrf.as_str(),
+            current_session_id,
         },
         state.is_production,
     )?;
     Ok(html.into_response())
+}
+
+/// Extract the current admin session ID from the request cookie.
+async fn resolve_current_session_id(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
+    let cookie_name = state.auth_client.session_cookie_name();
+    let token = parse_session_cookie(cookie_header, cookie_name)?;
+    let session = state.ath.db().lookup_session(&token).await.ok()??;
+    Some(session.id.to_string())
 }
 
 /// POST /admin/sessions/:id/revoke — revoke a single session.

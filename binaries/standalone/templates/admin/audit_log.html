@@ -8,7 +8,10 @@
 {% block main_class %}has-tablewrap{% endblock %}
 
 {% block page_content %}
-  <div class="wf-panel" style="margin:16px 24px 0">
+  <style>
+    .audit-filter-panel { margin: 16px 24px 16px; }
+  </style>
+  <div class="wf-panel audit-filter-panel">
     <div class="wf-panel-head">
       <div class="wf-panel-title">Filter events</div>
       {% if total > 0 %}

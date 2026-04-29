@@ -128,6 +128,7 @@ fn ambient_ctx_for(template: &str, shell: &ShellContext) -> minijinja::Value {
             total_pages => 0_u32,
             filter_user_email => None::<String>,
             filter_user_id => None::<String>,
+            current_session_id => None::<String>,
         },
         "admin/audit_log.html" => context! {
             shell => Value::from_serialize(shell),
