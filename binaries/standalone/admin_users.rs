@@ -21,6 +21,7 @@ pub fn routes() -> Router<AppState> {
 }
 
 /// Parse a user ID from a path segment, redirecting to the users list on failure.
+#[allow(clippy::result_large_err)]
 fn parse_user_id(raw: &str) -> Result<UserId, Response> {
     raw.parse::<UserId>()
         .map_err(|_| Redirect::to("/admin/users").into_response())

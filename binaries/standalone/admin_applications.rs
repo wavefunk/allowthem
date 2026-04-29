@@ -18,6 +18,7 @@ use minijinja::value::Value;
 /// Returns `Ok(id)` on valid UUID, or `Err(redirect)` on parse failure.
 /// Callers return the Err variant directly via early-return since
 /// `Result<Response, AppError>` accepts `Ok(redirect)`.
+#[allow(clippy::result_large_err)]
 fn parse_app_id(raw: &str) -> Result<ApplicationId, Response> {
     raw.parse::<ApplicationId>()
         .map_err(|_| Redirect::to("/admin/applications").into_response())
