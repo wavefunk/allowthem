@@ -39,7 +39,7 @@
                   {% endif %}
                 </td>
                 <td>{% if app.is_trusted %}Yes{% else %}No{% endif %}</td>
-                <td>{{ app.created_at }}</td>
+                <td>{{ app.created_at | datefmt }}</td>
               </tr>
             {% endfor %}
           </tbody>

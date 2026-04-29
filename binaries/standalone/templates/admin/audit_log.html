@@ -88,7 +88,7 @@
           <tbody>
             {% for entry in entries %}
               <tr>
-                <td>{{ entry.created_at }}</td>
+                <td>{{ entry.created_at | datefmt }}</td>
                 <td>
                   {% if entry.is_failure %}
                     <span class="wf-tag err">{{ entry.event_label }}</span>

@@ -79,12 +79,12 @@
 
         <div class="wf-dl-row">
           <dt>Created</dt>
-          <dd>{{ app.created_at }}</dd>
+          <dd>{{ app.created_at | datefmt }}</dd>
         </div>
 
         <div class="wf-dl-row">
           <dt>Updated</dt>
-          <dd>{{ app.updated_at }}</dd>
+          <dd>{{ app.updated_at | datefmt }}</dd>
         </div>
       </dl>
 

@@ -41,8 +41,8 @@
                 <td title="{% if session.user_agent %}{{ session.user_agent }}{% endif %}">
                   {% if session.user_agent %}{{ session.user_agent }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}
                 </td>
-                <td>{{ session.created_at }}</td>
-                <td>{{ session.expires_at }}</td>
+                <td>{{ session.created_at | datefmt }}</td>
+                <td>{{ session.expires_at | datefmt }}</td>
                 <td>
                   <form method="POST" action="/admin/sessions/{{ session.id }}/revoke"
                         onsubmit="return confirm('This will end this session immediately.')">
