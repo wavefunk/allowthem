@@ -10,7 +10,7 @@
   <span class="wf-ml-seg">{{ status_env | default("DEV") }}</span>
   <span class="wf-ml-fill" aria-hidden="true"></span>
   <span id="wf-screen-label" class="wf-ml-seg"></span>
-  <span class="wf-ml-seg">{{ status_session | default("ANON") }}</span>
+  <span class="wf-ml-seg">{{ (shell.status_session if shell is defined and shell.status_session) or status_session | default("ANON") }}</span>
   <span class="wf-ml-seg"
         data-mode-toggle
         title="Toggle color mode"
