@@ -95,6 +95,19 @@
           <div class="wf-empty-title">No linked accounts</div>
         </div>
       {% endif %}
+      {# Link provider buttons — visible when that provider is not already linked #}
+      {% set linked_providers = [] %}
+      {% for account in oauth_accounts %}
+        {% set linked_providers = linked_providers + [account.provider] %}
+      {% endfor %}
+      <div class="wf-f wf-gap-3 wf-mt-4">
+        {% if "google" not in linked_providers %}
+          <a class="wf-btn" href="/oauth/google/link">Link Google</a>
+        {% endif %}
+        {% if "github" not in linked_providers %}
+          <a class="wf-btn" href="/oauth/github/link">Link GitHub</a>
+        {% endif %}
+      </div>
     </div>
   </div>
 {% endblock %}
