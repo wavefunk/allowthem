@@ -19,7 +19,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::response::{IntoResponse, Response};
+use axum::http::StatusCode;
+use axum::response::{Html, IntoResponse, Response};
 use axum::{Router, routing::get};
 use chrono::Duration;
 use eyre::Result;
@@ -38,6 +39,7 @@ use allowthem_core::{
 };
 use allowthem_server::{
     AllRoutesBuilder, OptionalAuthUser, ShellContext, csrf_middleware, inject_ath_into_extensions,
+    render_error_page,
 };
 
 use crate::error::AppError;
@@ -208,6 +210,8 @@ async fn main() -> Result<()> {
         app
     };
 
+    let app = app.fallback(fallback_404);
+
     // 8. Serve
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!("listening on {}", config.bind);
@@ -223,6 +227,14 @@ async fn main() -> Result<()> {
 
 async fn health() -> impl IntoResponse {
     axum::Json(serde_json::json!({"status": "ok"}))
+}
+
+async fn fallback_404() -> impl IntoResponse {
+    let html = render_error_page(
+        "Not found",
+        "The page you are looking for could not be found.",
+    );
+    (StatusCode::NOT_FOUND, Html(html))
 }
 
 /// GET / — welcome page for anonymous visitors, dashboard for authenticated users.
