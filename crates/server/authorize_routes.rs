@@ -56,6 +56,7 @@ pub enum AuthorizeOutcome {
 pub struct ConsentNeededData {
     pub context: ConsentContext,
     pub params: ValidatedAuthorize,
+    pub user_email: String,
 }
 
 /// Query parameters for GET /oauth/authorize.
@@ -445,6 +446,7 @@ pub async fn check_authorization(
         return AuthorizeOutcome::ConsentNeeded(Box::new(ConsentNeededData {
             context,
             params: validated,
+            user_email: user.email.as_str().to_string(),
         }));
     }
 

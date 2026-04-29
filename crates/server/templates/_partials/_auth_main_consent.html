@@ -50,6 +50,9 @@
               class="wf-btn wf-w-full">Deny</button>
     </form>
 
+    {% if user_email %}
+    <p class="wf-caption wf-mt-4">Authorizing as {{ user_email }}</p>
+    {% endif %}
     <p class="wf-caption wf-mt-4">Authorizing will redirect you to {{ redirect_uri }}</p>
   </div>
 </main>

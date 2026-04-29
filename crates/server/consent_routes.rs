@@ -67,6 +67,7 @@ struct ConsentRenderFields {
     code_challenge_method: String,
     nonce: Option<String>,
     csrf_token: String,
+    user_email: String,
 }
 
 /// Build the shared render fields from the consent outcome + CSRF token.
@@ -95,6 +96,7 @@ fn build_render_fields(data: &ConsentNeededData, csrf_token: &str) -> ConsentRen
         code_challenge_method: data.params.code_challenge_method.clone(),
         nonce: data.params.nonce.clone(),
         csrf_token: csrf_token.to_string(),
+        user_email: data.user_email.clone(),
     }
 }
 
@@ -123,6 +125,7 @@ fn render_consent_fragment(
         code_challenge_method => &fields.code_challenge_method,
         nonce => &fields.nonce,
         csrf_token => &fields.csrf_token,
+        user_email => &fields.user_email,
         is_production => config.is_production,
         page_title => page_title,
         status_hint => "CONSENT",
@@ -163,6 +166,7 @@ fn render_consent_full(
             code_challenge_method => &fields.code_challenge_method,
             nonce => &fields.nonce,
             csrf_token => &fields.csrf_token,
+            user_email => &fields.user_email,
             is_production => config.is_production,
         },
     )
@@ -229,6 +233,7 @@ mod tests {
             code_challenge_method: "S256".into(),
             nonce: None,
             csrf_token: "tok".into(),
+            user_email: "user@example.com".into(),
         }
     }
 
