@@ -28,7 +28,10 @@ const FALLBACK_ERROR_HTML: &str = r#"<!DOCTYPE html>
 </html>"#;
 
 /// Build a static error page by replacing placeholders in the fallback HTML.
-fn static_error_page(title: &str, message: &str) -> String {
+///
+/// Also available as `render_error_page` for use by other modules that need
+/// to produce styled error pages without access to the template environment.
+pub fn render_error_page(title: &str, message: &str) -> String {
     FALLBACK_ERROR_HTML
         .replace("{{TITLE}}", title)
         .replace("{{MESSAGE}}", message)
@@ -57,14 +60,14 @@ impl IntoResponse for BrowserError {
         match self {
             BrowserError::Template(e) => {
                 tracing::error!(error = %e, "template render failed");
-                let html = static_error_page(
+                let html = render_error_page(
                     "Internal error",
                     "Something went wrong while rendering this page.",
                 );
                 (StatusCode::INTERNAL_SERVER_ERROR, Html(html)).into_response()
             }
             BrowserError::Auth(allowthem_core::AuthError::NotFound) => {
-                let html = static_error_page(
+                let html = render_error_page(
                     "Not found",
                     "The page you are looking for could not be found.",
                 );
@@ -72,12 +75,12 @@ impl IntoResponse for BrowserError {
             }
             BrowserError::Auth(allowthem_core::AuthError::Validation(msg)) => {
                 tracing::warn!(error = %msg, "validation error");
-                let html = static_error_page("Validation error", &msg);
+                let html = render_error_page("Validation error", &msg);
                 (StatusCode::UNPROCESSABLE_ENTITY, Html(html)).into_response()
             }
             BrowserError::Auth(e) => {
                 tracing::error!(error = %e, "auth error");
-                let html = static_error_page(
+                let html = render_error_page(
                     "Internal error",
                     "Something went wrong. Please try again later.",
                 );
