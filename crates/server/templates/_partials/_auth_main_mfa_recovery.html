@@ -33,8 +33,14 @@
       <button type="button" class="wf-btn" id="download-codes">Download as .txt</button>
     </div>
 
+    <label class="wf-check-row wf-mt-5">
+      <input type="checkbox" class="wf-check" id="codes-saved">
+      I have saved these recovery codes in a safe place
+    </label>
+
     <p class="wf-mt-4">
-      <a class="wf-btn primary" href="/settings">Back to settings →</a>
+      <a class="wf-btn primary disabled" href="/settings" id="back-to-settings"
+         aria-disabled="true" tabindex="-1">Back to settings →</a>
     </p>
   </div>
 </main>
@@ -72,5 +78,23 @@
     a.download="allowthem-recovery-codes.txt";
     a.click();URL.revokeObjectURL(a.href);
   });
+  var chk=document.getElementById("codes-saved");
+  var back=document.getElementById("back-to-settings");
+  if(chk&&back){
+    chk.addEventListener("change",function(){
+      if(chk.checked){
+        back.classList.remove("disabled");
+        back.removeAttribute("aria-disabled");
+        back.removeAttribute("tabindex");
+      }else{
+        back.classList.add("disabled");
+        back.setAttribute("aria-disabled","true");
+        back.setAttribute("tabindex","-1");
+      }
+    });
+    back.addEventListener("click",function(e){
+      if(!chk.checked)e.preventDefault();
+    });
+  }
 })();
 </script>
