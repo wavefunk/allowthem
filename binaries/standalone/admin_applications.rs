@@ -9,9 +9,31 @@ use serde::Deserialize;
 
 use allowthem_core::AuthError;
 use allowthem_core::applications::{CreateApplicationParams, UpdateApplication};
-use allowthem_core::types::{ApplicationId, ClientType};
+use allowthem_core::types::{ApplicationId, ClientType, UserId};
 use allowthem_server::{BrowserAdminUser, CsrfToken, ShellContext};
 use minijinja::value::Value;
+
+/// Parse an application ID from a path segment.
+///
+/// Returns `Ok(id)` on valid UUID, or `Err(redirect)` on parse failure.
+/// Callers return the Err variant directly via early-return since
+/// `Result<Response, AppError>` accepts `Ok(redirect)`.
+fn parse_app_id(raw: &str) -> Result<ApplicationId, Response> {
+    raw.parse::<ApplicationId>()
+        .map_err(|_| Redirect::to("/admin/applications").into_response())
+}
+
+/// Look up a user's email by ID. Returns `None` if the user doesn't exist.
+async fn resolve_user_email(state: &AppState, user_id: Option<UserId>) -> Option<String> {
+    let uid = user_id?;
+    state
+        .ath
+        .db()
+        .get_user(uid)
+        .await
+        .ok()
+        .map(|u| u.email.as_str().to_string())
+}
 
 use crate::error::AppError;
 use crate::state::AppState;
@@ -183,6 +205,7 @@ pub async fn create(
     {
         Ok((app, secret)) => {
             let uris = app.redirect_uri_list()?;
+            let created_by_email = resolve_user_email(&state, app.created_by).await;
             let shell = ShellContext::new(true, "/admin/applications", "allowthem");
             let html = crate::templates::render(
                 &state.templates,
@@ -193,6 +216,7 @@ pub async fn create(
                     redirect_uris => &uris,
                     client_secret => secret.as_ref().map(|s| s.as_str()).unwrap_or(""),
                     csrf_token => csrf.as_str(),
+                    created_by_email,
                 },
                 state.is_production,
             )?;
@@ -232,11 +256,19 @@ pub async fn create(
 pub async fn detail(
     State(state): State<AppState>,
     BrowserAdminUser(_user): BrowserAdminUser,
-    Path(id): Path<ApplicationId>,
+    Path(raw_id): Path<String>,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
+    let id = match parse_app_id(&raw_id) {
+        Ok(id) => id,
+        Err(r) => return Ok(r),
+    };
     let app = state.ath.db().get_application(id).await?;
     let uris = app.redirect_uri_list()?;
+
+    // Resolve created_by UUID to email for display.
+    let created_by_email = resolve_user_email(&state, app.created_by).await;
+
     let shell = ShellContext::new(true, "/admin/applications", "allowthem");
     let html = crate::templates::render(
         &state.templates,
@@ -246,6 +278,7 @@ pub async fn detail(
             app => &app,
             redirect_uris => &uris,
             csrf_token => csrf.as_str(),
+            created_by_email,
         },
         state.is_production,
     )?;
@@ -256,9 +289,13 @@ pub async fn detail(
 pub async fn edit_form(
     State(state): State<AppState>,
     BrowserAdminUser(_user): BrowserAdminUser,
-    Path(id): Path<ApplicationId>,
+    Path(raw_id): Path<String>,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
+    let id = match parse_app_id(&raw_id) {
+        Ok(id) => id,
+        Err(r) => return Ok(r),
+    };
     let app = state.ath.db().get_application(id).await?;
     let uris = app.redirect_uri_list()?;
     let shell = ShellContext::new(true, "/admin/applications", "allowthem");
@@ -280,10 +317,14 @@ pub async fn edit_form(
 pub async fn update(
     State(state): State<AppState>,
     BrowserAdminUser(_user): BrowserAdminUser,
-    Path(id): Path<ApplicationId>,
+    Path(raw_id): Path<String>,
     csrf: CsrfToken,
     HtmlForm(form): HtmlForm<EditApplicationForm>,
 ) -> Result<Response, AppError> {
+    let id = match parse_app_id(&raw_id) {
+        Ok(id) => id,
+        Err(r) => return Ok(r),
+    };
     let name = form.name.trim().to_string();
     let redirect_uris = filter_uris(form.redirect_uris);
     let is_trusted = checkbox(&form.is_trusted);
@@ -356,11 +397,16 @@ pub async fn update(
 pub async fn regenerate_secret(
     State(state): State<AppState>,
     BrowserAdminUser(_user): BrowserAdminUser,
-    Path(id): Path<ApplicationId>,
+    Path(raw_id): Path<String>,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
+    let id = match parse_app_id(&raw_id) {
+        Ok(id) => id,
+        Err(r) => return Ok(r),
+    };
     let (app, secret) = state.ath.db().regenerate_client_secret(id).await?;
     let uris = app.redirect_uri_list()?;
+    let created_by_email = resolve_user_email(&state, app.created_by).await;
     let shell = ShellContext::new(true, "/admin/applications", "allowthem");
     let html = crate::templates::render(
         &state.templates,
@@ -371,6 +417,7 @@ pub async fn regenerate_secret(
             redirect_uris => &uris,
             client_secret => secret.as_str(),
             csrf_token => csrf.as_str(),
+            created_by_email,
         },
         state.is_production,
     )?;
@@ -381,9 +428,13 @@ pub async fn regenerate_secret(
 pub async fn delete(
     State(state): State<AppState>,
     BrowserAdminUser(_user): BrowserAdminUser,
-    Path(id): Path<ApplicationId>,
+    Path(raw_id): Path<String>,
     _csrf: CsrfToken,
 ) -> Result<Response, AppError> {
+    let id = match parse_app_id(&raw_id) {
+        Ok(id) => id,
+        Err(r) => return Ok(r),
+    };
     state.ath.db().delete_application(id).await?;
     Ok(Redirect::to("/admin/applications").into_response())
 }

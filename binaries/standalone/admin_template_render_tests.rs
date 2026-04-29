@@ -75,6 +75,7 @@ fn ambient_ctx_for(template: &str, shell: &ShellContext) -> minijinja::Value {
             client_secret => None::<String>,
             redirect_uris => Vec::<String>::new(),
             error => None::<String>,
+            created_by_email => None::<String>,
         },
         "admin/application_new.html" => context! {
             shell => Value::from_serialize(shell),

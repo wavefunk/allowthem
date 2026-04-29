@@ -3,7 +3,7 @@
 {% block title %}{{ app.name }} — allowthem{% endblock %}
 
 {% block pagetitle %}{{ app.name | upper }}{% endblock %}
-{% block crumbs %}ADMIN · APPLICATIONS · {{ app.client_id }}{% endblock %}
+{% block crumbs %}ALLOWTHEM · ADMIN · APPLICATIONS · {{ app.client_id }}{% endblock %}
 
 {% block content %}
   <div class="wf-panel">
@@ -74,7 +74,7 @@
 
         <div class="wf-dl-row">
           <dt>Created by</dt>
-          <dd>{% if app.created_by %}{{ app.created_by }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</dd>
+          <dd>{% if created_by_email %}{{ created_by_email }}{% elif app.created_by %}<span title="{{ app.created_by }}">{{ app.created_by | truncate(length=12) }}</span>{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</dd>
         </div>
 
         <div class="wf-dl-row">
