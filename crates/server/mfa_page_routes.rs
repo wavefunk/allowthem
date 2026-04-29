@@ -424,22 +424,7 @@ async fn post_regenerate_recovery_codes(
         );
     }
 
-    let ip = client_ip(&headers);
-    let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
-
     let recovery_codes = ath.regenerate_recovery_codes(user.id).await?;
-
-    let _ = ath
-        .db()
-        .log_audit(
-            AuditEvent::MfaEnabled, // Recovery codes regenerated
-            Some(&user.id),
-            None,
-            ip.as_deref(),
-            ua,
-            Some("recovery codes regenerated"),
-        )
-        .await;
 
     let default = default_branding_ref(&default_branding);
     let branding = resolve_branding(&ath, None, default).await;
@@ -834,6 +819,12 @@ mod tests {
             "must produce an SVG data URI"
         );
         assert!(uri.contains("svg"), "must contain SVG content");
+        // The URI is injected via |safe in the template; ensure no raw & that
+        // would break HTML attribute parsing.
+        assert!(
+            !uri.contains('&'),
+            "data URI must not contain raw '&' characters"
+        );
     }
 
     #[test]
