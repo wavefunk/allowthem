@@ -17,9 +17,13 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{Router, response::IntoResponse, routing::get};
+use axum::extract::State;
+use axum::response::{IntoResponse, Response};
+use axum::{Router, routing::get};
 use chrono::Duration;
 use eyre::Result;
+use minijinja::context;
+use minijinja::value::Value;
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
@@ -27,11 +31,15 @@ use tracing_subscriber::EnvFilter;
 use allowthem_core::applications::CreateApplicationParams;
 #[cfg(test)]
 use allowthem_core::types::ClientType;
+use allowthem_core::types::RoleName;
 use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
-use allowthem_server::{AllRoutesBuilder, csrf_middleware, inject_ath_into_extensions};
+use allowthem_server::{
+    AllRoutesBuilder, OptionalAuthUser, ShellContext, csrf_middleware, inject_ath_into_extensions,
+};
 
+use crate::error::AppError;
 use crate::state::AppState;
 
 #[tokio::main]
@@ -174,13 +182,20 @@ async fn main() -> Result<()> {
             ath.clone(),
             inject_ath_into_extensions,
         ))
+        .with_state(state.clone());
+
+    // Public pages that need AppState (root, terms, privacy).
+    let page_router = Router::new()
+        .route("/", get(root))
+        .route("/terms", get(terms))
+        .route("/privacy", get(privacy))
         .with_state(state);
 
     // auth routes already carry inject shim from AllRoutesBuilder::build()
     let app = Router::new()
         .route("/health", get(health))
-        .route("/", get(health))
         .nest_service("/static", ServeDir::new("binaries/standalone/static"))
+        .merge(page_router)
         .merge(admin_router)
         .merge(routes);
 
@@ -206,6 +221,69 @@ async fn main() -> Result<()> {
 
 async fn health() -> impl IntoResponse {
     axum::Json(serde_json::json!({"status": "ok"}))
+}
+
+/// GET / — welcome page for anonymous visitors, dashboard for authenticated users.
+async fn root(
+    State(state): State<AppState>,
+    OptionalAuthUser(maybe_user): OptionalAuthUser,
+) -> Result<Response, AppError> {
+    match maybe_user {
+        None => {
+            let html = crate::templates::render(
+                &state.templates,
+                "welcome.html",
+                context! {},
+                state.is_production,
+            )?;
+            Ok(html.into_response())
+        }
+        Some(user) => {
+            let db = state.ath.db();
+            let admin_role = RoleName::new("admin");
+            let is_admin = db.has_role(&user.id, &admin_role).await?;
+            let mfa_enabled = db.has_mfa_enabled(user.id).await?;
+            let oauth_account_count = db.get_user_oauth_accounts(user.id).await?.len();
+            let shell = ShellContext::new(is_admin, "/", "allowthem");
+
+            let html = crate::templates::render(
+                &state.templates,
+                "dashboard.html",
+                context! {
+                    shell => Value::from_serialize(&shell),
+                    email => user.email.as_str(),
+                    is_active => user.is_active,
+                    is_admin,
+                    mfa_enabled,
+                    oauth_account_count,
+                },
+                state.is_production,
+            )?;
+            Ok(html.into_response())
+        }
+    }
+}
+
+/// GET /terms — Terms of Service page.
+async fn terms(State(state): State<AppState>) -> Result<Response, AppError> {
+    let html = crate::templates::render(
+        &state.templates,
+        "terms.html",
+        context! {},
+        state.is_production,
+    )?;
+    Ok(html.into_response())
+}
+
+/// GET /privacy — Privacy Policy page.
+async fn privacy(State(state): State<AppState>) -> Result<Response, AppError> {
+    let html = crate::templates::render(
+        &state.templates,
+        "privacy.html",
+        context! {},
+        state.is_production,
+    )?;
+    Ok(html.into_response())
 }
 
 async fn shutdown_signal() {

@@ -336,3 +336,103 @@ fn settings_template_user_context_passes_guardrail() {
         .unwrap();
     assert_guardrails("settings.html", &body, false);
 }
+
+// --- Standalone page template render tests ---
+
+#[test]
+fn dashboard_template_renders_and_passes_guardrail() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let shell = ShellContext::new(true, "/", "allowthem");
+    let body = env
+        .get_template("dashboard.html")
+        .unwrap()
+        .render(context! {
+            shell => Value::from_serialize(&shell),
+            is_production => false,
+            email => "user@example.com",
+            is_active => true,
+            is_admin => true,
+            mfa_enabled => false,
+            oauth_account_count => 0usize,
+        })
+        .unwrap();
+    assert_guardrails("dashboard.html", &body, true);
+    assert!(
+        body.contains("user@example.com"),
+        "dashboard: email not rendered"
+    );
+}
+
+#[test]
+fn dashboard_template_hides_admin_link_for_non_admin() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let shell = ShellContext::new(false, "/", "allowthem");
+    let body = env
+        .get_template("dashboard.html")
+        .unwrap()
+        .render(context! {
+            shell => Value::from_serialize(&shell),
+            is_production => false,
+            email => "user@example.com",
+            is_active => true,
+            is_admin => false,
+            mfa_enabled => false,
+            oauth_account_count => 2usize,
+        })
+        .unwrap();
+    assert_guardrails("dashboard.html", &body, false);
+    assert!(
+        !body.contains("Admin panel"),
+        "dashboard: admin panel link visible for non-admin"
+    );
+}
+
+#[test]
+fn welcome_template_renders() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let body = env
+        .get_template("welcome.html")
+        .unwrap()
+        .render(context! { is_production => false })
+        .unwrap();
+    assert!(
+        body.contains("allowthem"),
+        "welcome: missing app name"
+    );
+    assert!(
+        body.contains("Log in"),
+        "welcome: missing login link"
+    );
+    assert!(
+        body.contains("Create account"),
+        "welcome: missing register link"
+    );
+}
+
+#[test]
+fn terms_template_renders() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let body = env
+        .get_template("terms.html")
+        .unwrap()
+        .render(context! { is_production => false })
+        .unwrap();
+    assert!(
+        body.contains("Terms of Service"),
+        "terms: missing heading"
+    );
+}
+
+#[test]
+fn privacy_template_renders() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let body = env
+        .get_template("privacy.html")
+        .unwrap()
+        .render(context! { is_production => false })
+        .unwrap();
+    assert!(
+        body.contains("Privacy Policy"),
+        "privacy: missing heading"
+    );
+}
