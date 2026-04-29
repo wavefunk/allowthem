@@ -74,7 +74,7 @@
 
         <div class="wf-dl-row">
           <dt>Created by</dt>
-          <dd>{% if created_by_email %}{{ created_by_email }}{% elif app.created_by %}<span title="{{ app.created_by }}">{{ app.created_by | truncate(length=12) }}</span>{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</dd>
+          <dd>{% if created_by_email %}{{ created_by_email }}{% elif app.created_by %}<span title="{{ app.created_by }}">{{ app.created_by[:12] }}{% if app.created_by | length > 12 %}&hellip;{% endif %}</span>{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</dd>
         </div>
 
         <div class="wf-dl-row">

@@ -244,6 +244,45 @@ fn assert_accent_vars_render(template: &str, base_ctx: minijinja::Value) {
     );
 }
 
+/// Verify the audit log template renders when entries use truncate filter
+/// (user_id present but user_email absent triggers `| truncate(length=12)`).
+#[test]
+fn audit_log_truncate_filter_renders() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let shell = ShellContext::new(true, "/admin/audit", "allowthem");
+    let entry = context! {
+        event_label => "Login",
+        is_failure => false,
+        user_id => "01970c0e-2345-7890-abcd-ef0123456789",
+        user_email => None::<String>,
+        ip_address => "127.0.0.1",
+        detail => None::<String>,
+        created_at => "2026-04-29 15:45:00",
+    };
+    let tmpl = env.get_template("admin/audit_log.html").unwrap();
+    let body = tmpl
+        .render(context! {
+            shell => Value::from_serialize(&shell),
+            is_production => false,
+            entries => vec![entry],
+            total => 1_u32,
+            page => 1_u32,
+            total_pages => 1_u32,
+            page_numbers => vec![1_u32],
+            user => "",
+            event => "",
+            outcome => "",
+            from => "",
+            to => "",
+        })
+        .unwrap_or_else(|e| panic!("audit_log.html render failed: {e}"));
+    // The user_id should be sliced to 12 chars with ellipsis
+    assert!(
+        body.contains("01970c0e-234"),
+        "truncated user_id not found in rendered audit log"
+    );
+}
+
 #[test]
 fn admin_templates_emit_non_default_accent_vars() {
     let shell = ShellContext::new(true, "/admin/applications", "allowthem");

@@ -103,7 +103,7 @@
                   {% if entry.user_email %}
                     <a class="wf-link" href="/admin/users/{{ entry.user_id }}">{{ entry.user_email }}</a>
                   {% elif entry.user_id %}
-                    <span title="{{ entry.user_id }}">{{ entry.user_id | truncate(length=12) }}</span>
+                    <span title="{{ entry.user_id }}">{{ entry.user_id[:12] }}{% if entry.user_id | length > 12 %}&hellip;{% endif %}</span>
                   {% else %}
                     &mdash;
                   {% endif %}
