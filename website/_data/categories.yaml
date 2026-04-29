@@ -1,0 +1,20 @@
+- name: Overview
+  desc: What allowthem is and how it works.
+
+- name: Getting Started
+  desc: Installation and quickstart guides.
+
+- name: Guides
+  desc: Integration patterns, branding, MFA, OAuth, and more.
+
+- name: Configuration
+  desc: TOML config, JWT settings, session tuning.
+
+- name: API Reference
+  desc: AuthClient trait, extractors, middleware, error types.
+
+- name: Database
+  desc: Schema, migrations, offline cache.
+
+- name: Deployment
+  desc: Standalone binary, reverse proxy, environment variables.

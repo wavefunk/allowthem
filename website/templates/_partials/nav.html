@@ -1,0 +1,13 @@
+<div class="wf-mnav">
+  <div class="wf-wordmark">
+    <div style="width: 22px; height: 22px; background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 800; font-size: 13px;">A</div>
+    <span class="wf-wordmark-name">ALLOWTHEM</span>
+  </div>
+  {% for item in nav %}
+    {% if item.external %}
+    <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.label }}</a>
+    {% else %}
+    <a {{ link_to(item.url) }}>{{ item.label }}</a>
+    {% endif %}
+  {% endfor %}
+</div>

@@ -1,0 +1,17 @@
+---
+data:
+  nav:
+    file: "nav.yaml"
+---
+{% extends "_base.html" %}
+
+{% block title %}Not found — {{ site.name }}{% endblock %}
+
+{% block body %}
+{% include "_partials/nav.html" %}
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; text-align: center; padding: var(--space-6);">
+  <h1 style="font-size: 80px; margin: 0 0 var(--space-3); color: var(--fg-faint);">404</h1>
+  <p style="font-size: 16px; color: var(--fg-muted); margin: 0 0 var(--space-5);">Page not found.</p>
+  <a {{ link_to("/index.html") }} class="wf-btn primary">Back to home</a>
+</div>
+{% endblock %}

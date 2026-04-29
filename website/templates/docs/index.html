@@ -1,0 +1,42 @@
+---
+data:
+  nav:
+    file: "nav.yaml"
+  docs_list:
+    file: "docs.yaml"
+  categories:
+    file: "categories.yaml"
+seo:
+  title: "Documentation — allowthem"
+  description: "Guides, API reference, configuration, and deployment documentation for allowthem."
+schema:
+  type: WebSite
+  breadcrumb_names:
+    docs: "Documentation"
+---
+{% extends "_base.html" %}
+
+{% block title %}Documentation — {{ site.name }}{% endblock %}
+
+{% block body %}
+{% include "_partials/nav.html" %}
+<div style="max-width: 960px; margin: 0 auto; padding: var(--space-7) var(--space-6) var(--space-9);">
+  <h1>Documentation</h1>
+  <p style="font-size: 16px; color: var(--fg-muted); line-height: 1.6; max-width: 60ch; margin-bottom: var(--space-7);">Guides, API reference, configuration, and deployment documentation for allowthem.</p>
+  <div class="wf-grid cols-2">
+    {% for cat in categories %}
+    <div class="wf-card" style="padding: var(--space-5);">
+      <h3 style="font-size: 16px; margin: 0 0 var(--space-1);">{{ cat.name }}</h3>
+      <p style="font-size: 13px; color: var(--fg-muted); margin: 0 0 var(--space-3);">{{ cat.desc }}</p>
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        {% for d in docs_list %}
+          {% if d.category == cat.name %}
+          <a {{ link_to("/docs/" ~ d.slug ~ ".html") }} style="font-size: 12px; color: var(--fg); text-decoration: none; padding: 2px 0;">{{ d.title }}</a>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

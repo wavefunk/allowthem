@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ site.name }}{% endblock %}</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="{{ asset('/css/01-tokens.css') }}">
+  <link rel="stylesheet" href="{{ asset('/css/02-base.css') }}">
+  <link rel="stylesheet" href="{{ asset('/css/03-layout.css') }}">
+  <link rel="stylesheet" href="{{ asset('/css/04-components.css') }}">
+  <link rel="stylesheet" href="{{ asset('/css/05-utilities.css') }}">
+  <style>:root { --accent: #fff; --accent-ink: #000; }</style>
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+</head>
+<body hx-boost="true">
+  {% block body %}{% endblock %}
+</body>
+</html>

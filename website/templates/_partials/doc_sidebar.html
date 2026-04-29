@@ -1,0 +1,17 @@
+<aside class="wf-docs-side" id="sidebar">
+  <div style="display: flex; align-items: center; gap: 10px; padding: 0 var(--space-5) var(--space-4); border-bottom: 1px solid var(--hairline); margin-bottom: var(--space-4);">
+    <div style="width: 20px; height: 20px; background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 800; font-size: 12px;">A</div>
+    <div>
+      <div style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-strong);">ALLOWTHEM</div>
+      <div style="font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-faint); margin-top: 2px;">DOCS</div>
+    </div>
+  </div>
+  {% for cat in categories %}
+  <div class="wf-docs-side-section">{{ cat.name }}</div>
+  {% for d in docs_list %}
+    {% if d.category == cat.name %}
+    <a {{ link_to("/docs/" ~ d.slug ~ ".html", "#doc-content") }}{% if doc is defined and doc.slug == d.slug %} class="is-active"{% endif %}>{{ d.title }}</a>
+    {% endif %}
+  {% endfor %}
+  {% endfor %}
+</aside>

@@ -1,0 +1,36 @@
+{% extends "_base.html" %}
+
+{% block body %}
+{% include "_partials/nav.html" %}
+<div class="wf-docs-shell">
+  {% block sidebar %}
+  {% include "_partials/doc_sidebar.html" %}
+  {% endblock %}
+  <main class="wf-prose" id="doc-content">
+    {% block doc_content %}{% endblock %}
+    {% block doc_pager %}{% endblock %}
+  </main>
+  <div class="wf-toc" id="docs-toc"></div>
+</div>
+<script>
+(function() {
+  var toc = document.getElementById('docs-toc');
+  if (!toc) return;
+  var headings = document.querySelectorAll('.wf-prose h2, .wf-prose h3');
+  if (!headings.length) return;
+  var frag = document.createDocumentFragment();
+  var label = document.createElement('h4');
+  label.textContent = 'ON THIS PAGE';
+  frag.appendChild(label);
+  headings.forEach(function(el) {
+    if (!el.id) el.id = el.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-$/, '');
+    var a = document.createElement('a');
+    a.href = '#' + el.id;
+    a.textContent = el.textContent;
+    if (el.tagName === 'H3') a.className = 'h3';
+    frag.appendChild(a);
+  });
+  toc.appendChild(frag);
+})();
+</script>
+{% endblock %}
