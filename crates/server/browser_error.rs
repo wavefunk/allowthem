@@ -27,14 +27,32 @@ const FALLBACK_ERROR_HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
+/// Escape HTML-special characters to prevent XSS when interpolating
+/// into the static error page template.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#x27;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Build a static error page by replacing placeholders in the fallback HTML.
 ///
 /// Also available as `render_error_page` for use by other modules that need
 /// to produce styled error pages without access to the template environment.
+/// Values are HTML-escaped to prevent XSS.
 pub fn render_error_page(title: &str, message: &str) -> String {
     FALLBACK_ERROR_HTML
-        .replace("{{TITLE}}", title)
-        .replace("{{MESSAGE}}", message)
+        .replace("{{TITLE}}", &html_escape(title))
+        .replace("{{MESSAGE}}", &html_escape(message))
 }
 
 #[derive(Debug)]
