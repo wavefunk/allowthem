@@ -123,10 +123,11 @@ pub fn routes() -> Router<AppState> {
 /// GET /admin/applications — list all registered applications.
 pub async fn list(
     State(state): State<AppState>,
-    BrowserAdminUser(_user): BrowserAdminUser,
+    BrowserAdminUser(user): BrowserAdminUser,
 ) -> Result<Response, AppError> {
     let applications = state.ath.db().list_applications().await?;
-    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem")
+        .with_session(user.email.as_str());
     let html = crate::templates::render(
         &state.templates,
         "admin/applications_list.html",
@@ -142,10 +143,10 @@ pub async fn list(
 /// GET /admin/applications/new — render the create application form.
 pub async fn new_form(
     State(state): State<AppState>,
-    BrowserAdminUser(_user): BrowserAdminUser,
+    BrowserAdminUser(user): BrowserAdminUser,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
-    let html = render_new_form(&state, csrf.as_str(), "", "", &[], false, "", "")?;
+    let html = render_new_form(&state, user.email.as_str(), csrf.as_str(), "", "", &[], false, "", "")?;
     Ok(html.into_response())
 }
 
@@ -165,6 +166,7 @@ pub async fn create(
     if name.is_empty() {
         let html = render_new_form(
             &state,
+            user.email.as_str(),
             csrf.as_str(),
             "Application name is required",
             "",
@@ -207,7 +209,8 @@ pub async fn create(
         Ok((app, secret)) => {
             let uris = app.redirect_uri_list()?;
             let created_by_email = resolve_user_email(&state, app.created_by).await;
-            let shell = ShellContext::new(true, "/admin/applications", "allowthem");
+            let shell = ShellContext::new(true, "/admin/applications", "allowthem")
+        .with_session(user.email.as_str());
             let html = crate::templates::render(
                 &state.templates,
                 "admin/application_detail.html",
@@ -226,6 +229,7 @@ pub async fn create(
         Err(AuthError::InvalidRedirectUri(msg)) => {
             let html = render_new_form(
                 &state,
+                user.email.as_str(),
                 csrf.as_str(),
                 &format!("Invalid redirect URI: {msg}"),
                 &name,
@@ -239,6 +243,7 @@ pub async fn create(
         Err(AuthError::Validation(msg)) => {
             let html = render_new_form(
                 &state,
+                user.email.as_str(),
                 csrf.as_str(),
                 &msg,
                 &name,
@@ -256,7 +261,7 @@ pub async fn create(
 /// GET /admin/applications/:id — show application detail.
 pub async fn detail(
     State(state): State<AppState>,
-    BrowserAdminUser(_user): BrowserAdminUser,
+    BrowserAdminUser(user): BrowserAdminUser,
     Path(raw_id): Path<String>,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
@@ -270,7 +275,8 @@ pub async fn detail(
     // Resolve created_by UUID to email for display.
     let created_by_email = resolve_user_email(&state, app.created_by).await;
 
-    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem")
+        .with_session(user.email.as_str());
     let html = crate::templates::render(
         &state.templates,
         "admin/application_detail.html",
@@ -289,7 +295,7 @@ pub async fn detail(
 /// GET /admin/applications/:id/edit — render the edit form.
 pub async fn edit_form(
     State(state): State<AppState>,
-    BrowserAdminUser(_user): BrowserAdminUser,
+    BrowserAdminUser(user): BrowserAdminUser,
     Path(raw_id): Path<String>,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
@@ -299,7 +305,8 @@ pub async fn edit_form(
     };
     let app = state.ath.db().get_application(id).await?;
     let uris = app.redirect_uri_list()?;
-    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem")
+        .with_session(user.email.as_str());
     let html = crate::templates::render(
         &state.templates,
         "admin/application_edit.html",
@@ -317,7 +324,7 @@ pub async fn edit_form(
 /// POST /admin/applications/:id — update application fields.
 pub async fn update(
     State(state): State<AppState>,
-    BrowserAdminUser(_user): BrowserAdminUser,
+    BrowserAdminUser(user): BrowserAdminUser,
     Path(raw_id): Path<String>,
     csrf: CsrfToken,
     HtmlForm(form): HtmlForm<EditApplicationForm>,
@@ -357,7 +364,8 @@ pub async fn update(
         Err(AuthError::InvalidRedirectUri(msg)) => {
             let app = state.ath.db().get_application(id).await?;
             let uris = app.redirect_uri_list()?;
-            let shell = ShellContext::new(true, "/admin/applications", "allowthem");
+            let shell = ShellContext::new(true, "/admin/applications", "allowthem")
+        .with_session(user.email.as_str());
             let html = crate::templates::render(
                 &state.templates,
                 "admin/application_edit.html",
@@ -375,7 +383,8 @@ pub async fn update(
         Err(AuthError::Validation(msg)) => {
             let app = state.ath.db().get_application(id).await?;
             let uris = app.redirect_uri_list()?;
-            let shell = ShellContext::new(true, "/admin/applications", "allowthem");
+            let shell = ShellContext::new(true, "/admin/applications", "allowthem")
+        .with_session(user.email.as_str());
             let html = crate::templates::render(
                 &state.templates,
                 "admin/application_edit.html",
@@ -397,7 +406,7 @@ pub async fn update(
 /// POST /admin/applications/:id/regenerate-secret — generate new client secret.
 pub async fn regenerate_secret(
     State(state): State<AppState>,
-    BrowserAdminUser(_user): BrowserAdminUser,
+    BrowserAdminUser(user): BrowserAdminUser,
     Path(raw_id): Path<String>,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
@@ -408,7 +417,8 @@ pub async fn regenerate_secret(
     let (app, secret) = state.ath.db().regenerate_client_secret(id).await?;
     let uris = app.redirect_uri_list()?;
     let created_by_email = resolve_user_email(&state, app.created_by).await;
-    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem")
+        .with_session(user.email.as_str());
     let html = crate::templates::render(
         &state.templates,
         "admin/application_detail.html",
@@ -443,6 +453,7 @@ pub async fn delete(
 #[allow(clippy::too_many_arguments)]
 fn render_new_form(
     state: &AppState,
+    admin_email: &str,
     csrf_token: &str,
     error: &str,
     form_name: &str,
@@ -451,7 +462,8 @@ fn render_new_form(
     form_logo_url: &str,
     form_primary_color: &str,
 ) -> Result<axum::response::Html<String>, AppError> {
-    let shell = ShellContext::new(true, "/admin/applications", "allowthem");
+    let shell = ShellContext::new(true, "/admin/applications", "allowthem")
+        .with_session(admin_email);
     crate::templates::render(
         &state.templates,
         "admin/application_new.html",

@@ -47,7 +47,7 @@ pub fn routes() -> Router<AppState> {
 /// GET /admin/sessions — paginated session list with optional user filter.
 pub async fn list(
     State(state): State<AppState>,
-    BrowserAdminUser(_user): BrowserAdminUser,
+    BrowserAdminUser(user): BrowserAdminUser,
     headers: HeaderMap,
     Query(params): Query<SessionListQuery>,
     csrf: CsrfToken,
@@ -83,7 +83,8 @@ pub async fn list(
         result.total.div_ceil(PAGE_SIZE)
     };
 
-    let shell = ShellContext::new(true, "/admin/sessions", "allowthem");
+    let shell = ShellContext::new(true, "/admin/sessions", "allowthem")
+        .with_session(user.email.as_str());
     let html = crate::templates::render(
         &state.templates,
         "admin/sessions_list.html",
