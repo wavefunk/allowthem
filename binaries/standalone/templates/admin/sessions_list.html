@@ -3,11 +3,27 @@
 {% block title %}Sessions — allowthem{% endblock %}
 
 {% block pagetitle %}SESSIONS{% endblock %}
-{% block crumbs %}ADMIN · SESSIONS{% endblock %}
+{% block crumbs %}ALLOWTHEM · ADMIN · SESSIONS{% endblock %}
 {% block page_meta %}{{ total }} active session{% if total != 1 %}s{% endif %}{% endblock %}
 {% block main_class %}has-tablewrap{% endblock %}
 
 {% block page_content %}
+  <style>
+    .sessions-table { table-layout: fixed; width: 100%; }
+    .sessions-table th:nth-child(1),
+    .sessions-table td:nth-child(1) { width: 22%; }
+    .sessions-table th:nth-child(2),
+    .sessions-table td:nth-child(2) { width: 12%; }
+    .sessions-table th:nth-child(3),
+    .sessions-table td:nth-child(3) { width: 26%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sessions-table th:nth-child(4),
+    .sessions-table td:nth-child(4),
+    .sessions-table th:nth-child(5),
+    .sessions-table td:nth-child(5) { width: 14%; }
+    .sessions-table th:nth-child(6),
+    .sessions-table td:nth-child(6) { width: 12%; }
+    .wf-row-highlight { background: var(--accent-a10, rgba(59,130,246,0.08)); }
+  </style>
   {% if filter_user_email %}
     <div class="wf-alert info" style="margin:16px 24px 0">
       <span class="wf-bar"></span>
@@ -22,7 +38,7 @@
   {% if sessions %}
     <div class="wf-tablewrap">
       <div class="wf-tablescroll">
-        <table class="wf-table sticky">
+        <table class="wf-table sticky sessions-table">
           <thead>
             <tr>
               <th>User</th>
@@ -35,14 +51,17 @@
           </thead>
           <tbody>
             {% for session in sessions %}
-              <tr>
-                <td><a class="wf-link" href="/admin/users/{{ session.user_id }}">{{ session.user_email }}</a></td>
+              <tr{% if current_session_id and session.id == current_session_id %} class="wf-row-highlight"{% endif %}>
+                <td>
+                  <a class="wf-link" href="/admin/users/{{ session.user_id }}">{{ session.user_email }}</a>
+                  {% if current_session_id and session.id == current_session_id %}<span class="wf-tag accent" style="margin-left:6px;">You</span>{% endif %}
+                </td>
                 <td>{% if session.ip_address %}{{ session.ip_address }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}</td>
                 <td title="{% if session.user_agent %}{{ session.user_agent }}{% endif %}">
                   {% if session.user_agent %}{{ session.user_agent }}{% else %}<span class="wf-tag muted">Unknown</span>{% endif %}
                 </td>
-                <td>{{ session.created_at }}</td>
-                <td>{{ session.expires_at }}</td>
+                <td>{{ session.created_at | datefmt }}</td>
+                <td>{{ session.expires_at | datefmt }}</td>
                 <td>
                   <form method="POST" action="/admin/sessions/{{ session.id }}/revoke"
                         onsubmit="return confirm('This will end this session immediately.')">
@@ -78,15 +97,21 @@
       {% endif %}
     </div>
 
-    {% if filter_user_id %}
-      <div style="padding:16px 24px">
+    <div style="padding:16px 24px">
+      {% if filter_user_id %}
         <form method="POST" action="/admin/sessions/revoke-all/{{ filter_user_id }}"
-              onsubmit="return confirm('This will end all sessions for this user.')">
+              onsubmit="return confirm('This will end all sessions for this user. They will be logged out immediately.')">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="wf-btn danger" type="submit">Revoke all sessions for this user</button>
         </form>
-      </div>
-    {% endif %}
+      {% else %}
+        <form method="POST" action="/admin/sessions/revoke-all"
+              onsubmit="return confirm('This will end ALL active sessions for ALL users. Every user will be logged out immediately. Are you sure?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="wf-btn danger" type="submit">Revoke all sessions</button>
+        </form>
+      {% endif %}
+    </div>
   {% else %}
     <p class="wf-empty">
       {% if filter_user_id %}No active sessions for this user.{% else %}No active sessions.{% endif %}

@@ -3,12 +3,15 @@
 {% block title %}Audit log — allowthem{% endblock %}
 
 {% block pagetitle %}AUDIT LOG{% endblock %}
-{% block crumbs %}ADMIN · AUDIT{% endblock %}
+{% block crumbs %}ALLOWTHEM · ADMIN · AUDIT{% endblock %}
 {% block page_meta %}{{ total }} event{% if total != 1 %}s{% endif %}{% endblock %}
 {% block main_class %}has-tablewrap{% endblock %}
 
 {% block page_content %}
-  <div class="wf-panel" style="margin:16px 24px 0">
+  <style>
+    .audit-filter-panel { margin: 16px 24px 16px; }
+  </style>
+  <div class="wf-panel audit-filter-panel">
     <div class="wf-panel-head">
       <div class="wf-panel-title">Filter events</div>
       {% if total > 0 %}
@@ -88,7 +91,7 @@
           <tbody>
             {% for entry in entries %}
               <tr>
-                <td>{{ entry.created_at }}</td>
+                <td>{{ entry.created_at | datefmt }}</td>
                 <td>
                   {% if entry.is_failure %}
                     <span class="wf-tag err">{{ entry.event_label }}</span>
@@ -100,7 +103,7 @@
                   {% if entry.user_email %}
                     <a class="wf-link" href="/admin/users/{{ entry.user_id }}">{{ entry.user_email }}</a>
                   {% elif entry.user_id %}
-                    <span title="{{ entry.user_id }}">{{ entry.user_id | truncate(length=12) }}</span>
+                    <span title="{{ entry.user_id }}">{{ entry.user_id[:12] }}{% if entry.user_id | length > 12 %}&hellip;{% endif %}</span>
                   {% else %}
                     &mdash;
                   {% endif %}

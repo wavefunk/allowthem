@@ -8,9 +8,9 @@
 
 {% block page_content %}
   <div class="wf-panel" style="margin:16px 24px 0">
-    <div class="wf-panel-head">
+    <div class="wf-panel-head" style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
       <div class="wf-panel-title">Registered applications</div>
-      <a class="wf-btn primary sm" href="/admin/applications/new">New application</a>
+      <a class="wf-btn primary sm" href="/admin/applications/new" style="white-space:nowrap;">New application</a>
     </div>
   </div>
   {% if applications %}
@@ -39,7 +39,7 @@
                   {% endif %}
                 </td>
                 <td>{% if app.is_trusted %}Yes{% else %}No{% endif %}</td>
-                <td>{{ app.created_at }}</td>
+                <td>{{ app.created_at | datefmt }}</td>
               </tr>
             {% endfor %}
           </tbody>
