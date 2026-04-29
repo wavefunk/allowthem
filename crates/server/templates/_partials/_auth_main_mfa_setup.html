@@ -17,7 +17,7 @@
     <div class="wf-framed wf-f wf-col wf-ai-c wf-gap-3 wf-mt-5">
       {% if qr_data_uri %}
         <img src="{{ qr_data_uri|safe }}" alt="QR Code" width="200" height="200"
-             style="image-rendering:pixelated;background:#fff;padding:8px;border-radius:4px">
+             style="image-rendering:pixelated;background:#fff;padding:8px">
       {% endif %}
       <div data-testid="totp-uri" class="wf-t-xs wf-fg-muted" style="display:none">{{ totp_uri }}</div>
       <div class="wf-t-xs wf-fg-muted">
