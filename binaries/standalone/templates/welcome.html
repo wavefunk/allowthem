@@ -7,17 +7,16 @@
 
 {% block auth_main %}
 <main class="wf-auth-form">
-  <div class="wf-form-header">
-    <h1 class="wf-title">allowthem</h1>
-    <p class="wf-subtitle">Authentication service</p>
-  </div>
-  <div class="wf-form-body">
-    <p class="wf-hint" style="margin-bottom: var(--sp-5);">
+  <div class="wf-auth-wrap">
+    <h1>allowthem</h1>
+    <p class="wf-auth-sub">Authentication service</p>
+
+    <p class="wf-fg-muted wf-mt-5">
       Sign in to manage your account, or create a new one to get started.
     </p>
-    <div class="wf-f wf-col wf-gap-3">
-      <a class="wf-btn primary" href="/login">Log in</a>
-      <a class="wf-btn" href="/register">Create account</a>
+    <div class="wf-f wf-col wf-gap-3 wf-mt-5">
+      <a class="wf-btn primary lg wf-w-full" href="/login">Log in</a>
+      <a class="wf-btn lg wf-w-full" href="/register">Create account</a>
     </div>
   </div>
 </main>
