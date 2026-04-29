@@ -40,6 +40,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list))
         .route("/{id}/revoke", post(revoke))
+        .route("/revoke-all", post(revoke_all_sessions))
         .route("/revoke-all/{user_id}", post(revoke_all))
 }
 
@@ -138,6 +139,36 @@ pub async fn revoke(
     }
 
     Ok(Redirect::to(&redirect_url).into_response())
+}
+
+/// POST /admin/sessions/revoke-all — revoke all sessions across all users.
+///
+/// Fetches sessions in a single page, collects unique user IDs, and
+/// calls `delete_user_sessions` for each. Capped at 10 000 sessions.
+pub async fn revoke_all_sessions(
+    State(state): State<AppState>,
+    BrowserAdminUser(_user): BrowserAdminUser,
+    _csrf: CsrfToken,
+) -> Result<Response, AppError> {
+    let result = state
+        .ath
+        .db()
+        .list_all_sessions(ListSessionsParams {
+            user_id: None,
+            limit: 10_000,
+            offset: 0,
+        })
+        .await?;
+
+    let mut seen = std::collections::HashSet::new();
+    for session in &result.sessions {
+        seen.insert(session.user_id);
+    }
+    for uid in &seen {
+        let _ = state.ath.db().delete_user_sessions(uid).await;
+    }
+
+    Ok(Redirect::to("/admin/sessions").into_response())
 }
 
 /// POST /admin/sessions/revoke-all/:user_id — revoke all sessions for a user.

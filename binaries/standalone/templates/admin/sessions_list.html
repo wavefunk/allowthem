@@ -97,15 +97,21 @@
       {% endif %}
     </div>
 
-    {% if filter_user_id %}
-      <div style="padding:16px 24px">
+    <div style="padding:16px 24px">
+      {% if filter_user_id %}
         <form method="POST" action="/admin/sessions/revoke-all/{{ filter_user_id }}"
-              onsubmit="return confirm('This will end all sessions for this user.')">
+              onsubmit="return confirm('This will end all sessions for this user. They will be logged out immediately.')">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="wf-btn danger" type="submit">Revoke all sessions for this user</button>
         </form>
-      </div>
-    {% endif %}
+      {% else %}
+        <form method="POST" action="/admin/sessions/revoke-all"
+              onsubmit="return confirm('This will end ALL active sessions for ALL users. Every user will be logged out immediately. Are you sure?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="wf-btn danger" type="submit">Revoke all sessions</button>
+        </form>
+      {% endif %}
+    </div>
   {% else %}
     <p class="wf-empty">
       {% if filter_user_id %}No active sessions for this user.{% else %}No active sessions.{% endif %}
