@@ -49,6 +49,7 @@ futures = "0.3"
 governor = { version = "0.8", features = ["dashmap"] }
 serde_html_form = "0.2"
 jsonschema = "0.46"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 regex = "1"

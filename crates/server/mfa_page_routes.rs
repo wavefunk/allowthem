@@ -17,6 +17,8 @@ use serde::Deserialize;
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::totp::totp_uri;
 use allowthem_core::{AllowThem, AuditEvent, AuthError, sessions};
+use qrcode::QrCode;
+use qrcode::render::svg;
 
 use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
@@ -49,6 +51,31 @@ fn client_ip(headers: &HeaderMap) -> Option<String> {
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
         .map(|s| s.trim().to_string())
+}
+
+/// Generate a QR code SVG data URI from the given text.
+///
+/// Returns a `data:image/svg+xml,...` URI suitable for an `<img src>` attribute.
+/// Falls back to an empty string if encoding fails (the template will show
+/// the manual-entry secret as an alternative).
+fn qr_data_uri(text: &str) -> String {
+    let code = match QrCode::new(text.as_bytes()) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+    let svg_str = code
+        .render()
+        .min_dimensions(200, 200)
+        .dark_color(svg::Color("#000000"))
+        .light_color(svg::Color("#ffffff"))
+        .build();
+    // URI-encode the SVG for use in a data URI (minimal encoding).
+    let encoded = svg_str
+        .replace('#', "%23")
+        .replace('<', "%3C")
+        .replace('>', "%3E")
+        .replace('"', "'");
+    format!("data:image/svg+xml,{encoded}")
 }
 
 /// Extract the host from a base URL for use as the TOTP issuer.
@@ -124,6 +151,7 @@ fn render_mfa_setup_fragment(
     config: &MfaPageConfig,
     csrf_token: &str,
     totp_uri: &str,
+    qr_data_uri: &str,
     secret: &str,
     error: &str,
     branding: Option<&BrandingConfig>,
@@ -131,6 +159,7 @@ fn render_mfa_setup_fragment(
     let ctx = context! {
         csrf_token,
         totp_uri,
+        qr_data_uri,
         secret,
         error,
         is_production => config.is_production,
@@ -204,12 +233,14 @@ async fn get_mfa_setup(
 
     let issuer = derive_issuer(&config.base_url);
     let uri = totp_uri(&secret, user.email.as_str(), &issuer);
+    let qr = qr_data_uri(&uri);
 
     if request && !boosted {
         let html = render_mfa_setup_fragment(
             &config,
             csrf.as_str(),
             &uri,
+            &qr,
             &secret,
             "",
             branding.as_ref(),
@@ -224,6 +255,7 @@ async fn get_mfa_setup(
             csrf_token => csrf.as_str(),
             secret => &secret,
             totp_uri => &uri,
+            qr_data_uri => &qr,
             error => "",
             is_production => config.is_production,
             ..branding_context(branding.as_ref()),
@@ -304,6 +336,7 @@ async fn post_mfa_confirm(
                 .unwrap_or_default();
             let issuer = derive_issuer(&config.base_url);
             let uri = totp_uri(&secret, user.email.as_str(), &issuer);
+            let qr = qr_data_uri(&uri);
 
             let html = crate::browser_templates::render(
                 &config.templates,
@@ -312,6 +345,7 @@ async fn post_mfa_confirm(
                     csrf_token => csrf.as_str(),
                     secret => &secret,
                     totp_uri => &uri,
+                    qr_data_uri => &qr,
                     error => SETUP_INVALID_CODE,
                     is_production => config.is_production,
                     ..branding_context(branding.as_ref()),
@@ -789,6 +823,27 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
+    // qr_data_uri — pure function, no I/O
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn qr_data_uri_produces_svg_data_uri() {
+        let uri = qr_data_uri("otpauth://totp/test?secret=ABC&issuer=test");
+        assert!(
+            uri.starts_with("data:image/svg+xml,"),
+            "must produce an SVG data URI"
+        );
+        assert!(uri.contains("svg"), "must contain SVG content");
+    }
+
+    #[test]
+    fn qr_data_uri_empty_input_still_works() {
+        let uri = qr_data_uri("");
+        // Empty string is valid QR content
+        assert!(uri.starts_with("data:image/svg+xml,"));
+    }
+
+    // ---------------------------------------------------------------------------
     // derive_issuer — pure function, no I/O
     // ---------------------------------------------------------------------------
 
@@ -850,6 +905,10 @@ mod tests {
         assert!(
             html.contains("totp-uri"),
             "setup page must show QR URI container"
+        );
+        assert!(
+            html.contains("data:image/svg+xml,"),
+            "setup page must include a QR code data URI"
         );
     }
 
@@ -1204,10 +1263,12 @@ mod tests {
             is_production: false,
             base_url: "http://127.0.0.1:3100".into(),
         };
+        let totp = "otpauth://totp/allowthem:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=allowthem";
         let html = render_mfa_setup_fragment(
             &config,
             "csrf-tok",
-            "otpauth://totp/allowthem:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=allowthem",
+            totp,
+            &qr_data_uri(totp),
             "JBSWY3DPEHPK3PXP",
             "",
             None,
