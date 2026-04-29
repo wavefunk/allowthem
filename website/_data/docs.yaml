@@ -7,7 +7,7 @@
   content: |
     # Overview
 
-    allowthem is an embeddable authentication system for wavefunk projects. It can run as a Rust library (embedded mode) or as a standalone OIDC provider (external mode). Consuming projects code against an `AuthClient` trait, so switching between modes requires only a configuration change.
+    allowthem is an embeddable authentication system. It can run as a Rust library (embedded mode) or as a standalone OIDC provider (external mode). Consuming projects code against an `AuthClient` trait, so switching between modes requires only a configuration change.
 
     ## Dual-mode architecture
 

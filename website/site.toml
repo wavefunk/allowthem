@@ -3,7 +3,7 @@ name = "allowthem"
 base_url = "https://allowthem.wavefunk.io"
 
 [site.seo]
-title = "allowthem — authentication for wavefunk"
+title = "allowthem — embeddable authentication"
 description = "An embeddable authentication system. Use as a library or deploy as a standalone OIDC provider."
 
 [build]
