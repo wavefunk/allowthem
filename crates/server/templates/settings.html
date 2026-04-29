@@ -65,10 +65,16 @@
       {% if mfa_enabled %}
         <p>MFA is <span class="wf-tag ok"><span class="dot"></span>Enabled</span>.
           {{ mfa_recovery_remaining }} of 10 recovery codes remaining.</p>
-        <form method="post" action="/settings/mfa/disable">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="wf-btn danger" type="submit">Disable 2FA</button>
-        </form>
+        <div class="wf-f wf-gap-3">
+          <form method="post" action="/settings/mfa/recovery-codes/regenerate">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="wf-btn" type="submit">Regenerate recovery codes</button>
+          </form>
+          <form method="post" action="/settings/mfa/disable">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="wf-btn danger" type="submit">Disable 2FA</button>
+          </form>
+        </div>
       {% else %}
         <p>MFA is <span class="wf-tag">Not configured</span>.</p>
         <a class="wf-btn primary" href="/settings/mfa/setup">Enable 2FA</a>

@@ -361,6 +361,72 @@ async fn post_mfa_disable(
     Ok((StatusCode::SEE_OTHER, [(LOCATION, "/settings".to_string())]).into_response())
 }
 
+#[derive(Deserialize)]
+struct RegenerateCodesForm {
+    #[allow(dead_code)]
+    csrf_token: String,
+}
+
+/// POST /settings/mfa/recovery-codes/regenerate — regenerate and show new codes.
+async fn post_regenerate_recovery_codes(
+    Extension(ath): Extension<AllowThem>,
+    Extension(config): Extension<MfaPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
+    uri: Uri,
+    headers: HeaderMap,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
+    Form(_form): Form<RegenerateCodesForm>,
+) -> Result<Response, BrowserError> {
+    let user = match require_browser_user(&ath, &headers, uri.path()).await {
+        Ok(u) => u,
+        Err(redirect) => return Ok(redirect),
+    };
+
+    let has_mfa = ath.db().has_mfa_enabled(user.id).await?;
+    if !has_mfa {
+        return Ok(
+            (StatusCode::SEE_OTHER, [(LOCATION, "/settings".to_string())]).into_response(),
+        );
+    }
+
+    let ip = client_ip(&headers);
+    let ua = headers.get(USER_AGENT).and_then(|v| v.to_str().ok());
+
+    let recovery_codes = ath.regenerate_recovery_codes(user.id).await?;
+
+    let _ = ath
+        .db()
+        .log_audit(
+            AuditEvent::MfaEnabled, // Recovery codes regenerated
+            Some(&user.id),
+            None,
+            ip.as_deref(),
+            ua,
+            Some("recovery codes regenerated"),
+        )
+        .await;
+
+    let default = default_branding_ref(&default_branding);
+    let branding = resolve_branding(&ath, None, default).await;
+
+    if request && !boosted {
+        let html = render_mfa_recovery_fragment(&config, &recovery_codes, branding.as_ref())?;
+        return Ok(html.into_response());
+    }
+
+    let html = crate::browser_templates::render(
+        &config.templates,
+        "mfa_recovery.html",
+        context! {
+            recovery_codes => &recovery_codes,
+            is_production => config.is_production,
+            ..branding_context(branding.as_ref()),
+        },
+    )?;
+    Ok(html.into_response())
+}
+
 // ---------------------------------------------------------------------------
 // Challenge routes (mid-login, no session — outside CSRF layer)
 // ---------------------------------------------------------------------------
@@ -589,6 +655,10 @@ pub fn mfa_setup_routes(
         .route("/settings/mfa/setup", get(get_mfa_setup))
         .route("/settings/mfa/confirm", post(post_mfa_confirm))
         .route("/settings/mfa/disable", post(post_mfa_disable))
+        .route(
+            "/settings/mfa/recovery-codes/regenerate",
+            post(post_regenerate_recovery_codes),
+        )
         .layer(Extension(cfg))
 }
 
@@ -966,6 +1036,80 @@ mod tests {
             !ath.has_mfa_enabled(user_id).await.unwrap(),
             "MFA must be disabled after disable POST"
         );
+    }
+
+    // ---------------------------------------------------------------------------
+    // POST /settings/mfa/recovery-codes/regenerate
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn post_regenerate_recovery_codes_renders_new_codes() {
+        let ath = setup().await;
+        let app = test_app(ath.clone());
+        let (user_id, cookie) = create_session(&ath).await;
+        let (_, old_codes) = enable_mfa_for_user(&ath, user_id).await;
+
+        let session_token_val = cookie.split('=').nth(1).unwrap().to_string();
+        let session_token = allowthem_core::types::SessionToken::from_encoded(session_token_val);
+        let csrf =
+            allowthem_core::derive_csrf_token(&session_token, b"test-csrf-key-for-binary-tests!!");
+
+        let body_str = format!("csrf_token={csrf}");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/settings/mfa/recovery-codes/regenerate")
+            .header(header::COOKIE, &cookie)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains("recovery-code"),
+            "regeneration must render recovery codes"
+        );
+        // Verify old codes are no longer valid
+        for old_code in &old_codes {
+            let valid = ath.verify_recovery_code(user_id, old_code).await.unwrap();
+            assert!(!valid, "old recovery code must be invalidated after regeneration");
+        }
+    }
+
+    #[tokio::test]
+    async fn post_regenerate_recovery_codes_without_mfa_redirects() {
+        let ath = setup().await;
+        let app = test_app(ath.clone());
+        let (_, cookie) = create_session(&ath).await;
+
+        let session_token_val = cookie.split('=').nth(1).unwrap().to_string();
+        let session_token = allowthem_core::types::SessionToken::from_encoded(session_token_val);
+        let csrf =
+            allowthem_core::derive_csrf_token(&session_token, b"test-csrf-key-for-binary-tests!!");
+
+        let body_str = format!("csrf_token={csrf}");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/settings/mfa/recovery-codes/regenerate")
+            .header(header::COOKIE, &cookie)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(
+            resp.status(),
+            StatusCode::SEE_OTHER,
+            "must redirect when MFA is not enabled"
+        );
+        assert_eq!(resp.headers().get("location").unwrap(), "/settings");
     }
 
     // ---------------------------------------------------------------------------
