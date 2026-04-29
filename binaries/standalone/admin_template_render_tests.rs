@@ -211,10 +211,10 @@ fn assert_guardrails(name: &str, body: &str, expect_admin_nav: bool) {
             );
         }
     }
-    // /admin/users must never appear as a sidebar nav href — route isn't wired.
+    // /admin/users is not in the sidebar nav (reachable via inline links only).
     assert!(
         !body.contains(&format!("href=\"{}\"", enc("/admin/users"))),
-        "{name}: /admin/users link present but route is not yet wired"
+        "{name}: /admin/users link present in sidebar but route is reachable via inline links only"
     );
 }
 

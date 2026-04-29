@@ -1,6 +1,7 @@
 mod admin_applications;
 mod admin_audit;
 mod admin_sessions;
+mod admin_users;
 mod config;
 mod error;
 mod mock_oauth;
@@ -169,6 +170,7 @@ async fn main() -> Result<()> {
         .nest("/admin/applications", admin_applications::routes())
         .nest("/admin/audit", admin_audit::routes())
         .nest("/admin/sessions", admin_sessions::routes())
+        .nest("/admin/users", admin_users::routes())
         .layer(axum::middleware::from_fn(csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
             ath.clone(),
