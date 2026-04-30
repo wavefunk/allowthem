@@ -207,6 +207,7 @@ fn render_mfa_recovery_fragment(
 ///
 /// Idempotent: if a pending (non-enabled) secret exists, reuses it.
 /// Only creates a new secret on first visit.
+#[allow(clippy::too_many_arguments)]
 async fn get_mfa_setup(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
@@ -275,6 +276,7 @@ pub struct MfaConfirmForm {
 ///
 /// On success, renders recovery codes page directly (no redirect).
 /// On failure, re-renders setup page with error.
+#[allow(clippy::too_many_arguments)]
 async fn post_mfa_confirm(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
@@ -402,6 +404,7 @@ struct RegenerateCodesForm {
 }
 
 /// POST /settings/mfa/recovery-codes/regenerate — regenerate and show new codes.
+#[allow(clippy::too_many_arguments)]
 async fn post_regenerate_recovery_codes(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,

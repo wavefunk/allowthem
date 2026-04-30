@@ -50,6 +50,7 @@ struct RegisterQuery {
 /// GET /register — render the registration form.
 ///
 /// If the user already has a valid session, redirects to `/`.
+#[allow(clippy::too_many_arguments)]
 async fn get_register(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<RegisterConfig>,
