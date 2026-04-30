@@ -75,6 +75,7 @@ fn ambient_ctx_for(template: &str, shell: &ShellContext) -> minijinja::Value {
             client_secret => None::<String>,
             redirect_uris => Vec::<String>::new(),
             error => None::<String>,
+            created_by_email => None::<String>,
         },
         "admin/application_new.html" => context! {
             shell => Value::from_serialize(shell),
@@ -127,6 +128,7 @@ fn ambient_ctx_for(template: &str, shell: &ShellContext) -> minijinja::Value {
             total_pages => 0_u32,
             filter_user_email => None::<String>,
             filter_user_id => None::<String>,
+            current_session_id => None::<String>,
         },
         "admin/audit_log.html" => context! {
             shell => Value::from_serialize(shell),
@@ -209,10 +211,10 @@ fn assert_guardrails(name: &str, body: &str, expect_admin_nav: bool) {
             );
         }
     }
-    // /admin/users must never appear as a sidebar nav href — route isn't wired.
+    // /admin/users is not in the sidebar nav (reachable via inline links only).
     assert!(
         !body.contains(&format!("href=\"{}\"", enc("/admin/users"))),
-        "{name}: /admin/users link present but route is not yet wired"
+        "{name}: /admin/users link present in sidebar but route is reachable via inline links only"
     );
 }
 
@@ -239,6 +241,45 @@ fn assert_accent_vars_render(template: &str, base_ctx: minijinja::Value) {
     assert!(
         body.contains(&format!("--accent-ink: {accent_ink};")),
         "{template}: missing `--accent-ink: {accent_ink};` in rendered output"
+    );
+}
+
+/// Verify the audit log template renders when entries use truncate filter
+/// (user_id present but user_email absent triggers `| truncate(length=12)`).
+#[test]
+fn audit_log_truncate_filter_renders() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let shell = ShellContext::new(true, "/admin/audit", "allowthem");
+    let entry = context! {
+        event_label => "Login",
+        is_failure => false,
+        user_id => "01970c0e-2345-7890-abcd-ef0123456789",
+        user_email => None::<String>,
+        ip_address => "127.0.0.1",
+        detail => None::<String>,
+        created_at => "2026-04-29 15:45:00",
+    };
+    let tmpl = env.get_template("admin/audit_log.html").unwrap();
+    let body = tmpl
+        .render(context! {
+            shell => Value::from_serialize(&shell),
+            is_production => false,
+            entries => vec![entry],
+            total => 1_u32,
+            page => 1_u32,
+            total_pages => 1_u32,
+            page_numbers => vec![1_u32],
+            user => "",
+            event => "",
+            outcome => "",
+            from => "",
+            to => "",
+        })
+        .unwrap_or_else(|e| panic!("audit_log.html render failed: {e}"));
+    // The user_id should be sliced to 12 chars with ellipsis
+    assert!(
+        body.contains("01970c0e-234"),
+        "truncated user_id not found in rendered audit log"
     );
 }
 
@@ -335,4 +376,104 @@ fn settings_template_user_context_passes_guardrail() {
         })
         .unwrap();
     assert_guardrails("settings.html", &body, false);
+}
+
+// --- Standalone page template render tests ---
+
+#[test]
+fn dashboard_template_renders_and_passes_guardrail() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let shell = ShellContext::new(true, "/", "allowthem");
+    let body = env
+        .get_template("dashboard.html")
+        .unwrap()
+        .render(context! {
+            shell => Value::from_serialize(&shell),
+            is_production => false,
+            email => "user@example.com",
+            is_active => true,
+            is_admin => true,
+            mfa_enabled => false,
+            oauth_account_count => 0usize,
+        })
+        .unwrap();
+    assert_guardrails("dashboard.html", &body, true);
+    assert!(
+        body.contains("user@example.com"),
+        "dashboard: email not rendered"
+    );
+}
+
+#[test]
+fn dashboard_template_hides_admin_link_for_non_admin() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let shell = ShellContext::new(false, "/", "allowthem");
+    let body = env
+        .get_template("dashboard.html")
+        .unwrap()
+        .render(context! {
+            shell => Value::from_serialize(&shell),
+            is_production => false,
+            email => "user@example.com",
+            is_active => true,
+            is_admin => false,
+            mfa_enabled => false,
+            oauth_account_count => 2usize,
+        })
+        .unwrap();
+    assert_guardrails("dashboard.html", &body, false);
+    assert!(
+        !body.contains("Admin panel"),
+        "dashboard: admin panel link visible for non-admin"
+    );
+}
+
+#[test]
+fn welcome_template_renders() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let body = env
+        .get_template("welcome.html")
+        .unwrap()
+        .render(context! { is_production => false })
+        .unwrap();
+    assert!(
+        body.contains("allowthem"),
+        "welcome: missing app name"
+    );
+    assert!(
+        body.contains("Log in"),
+        "welcome: missing login link"
+    );
+    assert!(
+        body.contains("Create account"),
+        "welcome: missing register link"
+    );
+}
+
+#[test]
+fn terms_template_renders() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let body = env
+        .get_template("terms.html")
+        .unwrap()
+        .render(context! { is_production => false })
+        .unwrap();
+    assert!(
+        body.contains("Terms of Service"),
+        "terms: missing heading"
+    );
+}
+
+#[test]
+fn privacy_template_renders() {
+    let env = crate::templates::build_template_env().expect("template env");
+    let body = env
+        .get_template("privacy.html")
+        .unwrap()
+        .render(context! { is_production => false })
+        .unwrap();
+    assert!(
+        body.contains("Privacy Policy"),
+        "privacy: missing heading"
+    );
 }

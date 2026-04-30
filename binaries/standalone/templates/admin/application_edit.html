@@ -3,7 +3,7 @@
 {% block title %}Edit {{ app.name }} — allowthem{% endblock %}
 
 {% block pagetitle %}EDIT {{ app.name | upper }}{% endblock %}
-{% block crumbs %}ADMIN · APPLICATIONS · {{ app.client_id }} · EDIT{% endblock %}
+{% block crumbs %}ALLOWTHEM · ADMIN · APPLICATIONS · {{ app.client_id }} · EDIT{% endblock %}
 
 {% block content %}
   <div class="wf-panel">
@@ -47,11 +47,11 @@
         </p>
 
         <label class="wf-label" for="logo_url">Logo URL (optional)</label>
-        <input class="wf-input" type="text" id="logo_url" name="logo_url" value="{{ app.logo_url }}">
+        <input class="wf-input" type="text" id="logo_url" name="logo_url" value="{% if app.logo_url %}{{ app.logo_url }}{% endif %}">
 
         <label class="wf-label" for="primary_color">Primary color (optional)</label>
         <input class="wf-input" type="text" id="primary_color" name="primary_color"
-               value="{{ app.primary_color }}" placeholder="#3B82F6">
+               value="{% if app.primary_color %}{{ app.primary_color }}{% endif %}" placeholder="#3B82F6">
 
         <p>
           <button class="wf-btn primary" type="submit">Save changes</button>
@@ -97,7 +97,7 @@
     function updateRemoveButtons() {
       var buttons = document.querySelectorAll('#uri-list .remove-btn');
       for (var i = 0; i < buttons.length; i++) {
-        buttons[i].style.display = buttons.length <= 1 ? 'none' : '';
+        buttons[i].style.display = '';
       }
     }
 

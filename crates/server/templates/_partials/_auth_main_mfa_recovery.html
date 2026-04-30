@@ -28,8 +28,73 @@
       </div>
     </div>
 
+    <div class="wf-f wf-gap-3 wf-mt-4">
+      <button type="button" class="wf-btn" id="copy-codes">Copy all codes</button>
+      <button type="button" class="wf-btn" id="download-codes">Download as .txt</button>
+    </div>
+
+    <label class="wf-check-row wf-mt-5">
+      <input type="checkbox" class="wf-check" id="codes-saved">
+      I have saved these recovery codes in a safe place
+    </label>
+
     <p class="wf-mt-4">
-      <a class="wf-btn primary" href="/settings">Back to settings →</a>
+      <a class="wf-btn primary disabled" href="/settings" id="back-to-settings"
+         aria-disabled="true" tabindex="-1">Back to settings →</a>
     </p>
   </div>
 </main>
+<script>
+(function(){
+  function getCodes(){
+    var els=document.querySelectorAll('[data-testid="recovery-code"]');
+    var codes=[];
+    for(var i=0;i<els.length;i++)codes.push(els[i].textContent.trim());
+    return codes;
+  }
+  var copyBtn=document.getElementById("copy-codes");
+  if(copyBtn)copyBtn.addEventListener("click",function(){
+    var text=getCodes().join("\n");
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){
+        copyBtn.textContent="Copied!";
+        setTimeout(function(){copyBtn.textContent="Copy all codes"},2000);
+      });
+    }else{
+      var ta=document.createElement("textarea");
+      ta.value=text;ta.style.position="fixed";ta.style.left="-9999px";
+      document.body.appendChild(ta);ta.select();
+      document.execCommand("copy");document.body.removeChild(ta);
+      copyBtn.textContent="Copied!";
+      setTimeout(function(){copyBtn.textContent="Copy all codes"},2000);
+    }
+  });
+  var dlBtn=document.getElementById("download-codes");
+  if(dlBtn)dlBtn.addEventListener("click",function(){
+    var text="allowthem recovery codes\n"+new Date().toISOString()+"\n\n"+getCodes().join("\n")+"\n";
+    var blob=new Blob([text],{type:"text/plain"});
+    var a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="allowthem-recovery-codes.txt";
+    a.click();URL.revokeObjectURL(a.href);
+  });
+  var chk=document.getElementById("codes-saved");
+  var back=document.getElementById("back-to-settings");
+  if(chk&&back){
+    chk.addEventListener("change",function(){
+      if(chk.checked){
+        back.classList.remove("disabled");
+        back.removeAttribute("aria-disabled");
+        back.removeAttribute("tabindex");
+      }else{
+        back.classList.add("disabled");
+        back.setAttribute("aria-disabled","true");
+        back.setAttribute("tabindex","-1");
+      }
+    });
+    back.addEventListener("click",function(e){
+      if(!chk.checked)e.preventDefault();
+    });
+  }
+})();
+</script>

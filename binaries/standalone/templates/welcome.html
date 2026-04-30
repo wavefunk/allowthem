@@ -1,0 +1,23 @@
+{# welcome.html — landing page for unauthenticated visitors.
+   Extends the auth shell for visual consistency with login/register.
+#}
+{% extends "_partials/_auth_shell.html" %}
+
+{% block title %}allowthem — authentication service{% endblock %}
+
+{% block auth_main %}
+<main class="wf-auth-form">
+  <div class="wf-auth-wrap">
+    <h1>allowthem</h1>
+    <p class="wf-auth-sub">Authentication service</p>
+
+    <p class="wf-fg-muted wf-mt-5">
+      Sign in to manage your account, or create a new one to get started.
+    </p>
+    <div class="wf-f wf-col wf-gap-3 wf-mt-5">
+      <a class="wf-btn primary lg wf-w-full" href="/login">Log in</a>
+      <a class="wf-btn lg wf-w-full" href="/register">Create account</a>
+    </div>
+  </div>
+</main>
+{% endblock %}

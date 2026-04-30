@@ -1,10 +1,13 @@
 use axum::extract::{Path, Query, State};
+use axum::http::header::COOKIE;
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, Router};
 use minijinja::context;
 use serde::Deserialize;
 
+use allowthem_core::parse_session_cookie;
 use allowthem_core::sessions::ListSessionsParams;
 use allowthem_core::types::{SessionId, UserId};
 use allowthem_server::{BrowserAdminUser, CsrfToken, ShellContext};
@@ -37,13 +40,15 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list))
         .route("/{id}/revoke", post(revoke))
+        .route("/revoke-all", post(revoke_all_sessions))
         .route("/revoke-all/{user_id}", post(revoke_all))
 }
 
 /// GET /admin/sessions — paginated session list with optional user filter.
 pub async fn list(
     State(state): State<AppState>,
-    BrowserAdminUser(_user): BrowserAdminUser,
+    BrowserAdminUser(user): BrowserAdminUser,
+    headers: HeaderMap,
     Query(params): Query<SessionListQuery>,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
@@ -69,13 +74,17 @@ pub async fn list(
         (None, None)
     };
 
+    // Resolve the admin's own session ID for the "current session" indicator.
+    let current_session_id = resolve_current_session_id(&state, &headers).await;
+
     let total_pages = if result.total == 0 {
         0
     } else {
         result.total.div_ceil(PAGE_SIZE)
     };
 
-    let shell = ShellContext::new(true, "/admin/sessions", "allowthem");
+    let shell = ShellContext::new(true, "/admin/sessions", "allowthem")
+        .with_session(user.email.as_str());
     let html = crate::templates::render(
         &state.templates,
         "admin/sessions_list.html",
@@ -88,10 +97,20 @@ pub async fn list(
             filter_user_email,
             filter_user_id,
             csrf_token => csrf.as_str(),
+            current_session_id,
         },
         state.is_production,
     )?;
     Ok(html.into_response())
+}
+
+/// Extract the current admin session ID from the request cookie.
+async fn resolve_current_session_id(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
+    let cookie_name = state.auth_client.session_cookie_name();
+    let token = parse_session_cookie(cookie_header, cookie_name)?;
+    let session = state.ath.db().lookup_session(&token).await.ok()??;
+    Some(session.id.to_string())
 }
 
 /// POST /admin/sessions/:id/revoke — revoke a single session.
@@ -121,6 +140,36 @@ pub async fn revoke(
     }
 
     Ok(Redirect::to(&redirect_url).into_response())
+}
+
+/// POST /admin/sessions/revoke-all — revoke all sessions across all users.
+///
+/// Fetches sessions in a single page, collects unique user IDs, and
+/// calls `delete_user_sessions` for each. Capped at 10 000 sessions.
+pub async fn revoke_all_sessions(
+    State(state): State<AppState>,
+    BrowserAdminUser(_user): BrowserAdminUser,
+    _csrf: CsrfToken,
+) -> Result<Response, AppError> {
+    let result = state
+        .ath
+        .db()
+        .list_all_sessions(ListSessionsParams {
+            user_id: None,
+            limit: 10_000,
+            offset: 0,
+        })
+        .await?;
+
+    let mut seen = std::collections::HashSet::new();
+    for session in &result.sessions {
+        seen.insert(session.user_id);
+    }
+    for uid in &seen {
+        let _ = state.ath.db().delete_user_sessions(uid).await;
+    }
+
+    Ok(Redirect::to("/admin/sessions").into_response())
 }
 
 /// POST /admin/sessions/revoke-all/:user_id — revoke all sessions for a user.

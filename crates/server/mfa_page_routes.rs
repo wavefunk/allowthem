@@ -17,6 +17,8 @@ use serde::Deserialize;
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::totp::totp_uri;
 use allowthem_core::{AllowThem, AuditEvent, AuthError, sessions};
+use qrcode::QrCode;
+use qrcode::render::svg;
 
 use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
@@ -49,6 +51,31 @@ fn client_ip(headers: &HeaderMap) -> Option<String> {
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
         .map(|s| s.trim().to_string())
+}
+
+/// Generate a QR code SVG data URI from the given text.
+///
+/// Returns a `data:image/svg+xml,...` URI suitable for an `<img src>` attribute.
+/// Falls back to an empty string if encoding fails (the template will show
+/// the manual-entry secret as an alternative).
+fn qr_data_uri(text: &str) -> String {
+    let code = match QrCode::new(text.as_bytes()) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+    let svg_str = code
+        .render()
+        .min_dimensions(200, 200)
+        .dark_color(svg::Color("#000000"))
+        .light_color(svg::Color("#ffffff"))
+        .build();
+    // URI-encode the SVG for use in a data URI (minimal encoding).
+    let encoded = svg_str
+        .replace('#', "%23")
+        .replace('<', "%3C")
+        .replace('>', "%3E")
+        .replace('"', "'");
+    format!("data:image/svg+xml,{encoded}")
 }
 
 /// Extract the host from a base URL for use as the TOTP issuer.
@@ -124,6 +151,7 @@ fn render_mfa_setup_fragment(
     config: &MfaPageConfig,
     csrf_token: &str,
     totp_uri: &str,
+    qr_data_uri: &str,
     secret: &str,
     error: &str,
     branding: Option<&BrandingConfig>,
@@ -131,6 +159,7 @@ fn render_mfa_setup_fragment(
     let ctx = context! {
         csrf_token,
         totp_uri,
+        qr_data_uri,
         secret,
         error,
         is_production => config.is_production,
@@ -178,6 +207,7 @@ fn render_mfa_recovery_fragment(
 ///
 /// Idempotent: if a pending (non-enabled) secret exists, reuses it.
 /// Only creates a new secret on first visit.
+#[allow(clippy::too_many_arguments)]
 async fn get_mfa_setup(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
@@ -204,12 +234,14 @@ async fn get_mfa_setup(
 
     let issuer = derive_issuer(&config.base_url);
     let uri = totp_uri(&secret, user.email.as_str(), &issuer);
+    let qr = qr_data_uri(&uri);
 
     if request && !boosted {
         let html = render_mfa_setup_fragment(
             &config,
             csrf.as_str(),
             &uri,
+            &qr,
             &secret,
             "",
             branding.as_ref(),
@@ -224,6 +256,7 @@ async fn get_mfa_setup(
             csrf_token => csrf.as_str(),
             secret => &secret,
             totp_uri => &uri,
+            qr_data_uri => &qr,
             error => "",
             is_production => config.is_production,
             ..branding_context(branding.as_ref()),
@@ -243,6 +276,7 @@ pub struct MfaConfirmForm {
 ///
 /// On success, renders recovery codes page directly (no redirect).
 /// On failure, re-renders setup page with error.
+#[allow(clippy::too_many_arguments)]
 async fn post_mfa_confirm(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<MfaPageConfig>,
@@ -304,6 +338,7 @@ async fn post_mfa_confirm(
                 .unwrap_or_default();
             let issuer = derive_issuer(&config.base_url);
             let uri = totp_uri(&secret, user.email.as_str(), &issuer);
+            let qr = qr_data_uri(&uri);
 
             let html = crate::browser_templates::render(
                 &config.templates,
@@ -312,6 +347,7 @@ async fn post_mfa_confirm(
                     csrf_token => csrf.as_str(),
                     secret => &secret,
                     totp_uri => &uri,
+                    qr_data_uri => &qr,
                     error => SETUP_INVALID_CODE,
                     is_production => config.is_production,
                     ..branding_context(branding.as_ref()),
@@ -359,6 +395,58 @@ async fn post_mfa_disable(
         .await;
 
     Ok((StatusCode::SEE_OTHER, [(LOCATION, "/settings".to_string())]).into_response())
+}
+
+#[derive(Deserialize)]
+struct RegenerateCodesForm {
+    #[allow(dead_code)]
+    csrf_token: String,
+}
+
+/// POST /settings/mfa/recovery-codes/regenerate — regenerate and show new codes.
+#[allow(clippy::too_many_arguments)]
+async fn post_regenerate_recovery_codes(
+    Extension(ath): Extension<AllowThem>,
+    Extension(config): Extension<MfaPageConfig>,
+    default_branding: Option<Extension<Arc<DefaultBranding>>>,
+    uri: Uri,
+    headers: HeaderMap,
+    HxBoosted(boosted): HxBoosted,
+    HxRequest(request): HxRequest,
+    Form(_form): Form<RegenerateCodesForm>,
+) -> Result<Response, BrowserError> {
+    let user = match require_browser_user(&ath, &headers, uri.path()).await {
+        Ok(u) => u,
+        Err(redirect) => return Ok(redirect),
+    };
+
+    let has_mfa = ath.db().has_mfa_enabled(user.id).await?;
+    if !has_mfa {
+        return Ok(
+            (StatusCode::SEE_OTHER, [(LOCATION, "/settings".to_string())]).into_response(),
+        );
+    }
+
+    let recovery_codes = ath.regenerate_recovery_codes(user.id).await?;
+
+    let default = default_branding_ref(&default_branding);
+    let branding = resolve_branding(&ath, None, default).await;
+
+    if request && !boosted {
+        let html = render_mfa_recovery_fragment(&config, &recovery_codes, branding.as_ref())?;
+        return Ok(html.into_response());
+    }
+
+    let html = crate::browser_templates::render(
+        &config.templates,
+        "mfa_recovery.html",
+        context! {
+            recovery_codes => &recovery_codes,
+            is_production => config.is_production,
+            ..branding_context(branding.as_ref()),
+        },
+    )?;
+    Ok(html.into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -589,6 +677,10 @@ pub fn mfa_setup_routes(
         .route("/settings/mfa/setup", get(get_mfa_setup))
         .route("/settings/mfa/confirm", post(post_mfa_confirm))
         .route("/settings/mfa/disable", post(post_mfa_disable))
+        .route(
+            "/settings/mfa/recovery-codes/regenerate",
+            post(post_regenerate_recovery_codes),
+        )
         .layer(Extension(cfg))
 }
 
@@ -719,6 +811,33 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
+    // qr_data_uri — pure function, no I/O
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn qr_data_uri_produces_svg_data_uri() {
+        let uri = qr_data_uri("otpauth://totp/test?secret=ABC&issuer=test");
+        assert!(
+            uri.starts_with("data:image/svg+xml,"),
+            "must produce an SVG data URI"
+        );
+        assert!(uri.contains("svg"), "must contain SVG content");
+        // The URI is injected via |safe in the template; ensure no raw & that
+        // would break HTML attribute parsing.
+        assert!(
+            !uri.contains('&'),
+            "data URI must not contain raw '&' characters"
+        );
+    }
+
+    #[test]
+    fn qr_data_uri_empty_input_still_works() {
+        let uri = qr_data_uri("");
+        // Empty string is valid QR content
+        assert!(uri.starts_with("data:image/svg+xml,"));
+    }
+
+    // ---------------------------------------------------------------------------
     // derive_issuer — pure function, no I/O
     // ---------------------------------------------------------------------------
 
@@ -780,6 +899,10 @@ mod tests {
         assert!(
             html.contains("totp-uri"),
             "setup page must show QR URI container"
+        );
+        assert!(
+            html.contains("data:image/svg+xml,"),
+            "setup page must include a QR code data URI"
         );
     }
 
@@ -969,6 +1092,80 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
+    // POST /settings/mfa/recovery-codes/regenerate
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn post_regenerate_recovery_codes_renders_new_codes() {
+        let ath = setup().await;
+        let app = test_app(ath.clone());
+        let (user_id, cookie) = create_session(&ath).await;
+        let (_, old_codes) = enable_mfa_for_user(&ath, user_id).await;
+
+        let session_token_val = cookie.split('=').nth(1).unwrap().to_string();
+        let session_token = allowthem_core::types::SessionToken::from_encoded(session_token_val);
+        let csrf =
+            allowthem_core::derive_csrf_token(&session_token, b"test-csrf-key-for-binary-tests!!");
+
+        let body_str = format!("csrf_token={csrf}");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/settings/mfa/recovery-codes/regenerate")
+            .header(header::COOKIE, &cookie)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains("recovery-code"),
+            "regeneration must render recovery codes"
+        );
+        // Verify old codes are no longer valid
+        for old_code in &old_codes {
+            let valid = ath.verify_recovery_code(user_id, old_code).await.unwrap();
+            assert!(!valid, "old recovery code must be invalidated after regeneration");
+        }
+    }
+
+    #[tokio::test]
+    async fn post_regenerate_recovery_codes_without_mfa_redirects() {
+        let ath = setup().await;
+        let app = test_app(ath.clone());
+        let (_, cookie) = create_session(&ath).await;
+
+        let session_token_val = cookie.split('=').nth(1).unwrap().to_string();
+        let session_token = allowthem_core::types::SessionToken::from_encoded(session_token_val);
+        let csrf =
+            allowthem_core::derive_csrf_token(&session_token, b"test-csrf-key-for-binary-tests!!");
+
+        let body_str = format!("csrf_token={csrf}");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/settings/mfa/recovery-codes/regenerate")
+            .header(header::COOKIE, &cookie)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body_str))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(
+            resp.status(),
+            StatusCode::SEE_OTHER,
+            "must redirect when MFA is not enabled"
+        );
+        assert_eq!(resp.headers().get("location").unwrap(), "/settings");
+    }
+
+    // ---------------------------------------------------------------------------
     // GET /mfa/challenge
     // ---------------------------------------------------------------------------
 
@@ -1060,10 +1257,12 @@ mod tests {
             is_production: false,
             base_url: "http://127.0.0.1:3100".into(),
         };
+        let totp = "otpauth://totp/allowthem:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=allowthem";
         let html = render_mfa_setup_fragment(
             &config,
             "csrf-tok",
-            "otpauth://totp/allowthem:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=allowthem",
+            totp,
+            &qr_data_uri(totp),
             "JBSWY3DPEHPK3PXP",
             "",
             None,

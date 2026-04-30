@@ -172,6 +172,7 @@ fn record_login_success(config: &LoginConfig, ip: IpAddr) {
 }
 
 /// GET /login — render the login form, or redirect if already authenticated.
+#[allow(clippy::too_many_arguments)]
 async fn get_login(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<LoginConfig>,

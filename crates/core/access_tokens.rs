@@ -142,7 +142,7 @@ impl Db {
 mod tests {
     use super::*;
     use crate::signing_keys::decrypt_private_key;
-    use base64ct::{Base64UrlUnpadded as _, Encoding as _};
+    use base64ct::Encoding as _;
     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde::Serialize;
     use sqlx::SqlitePool;

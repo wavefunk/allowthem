@@ -2,9 +2,8 @@ use axum::extract::Extension;
 use axum::http::header::COOKIE;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::{Form, Json};
+use axum::Form;
 use serde::Deserialize;
-use serde_json::json;
 use url::Url;
 
 #[cfg(test)]
@@ -56,6 +55,7 @@ pub enum AuthorizeOutcome {
 pub struct ConsentNeededData {
     pub context: ConsentContext,
     pub params: ValidatedAuthorize,
+    pub user_email: String,
 }
 
 /// Query parameters for GET /oauth/authorize.
@@ -137,9 +137,13 @@ fn error_redirect(
     (status, [("location", url.as_str().to_string())]).into_response()
 }
 
-/// Build a display error response (shown to user, not redirected).
+/// Build a styled display error response (shown to user, not redirected).
+///
+/// Used for authorization errors before a valid redirect_uri is established
+/// (steps 1-3: missing/unknown client_id, inactive app, bad redirect_uri).
 fn display_error(status: StatusCode, message: &str) -> Response {
-    (status, Json(json!({"error": message}))).into_response()
+    let html = crate::browser_error::render_error_page("Authorization error", message);
+    (status, axum::response::Html(html)).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +449,7 @@ pub async fn check_authorization(
         return AuthorizeOutcome::ConsentNeeded(Box::new(ConsentNeededData {
             context,
             params: validated,
+            user_email: user.email.as_str().to_string(),
         }));
     }
 
@@ -605,11 +610,11 @@ mod tests {
         }
     }
 
-    async fn read_body(resp: axum::http::Response<Body>) -> serde_json::Value {
+    async fn read_body_html(resp: axum::http::Response<Body>) -> String {
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
-        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+        String::from_utf8(bytes.to_vec()).unwrap()
     }
 
     // Helper: create a user, session, and return (user_id, session_cookie_header)
@@ -657,8 +662,8 @@ mod tests {
         };
         let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = read_body(resp).await;
-        assert_eq!(body["error"], "missing client_id");
+        let body = read_body_html(resp).await;
+        assert!(body.contains("missing client_id"), "expected error message in HTML body");
     }
 
     #[tokio::test]
@@ -676,8 +681,8 @@ mod tests {
         };
         let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = read_body(resp).await;
-        assert_eq!(body["error"], "unknown client_id");
+        let body = read_body_html(resp).await;
+        assert!(body.contains("unknown client_id"), "expected error message in HTML body");
     }
 
     #[tokio::test]
@@ -696,8 +701,8 @@ mod tests {
         };
         let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = read_body(resp).await;
-        assert_eq!(body["error"], "redirect_uri not registered");
+        let body = read_body_html(resp).await;
+        assert!(body.contains("redirect_uri not registered"), "expected error message in HTML body");
     }
 
     // Redirect error tests (steps 4-7)
@@ -894,8 +899,8 @@ mod tests {
         };
         let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = read_body(resp).await;
-        assert_eq!(body["error"], "application is inactive");
+        let body = read_body_html(resp).await;
+        assert!(body.contains("application is inactive"), "expected error message in HTML body");
     }
 
     // Wrong code_challenge_method redirects with error
@@ -1078,7 +1083,7 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = read_body(resp).await;
-        assert_eq!(body["error"], "unknown client_id");
+        let body = read_body_html(resp).await;
+        assert!(body.contains("unknown client_id"), "expected error message in HTML body");
     }
 }

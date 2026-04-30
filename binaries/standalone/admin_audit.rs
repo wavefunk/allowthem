@@ -194,7 +194,7 @@ pub fn routes() -> Router<AppState> {
 
 async fn list(
     State(state): State<AppState>,
-    BrowserAdminUser(_admin): BrowserAdminUser,
+    BrowserAdminUser(admin): BrowserAdminUser,
     Query(query): Query<AuditListQuery>,
 ) -> Result<Response, AppError> {
     let user_id = parse_user_id(&query.user);
@@ -258,7 +258,8 @@ async fn list(
             let entries = to_entry_display(result.entries);
             let pn = page_numbers(page, total_pages);
 
-            let shell = ShellContext::new(true, "/admin/audit", "allowthem");
+            let shell = ShellContext::new(true, "/admin/audit", "allowthem")
+                .with_session(admin.email.as_str());
             let html = crate::templates::render(
                 &state.templates,
                 "admin/audit_log.html",

@@ -48,7 +48,7 @@ pub use branding::{
     BrandingCtx, DEFAULT_ACCENT_HEX, DefaultBranding, derive_ink, lookup_branding, resolve_accent,
     resolve_branding,
 };
-pub use browser_error::BrowserError;
+pub use browser_error::{BrowserError, render_error_page};
 pub use browser_templates::{build_default_browser_env, render as render_template};
 pub use consent_routes::consent_routes;
 pub use cors::inject_ath_into_extensions;

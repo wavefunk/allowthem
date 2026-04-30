@@ -246,7 +246,13 @@ async fn get_reset_password(
         }
     };
 
-    let valid = ath.db().validate_reset_token(&token).await?;
+    let valid = match ath.db().validate_reset_token(&token).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "reset token validation failed");
+            None
+        }
+    };
 
     if valid.is_some() {
         if request && !boosted {
@@ -352,11 +358,19 @@ async fn post_reset_password(
         return Ok(html.into_response());
     }
 
-    match ath
+    let reset_result = match ath
         .db()
         .execute_reset(&form.token, &form.new_password)
-        .await?
+        .await
     {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "password reset execution failed");
+            false
+        }
+    };
+
+    match reset_result {
         true => {
             let html = crate::browser_templates::render(
                 &config.templates,

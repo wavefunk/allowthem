@@ -50,6 +50,7 @@ struct RegisterQuery {
 /// GET /register — render the registration form.
 ///
 /// If the user already has a valid session, redirects to `/`.
+#[allow(clippy::too_many_arguments)]
 async fn get_register(
     Extension(ath): Extension<AllowThem>,
     Extension(config): Extension<RegisterConfig>,
@@ -232,7 +233,7 @@ async fn post_register(
                 &csrf,
                 email_raw,
                 username_raw,
-                "An account with this email already exists",
+                "Registration could not be completed. If you already have an account, try logging in.",
                 cid,
                 br,
                 custom_fields,
@@ -821,7 +822,7 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let html = body_string(resp).await;
-        assert!(html.contains("An account with this email already exists"));
+        assert!(html.contains("Registration could not be completed"));
     }
 
     #[tokio::test]
