@@ -301,6 +301,21 @@ impl ControlDb {
             ));
         }
 
+        // Step 3b: Insert the owner row in the same transaction so a tenant
+        // is never persisted without an owner. This is the "join key" the
+        // dashboard uses to authorize a logged-in user against tenants they
+        // own. UUIDv7 for monotonic id without an extra index.
+        let member_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO tenant_members (id, tenant_id, email, role, accepted_at) \
+             VALUES (?1, ?2, ?3, 'owner', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        )
+        .bind(member_id.as_bytes().as_slice())
+        .bind(tenant_id.as_bytes())
+        .bind(&owner_email)
+        .execute(&mut *tx)
+        .await?;
+
         // Step 4: Create SQLite file. Guard auto-deletes on drop unless disarmed.
         // Declaration order is load-bearing (§0.4): file_guard must be declared before ath
         // so Rust's reverse drop order closes the pool before deleting the file on unwind.
@@ -572,6 +587,22 @@ mod tests {
             .fetch_one(result.ath.db().pool())
             .await
             .expect("db ping");
+
+        // tenant_members owner row was inserted in the same control-plane tx.
+        let (role, accepted_at): (String, Option<String>) = sqlx::query_as(
+            "SELECT role, accepted_at FROM tenant_members \
+             WHERE tenant_id = ?1 AND email = ?2",
+        )
+        .bind(tenant.id.as_slice())
+        .bind(&tenant.owner_email)
+        .fetch_one(db.pool())
+        .await
+        .expect("owner member row");
+        assert_eq!(role, "owner");
+        assert!(
+            accepted_at.is_some(),
+            "owner accepted_at must be set on signup-time provisioning"
+        );
     }
 
     #[tokio::test]
@@ -603,6 +634,51 @@ mod tests {
             .expect("expected error");
 
         assert!(matches!(err, SaasError::SlugTaken));
+    }
+
+    #[tokio::test]
+    async fn provision_rolls_back_owner_member_on_file_failure() {
+        // If the SQLite file open fails after the tenants/tenant_members
+        // INSERTs, the control-plane transaction must be rolled back so the
+        // tenants table doesn't carry an orphan row and tenant_members has
+        // no leftover owner pointing at a non-existent tenant.
+        let db = test_db().await;
+        let config = test_builder_config();
+
+        // Use a regular file as the "directory" — SqlitePool::connect_with
+        // will fail because joining a filename onto a regular file produces
+        // an invalid path.
+        let bad = tempfile::NamedTempFile::new().expect("tempfile");
+        let bad_dir = bad.path();
+
+        let result = db
+            .provision_tenant(
+                "Atomic".into(),
+                "atomic".into(),
+                "owner@atomic.com".into(),
+                bad_dir,
+                &config,
+            )
+            .await;
+        assert!(result.is_err(), "expected provision failure");
+
+        let tenants_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenants")
+            .fetch_one(db.pool())
+            .await
+            .expect("count tenants");
+        assert_eq!(
+            tenants_count, 0,
+            "tenants row must be rolled back on file-open failure"
+        );
+
+        let members_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenant_members")
+            .fetch_one(db.pool())
+            .await
+            .expect("count members");
+        assert_eq!(
+            members_count, 0,
+            "tenant_members owner row must be rolled back on file-open failure"
+        );
     }
 
     #[tokio::test]
