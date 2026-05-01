@@ -204,7 +204,6 @@ async fn post_signup(
     let client_id = result.provision.client_id.clone();
     let entry = QuickstartEntry {
         dashboard_user_id: result.user.id,
-        tenant_id,
         slug: slug.clone(),
         client_id: client_id.clone(),
         client_secret: result.provision.client_secret.as_str().to_owned(),

@@ -25,6 +25,10 @@ use allowthem_saas::{
 };
 use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 
+use crate::dashboard::quickstart::quickstart_routes;
+use crate::dashboard::signup::signup_routes;
+use crate::dashboard::{QuickstartCache, SignupState, build_dashboard_env};
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -127,10 +131,32 @@ async fn main() -> Result<()> {
         tenant_router_middleware,
     ));
 
-    // Dashboard-specific routes (signup, quickstart, dashboard pages) ship in
-    // 99c.2..99c.6. The placeholder router is empty for now but is mounted
-    // through the same middleware so the dashboard handle gets injected on
-    // root-domain requests.
+    // Dashboard onboarding (signup + quickstart) and other dashboard pages
+    // (99c.3..99c.6, currently empty placeholder). Both go through the same
+    // tenant_router_middleware so the dashboard handle lands in extensions
+    // on root-domain requests for the shared `csrf_middleware` + handlers.
+    let signup_state = SignupState {
+        ath: dashboard_state.ath.clone(),
+        control_db: control_db.clone(),
+        tenant_data_dir: tenant_data_dir.clone(),
+        tenant_config: tenant_config.clone(),
+        handle_cache: handle_cache.clone(),
+        quickstart_cache: QuickstartCache::new(),
+        base_domain: cfg.base_domain.clone(),
+        templates: build_dashboard_env(),
+        is_production: cfg.is_production,
+    };
+
+    let onboarding_routes = signup_routes(signup_state.clone())
+        .merge(quickstart_routes(signup_state));
+
+    let onboarding_with_middleware = onboarding_routes.layer(
+        axum::middleware::from_fn_with_state(
+            router_state.clone(),
+            tenant_router_middleware,
+        ),
+    );
+
     let dashboard_pages = dashboard::dashboard_pages_router().layer(
         axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),
     );
@@ -138,7 +164,7 @@ async fn main() -> Result<()> {
     let manage_routes = manage_router(manage_state);
 
     // Hold the DashboardState binding alive past the router build. Future
-    // sub-tasks (99c.2+) will pass it into dashboard_pages_router as state.
+    // sub-tasks (99c.3+) will pass it into dashboard_pages_router as state.
     let _dashboard_state = dashboard_state;
 
     let base_domain = cfg.base_domain.clone();
@@ -159,6 +185,7 @@ async fn main() -> Result<()> {
             }),
         )
         .merge(auth_with_middleware)
+        .merge(onboarding_with_middleware)
         .merge(dashboard_pages);
 
     if cfg.pre_migrate_count > 0 {

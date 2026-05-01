@@ -15,7 +15,6 @@ use moka::future::Cache;
 
 use allowthem_core::sessions::generate_token;
 use allowthem_core::types::UserId;
-use allowthem_saas::TenantId;
 
 /// Default time-to-live for a quickstart entry. The plaintext secret is
 /// reachable from the cache for at most this long after signup; the
@@ -31,8 +30,10 @@ pub struct QuickstartCache(Cache<String, QuickstartEntry>);
 
 #[derive(Clone)]
 pub struct QuickstartEntry {
+    /// Owning dashboard user. Read by the quickstart handler to gate
+    /// access to the entry — only the dashboard user who created it can
+    /// see it.
     pub dashboard_user_id: UserId,
-    pub tenant_id: TenantId,
     pub slug: String,
     /// `client_id` of the freshly created OIDC application. Stored as
     /// `String` rather than `ClientId` because `ProvisionResult.client_id`
@@ -95,12 +96,10 @@ mod tests {
     use super::*;
     use allowthem_core::types::UserId;
     use std::time::Duration;
-    use uuid::Uuid;
 
     fn sample_entry() -> QuickstartEntry {
         QuickstartEntry {
             dashboard_user_id: UserId::new(),
-            tenant_id: TenantId::from(Uuid::now_v7()),
             slug: "acme".into(),
             client_id: "ath_test1234567890abcd".into(),
             client_secret: "very-secret".into(),
