@@ -187,3 +187,4 @@
 {"id":"int-340217e3","kind":"field_change","created_at":"2026-05-01T21:54:46.981174341Z","actor":"nambiar","issue_id":"allowthem-99c.1.4","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-38372c73","kind":"field_change","created_at":"2026-05-01T21:56:50.93221739Z","actor":"nambiar","issue_id":"allowthem-99c.2.4","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-9a0fea96","kind":"field_change","created_at":"2026-05-01T22:39:37.729656773Z","actor":"nambiar","issue_id":"allowthem-99c.1.5","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-b74a2f8f","kind":"field_change","created_at":"2026-05-01T22:58:36.166507066Z","actor":"nambiar","issue_id":"allowthem-99c.2.5","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}

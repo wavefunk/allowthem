@@ -419,6 +419,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provision_tenant_for_user_slug_taken_propagates() {
+        let (state, _dir) = test_dashboard_state().await;
+        let email = Email::new("alice@acme.com".into()).unwrap();
+        let user = state
+            .ath
+            .db()
+            .create_user(email, "supersecret", None, None)
+            .await
+            .unwrap();
+
+        // First call wins.
+        provision_tenant_for_user(&state, user.id, "Alice".into(), "alice".into())
+            .await
+            .expect("first provision");
+
+        // Second call with the same slug fails through SaasError::SlugTaken.
+        let result =
+            provision_tenant_for_user(&state, user.id, "Alice 2".into(), "alice".into()).await;
+        let Err(err) = result else {
+            panic!("expected slug-taken error");
+        };
+        assert!(matches!(
+            err,
+            ProvisionForUserError::Provision(SaasError::SlugTaken)
+        ));
+    }
+
+    #[tokio::test]
     async fn provision_tenant_for_user_user_not_found() {
         let (state, _dir) = test_dashboard_state().await;
         let result =

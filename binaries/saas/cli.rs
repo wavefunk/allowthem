@@ -402,6 +402,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn seed_admin_no_password_source_in_non_tty_errors() {
+        // No --password and no --password-stdin → fall through to the
+        // "generate a password" branch. Cargo test runs with stdout NOT a
+        // TTY, so the helper bails with the "not a TTY" error rather than
+        // printing a generated password into the test log.
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = test_saas_cfg_in(&dir);
+        let config = test_config();
+        let result = super::seed_admin(
+            &cfg,
+            &config,
+            "noinput@example.com".to_string(),
+            None,
+            false,
+            false,
+        )
+        .await;
+        let err = match result {
+            Ok(()) => panic!("expected non-TTY error"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("not a TTY"),
+            "unexpected error message: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn seed_admin_invalid_email_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = test_saas_cfg_in(&dir);
+        let config = test_config();
+        let result = super::seed_admin(
+            &cfg,
+            &config,
+            "not-an-email".to_string(),
+            Some("supersecret".to_string()),
+            false,
+            false,
+        )
+        .await;
+        let err = match result {
+            Ok(()) => panic!("expected invalid-email error"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("invalid email"));
+    }
+
+    #[tokio::test]
     async fn seed_admin_reset_password_revokes_old() {
         use allowthem_core::error::AuthError;
 

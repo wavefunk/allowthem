@@ -471,3 +471,228 @@ async fn quickstart_renders_with_correct_session() {
         "secret card marker should be present"
     );
 }
+
+// ----- Edge cases + security boundaries (Task #12 additions) ----------------
+
+/// Reuse the post-signup session cookie + Location off a successful
+/// signup response. Returns `(session_cookie_kv, quickstart_path)`.
+async fn signup_and_get_session(fx: &Fixture, email: &str, slug: &str) -> (String, String) {
+    let (cookie, csrf) = fetch_csrf(fx).await;
+    let form = signup_form(&csrf, email, "supersecret", "Workspace", slug);
+    let resp = fx.post_form("/signup", &form, Some(&cookie)).await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+    let location = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .expect("Location")
+        .to_owned();
+    let session_cookie = resp
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .find_map(|hv| {
+            hv.to_str()
+                .ok()
+                .filter(|s| s.starts_with("allowthem_dashboard_session="))
+                .map(|s| s.split(';').next().unwrap_or("").to_owned())
+        })
+        .expect("session cookie");
+    (session_cookie, location)
+}
+
+#[tokio::test]
+async fn post_signup_without_csrf_token_is_rejected() {
+    let fx = Fixture::new().await;
+    // Don't fetch the csrf_pre cookie — submit POST cold. csrf_middleware
+    // should reject because there's no double-submit cookie + matching form
+    // token to verify.
+    let form = signup_form("missing", "x@example.com", "supersecret", "X", "xtest");
+    let resp = fx.post_form("/signup", &form, None).await;
+    // csrf_middleware returns 403 on failure (see crates/server/csrf.rs).
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    // Side effects: no dashboard user, no tenant.
+    let res = fx
+        .state
+        .ath
+        .db()
+        .get_user_by_email(&Email::new("x@example.com".into()).unwrap())
+        .await;
+    assert!(matches!(res, Err(AuthError::NotFound)));
+    let tenants = fx.state.control_db.list_tenants().await.unwrap();
+    assert!(tenants.is_empty());
+}
+
+#[tokio::test]
+async fn post_signup_with_mismatched_csrf_is_rejected() {
+    let fx = Fixture::new().await;
+    let (cookie, _real_csrf) = fetch_csrf(&fx).await;
+    // Send a *different* csrf_token in the body than what csrf_pre cookie
+    // carries — double-submit must fail.
+    let form = signup_form(
+        "wrong-token",
+        "y@example.com",
+        "supersecret",
+        "Y",
+        "ytest",
+    );
+    let resp = fx.post_form("/signup", &form, Some(&cookie)).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn slug_check_returns_invalid_for_bad_format() {
+    let fx = Fixture::new().await;
+    // Slug starts with digit → SaasError::SlugInvalid.
+    let resp = fx.get("/signup/slug-check?slug=1abc").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains("Use 3–40 lowercase letters"),
+        "expected invalid-format fragment, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn get_signup_when_already_authenticated_redirects_to_root() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _location) =
+        signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    // Hit GET /signup again while signed in. The handler short-circuits to /.
+    let req = Request::builder()
+        .method("GET")
+        .uri("/signup")
+        .header(header::HOST, BASE_DOMAIN)
+        .header(
+            header::COOKIE,
+            HeaderValue::from_str(&session_cookie).unwrap(),
+        )
+        .body(Body::empty())
+        .unwrap();
+    let resp = fx.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let location = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(location, "/");
+}
+
+#[tokio::test]
+async fn quickstart_404_for_other_users_token() {
+    // Owner A signs up, gets quickstart token. Owner B signs up with a
+    // different slug, gets B's session cookie. B uses A's token → 404.
+    let fx = Fixture::new().await;
+    let (_session_a, location_a) = signup_and_get_session(&fx, "a@example.com", "acme").await;
+    let (session_b, _location_b) = signup_and_get_session(&fx, "b@example.com", "globex").await;
+
+    // Use B's session cookie to GET A's quickstart URL.
+    let req = Request::builder()
+        .method("GET")
+        .uri(&location_a)
+        .header(header::HOST, BASE_DOMAIN)
+        .header(header::COOKIE, HeaderValue::from_str(&session_b).unwrap())
+        .body(Body::empty())
+        .unwrap();
+    let resp = fx.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn quickstart_dismiss_evicts_and_subsequent_get_404s() {
+    let fx = Fixture::new().await;
+    let (session_cookie, location) =
+        signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    // POST /quickstart/{token}/dismiss — need a fresh CSRF inside this
+    // session because csrf_middleware now derives the token from the
+    // session cookie (post-auth path).
+    let token = location
+        .strip_prefix("/quickstart/")
+        .expect("path starts /quickstart/");
+    let dismiss_path = format!("/quickstart/{token}/dismiss");
+
+    // Pull the post-auth csrf_token by GET-ing the quickstart page; it
+    // gets rendered into the dismiss form as a hidden input. We grep it
+    // out of the body.
+    let render_req = Request::builder()
+        .method("GET")
+        .uri(&location)
+        .header(header::HOST, BASE_DOMAIN)
+        .header(
+            header::COOKIE,
+            HeaderValue::from_str(&session_cookie).unwrap(),
+        )
+        .body(Body::empty())
+        .unwrap();
+    let render_resp = fx.app.clone().oneshot(render_req).await.unwrap();
+    assert_eq!(render_resp.status(), StatusCode::OK);
+    let body = body_string(render_resp).await;
+    let csrf = extract_csrf_from_body(&body);
+
+    let dismiss_req = Request::builder()
+        .method("POST")
+        .uri(&dismiss_path)
+        .header(header::HOST, BASE_DOMAIN)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(
+            header::COOKIE,
+            HeaderValue::from_str(&session_cookie).unwrap(),
+        )
+        .body(Body::from(url_encode(&[("csrf_token", &csrf)])))
+        .unwrap();
+    let dismiss_resp = fx.app.clone().oneshot(dismiss_req).await.unwrap();
+    assert_eq!(dismiss_resp.status(), StatusCode::SEE_OTHER);
+
+    // The cache entry is gone — subsequent GET → 404.
+    let after_req = Request::builder()
+        .method("GET")
+        .uri(&location)
+        .header(header::HOST, BASE_DOMAIN)
+        .header(
+            header::COOKIE,
+            HeaderValue::from_str(&session_cookie).unwrap(),
+        )
+        .body(Body::empty())
+        .unwrap();
+    let after_resp = fx.app.clone().oneshot(after_req).await.unwrap();
+    assert_eq!(after_resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn quickstart_eviction_makes_subsequent_gets_404() {
+    // Equivalent to the TTL case but driven through the public cache API
+    // — exercising what would happen after the 10-min TTL elapses.
+    let fx = Fixture::new().await;
+    let (session_cookie, location) =
+        signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let token = location.trim_start_matches("/quickstart/");
+    fx.state.quickstart_cache.evict(token).await;
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(&location)
+        .header(header::HOST, BASE_DOMAIN)
+        .header(
+            header::COOKIE,
+            HeaderValue::from_str(&session_cookie).unwrap(),
+        )
+        .body(Body::empty())
+        .unwrap();
+    let resp = fx.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+/// Pull the value of `<input … name="csrf_token" value="…">` out of an HTML body.
+fn extract_csrf_from_body(body: &str) -> String {
+    let needle = "name=\"csrf_token\" value=\"";
+    let start = body.find(needle).expect("csrf_token input present");
+    let rest = &body[start + needle.len()..];
+    let end = rest.find('"').expect("closing quote");
+    rest[..end].to_owned()
+}
