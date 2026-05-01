@@ -115,6 +115,7 @@ pub async fn resolve_branding(
 /// and `font_*` fields.
 pub struct BrandingCtx<'a> {
     pub app_name: &'a str,
+    pub title_brand: &'a str,
     pub accent: String,
     pub accent_ink: &'static str,
     pub accent_light: String,
@@ -125,10 +126,15 @@ pub struct BrandingCtx<'a> {
 impl<'a> BrandingCtx<'a> {
     pub fn from_branding(branding: Option<&'a BrandingConfig>) -> Self {
         let (accent, accent_ink, accent_light, accent_ink_light) = resolve_accent(branding);
+        let app_name = branding
+            .map(|b| b.application_name.as_str())
+            .unwrap_or("allowthem");
+        let title_brand = branding
+            .and_then(|b| b.title_brand.as_deref())
+            .unwrap_or(app_name);
         Self {
-            app_name: branding
-                .map(|b| b.application_name.as_str())
-                .unwrap_or("allowthem"),
+            app_name,
+            title_brand,
             accent,
             accent_ink,
             accent_light,
@@ -162,6 +168,7 @@ pub fn branding_context(branding: Option<&BrandingConfig>) -> minijinja::Value {
     minijinja::context! {
         branding,
         app_name => ctx.app_name,
+        title_brand => ctx.title_brand,
         logo_url => ctx.logo_url,
         accent => ctx.accent,
         accent_ink => ctx.accent_ink,
@@ -282,6 +289,7 @@ mod tests {
             splash_primitive: None,
             splash_url: None,
             shader_cell_scale: None,
+            title_brand: None,
         };
         let (accent, ink, accent_light, ink_light) = resolve_accent(Some(&b));
         // Same brand color in both modes — theme toggles must not clobber it.
@@ -307,6 +315,7 @@ mod tests {
             splash_primitive: None,
             splash_url: None,
             shader_cell_scale: None,
+            title_brand: None,
         };
         let (accent, _ink, _accent_light, _ink_light) = resolve_accent(Some(&b));
         assert_eq!(accent, "#00ff00");
@@ -328,6 +337,7 @@ mod tests {
             splash_primitive: None,
             splash_url: None,
             shader_cell_scale: None,
+            title_brand: None,
         };
         let (accent, _ink, _accent_light, _ink_light) = resolve_accent(Some(&b));
         assert_eq!(accent, "#ff0000");
@@ -349,6 +359,7 @@ mod tests {
             splash_primitive: None,
             splash_url: None,
             shader_cell_scale: None,
+            title_brand: None,
         };
         let (_accent, ink, _accent_light, _ink_light) = resolve_accent(Some(&b));
         assert_eq!(ink, "#ffffff");
@@ -358,6 +369,7 @@ mod tests {
     fn branding_ctx_none_gives_allowthem_defaults() {
         let ctx = BrandingCtx::from_branding(None);
         assert_eq!(ctx.app_name, "allowthem");
+        assert_eq!(ctx.title_brand, "allowthem");
         assert_eq!(ctx.accent, "#ffffff");
         assert_eq!(ctx.accent_ink, "#000000");
         assert_eq!(ctx.accent_light, "#000000");
@@ -372,6 +384,7 @@ mod tests {
             .with_logo_url("https://cdn.example/logo.svg");
         let ctx = BrandingCtx::from_branding(Some(&b));
         assert_eq!(ctx.app_name, "Fixture Co");
+        assert_eq!(ctx.title_brand, "Fixture Co");
         assert_eq!(ctx.accent, "#ff00aa");
         assert_eq!(ctx.accent_ink, "#000000"); // YIQ pastel → black ink
         assert_eq!(ctx.logo_url, Some("https://cdn.example/logo.svg"));
@@ -392,9 +405,28 @@ mod tests {
     }
 
     #[test]
+    fn branding_ctx_title_brand_defaults_to_app_name() {
+        let b = BrandingConfig::new("Acme Corp");
+        let ctx = BrandingCtx::from_branding(Some(&b));
+        assert_eq!(ctx.title_brand, "Acme Corp");
+    }
+
+    #[test]
+    fn branding_ctx_explicit_title_brand_overrides_app_name() {
+        let b = BrandingConfig::new("Acme Corp").with_title_brand("Acme");
+        let ctx = BrandingCtx::from_branding(Some(&b));
+        assert_eq!(ctx.app_name, "Acme Corp");
+        assert_eq!(ctx.title_brand, "Acme");
+    }
+
+    #[test]
     fn branding_context_none_emits_allowthem_defaults() {
         let v = branding_context(None);
         assert_eq!(v.get_attr("app_name").unwrap().as_str(), Some("allowthem"));
+        assert_eq!(
+            v.get_attr("title_brand").unwrap().as_str(),
+            Some("allowthem")
+        );
         assert_eq!(v.get_attr("accent").unwrap().as_str(), Some("#ffffff"));
         assert_eq!(v.get_attr("accent_ink").unwrap().as_str(), Some("#000000"));
         assert_eq!(

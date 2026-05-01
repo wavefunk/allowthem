@@ -112,6 +112,7 @@ fn mock_branding() -> BrandingConfig {
         splash_primitive: None,
         splash_url: None,
         shader_cell_scale: None,
+        title_brand: None,
     }
 }
 

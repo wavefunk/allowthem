@@ -5,7 +5,7 @@
 #}
 
 {% macro kicker(app_name, section, swap_href="", swap_label="", swap_prefix="") %}
-  <span>{{ (app_name or "allowthem") }} · {{ section }}</span>
+  <span>{{ (app_name or title_brand or "allowthem") }} · {{ section }}</span>
   {% if swap_href %}
     <a href="{{ swap_href }}"
        hx-get="{{ swap_href }}"

@@ -68,6 +68,10 @@ pub struct BrandingConfig {
     pub splash_primitive: Option<SplashPrimitive>,
     pub splash_url: Option<String>,
     pub shader_cell_scale: Option<i64>,
+    /// Override the `— allowthem` suffix in page titles.
+    /// Defaults to `application_name` when `None`.
+    #[sqlx(skip)]
+    pub title_brand: Option<String>,
 }
 
 /// Generate a new `client_id`: `ath_` + 24 random bytes base64url-encoded.
@@ -126,6 +130,7 @@ impl Application {
             splash_primitive: self.splash_primitive,
             splash_url: self.splash_url.clone(),
             shader_cell_scale: self.shader_cell_scale,
+            title_brand: None,
         }
     }
 }
@@ -149,6 +154,7 @@ impl BrandingConfig {
             splash_primitive: None,
             splash_url: None,
             shader_cell_scale: None,
+            title_brand: None,
         }
     }
 
@@ -185,6 +191,11 @@ impl BrandingConfig {
 
     pub fn with_shader_cell_scale(mut self, scale: i64) -> Self {
         self.shader_cell_scale = Some(scale);
+        self
+    }
+
+    pub fn with_title_brand(mut self, brand: impl Into<String>) -> Self {
+        self.title_brand = Some(brand.into());
         self
     }
 }
