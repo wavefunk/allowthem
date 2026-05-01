@@ -100,6 +100,35 @@ impl ControlDb {
         .await?;
         Ok(rows)
     }
+
+    /// Append an entry to `control_audit_events`.
+    ///
+    /// Call sites are fire-and-forget: log the error and continue. An
+    /// unlogged audit event is a nuisance, never a correctness bug.
+    /// `context` is serialised to a JSON string before persistence so the
+    /// callers can pass arbitrary `serde_json::Value` shapes.
+    pub async fn log_control_audit(
+        &self,
+        actor: &str,
+        action: &str,
+        tenant_id: Option<&TenantId>,
+        context: &serde_json::Value,
+    ) -> Result<(), SaasError> {
+        let id = Uuid::now_v7();
+        let context_str = context.to_string();
+        sqlx::query(
+            "INSERT INTO control_audit_events (id, actor, action, tenant_id, context) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(id.as_bytes().as_slice())
+        .bind(actor)
+        .bind(action)
+        .bind(tenant_id.map(|t| t.as_bytes()))
+        .bind(&context_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -120,6 +149,36 @@ pub(crate) mod tests {
         let pool = test_pool().await;
         let db = ControlDb::new(pool).await;
         assert!(db.is_ok());
+    }
+
+    #[tokio::test]
+    async fn log_control_audit_inserts_row() {
+        let pool = test_pool().await;
+        let db = ControlDb::new(pool).await.unwrap();
+        db.log_control_audit(
+            "owner@acme.com",
+            "tenant.provisioned",
+            None,
+            &serde_json::json!({"slug": "acme"}),
+        )
+        .await
+        .expect("log_control_audit");
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM control_audit_events")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+
+        let (actor, action, ctx): (String, String, String) = sqlx::query_as(
+            "SELECT actor, action, context FROM control_audit_events LIMIT 1",
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+        assert_eq!(actor, "owner@acme.com");
+        assert_eq!(action, "tenant.provisioned");
+        assert!(ctx.contains("acme"));
     }
 
     #[tokio::test]
