@@ -1,5 +1,5 @@
 {% extends "_partials/_app_shell.html" %}
-{% block title %}Settings — {{ title_brand }}{% endblock %}
+{% block title %}Settings — {{ title_brand | default("allowthem") }}{% endblock %}
 
 {% block pagetitle %}Settings{% endblock %}
 {% block crumbs %}Account · Settings{% endblock %}
