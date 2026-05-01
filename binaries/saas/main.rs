@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod dashboard;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -19,8 +20,8 @@ use tracing_subscriber::EnvFilter;
 use allowthem_core::LogEmailSender;
 use allowthem_saas::control_db::ControlDb;
 use allowthem_saas::{
-    HandleCache, ManageState, SlugCache, TenantBuilderConfig, TenantRouterState, manage_router,
-    pre_warm, tenant_router_middleware,
+    DashboardState, HandleCache, ManageState, SlugCache, TenantBuilderConfig, TenantRouterState,
+    manage_router, pre_warm, tenant_router_middleware,
 };
 use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 
@@ -66,9 +67,33 @@ async fn main() -> Result<()> {
         is_production: cfg.is_production,
     });
 
+    // CLI subcommands handle their own dashboard.db open path. Run them before
+    // we open the runtime dashboard handle to avoid duplicate locks on the
+    // same file when a CLI invocation is short-lived.
     if let Some(cmd) = cli::parse() {
         return cli::run(cmd, &control_db, &handle_cache, &tenant_config, &cfg).await;
     }
+
+    // Open dashboard.db (create + migrate). Held in DashboardState for the
+    // life of the process — not in HandleCache.
+    let dashboard_ath = dashboard::open_dashboard_handle(
+        &tenant_data_dir,
+        &cfg.base_domain,
+        cfg.is_production,
+        mfa_key,
+        signing_key,
+        csrf_key,
+    )
+    .await?;
+
+    let dashboard_state = DashboardState {
+        ath: dashboard_ath.clone(),
+        control_db: control_db.clone(),
+        tenant_data_dir: tenant_data_dir.clone(),
+        tenant_config: tenant_config.clone(),
+        handle_cache: handle_cache.clone(),
+        is_production: cfg.is_production,
+    };
 
     let router_state = TenantRouterState {
         control_db: control_db.clone(),
@@ -77,8 +102,7 @@ async fn main() -> Result<()> {
         tenant_data_dir: tenant_data_dir.clone(),
         config: tenant_config.clone(),
         seen_times: Arc::new(DashMap::new()),
-        // 99c.1 Task 6 wires this to the actual dashboard handle.
-        dashboard_handle: None,
+        dashboard_handle: Some(dashboard_ath),
     };
     let manage_state = ManageState::new(
         control_db.clone(),
@@ -98,12 +122,24 @@ async fn main() -> Result<()> {
         .build_for_saas()
         .map_err(|e| eyre::eyre!("{e}"))?;
 
-    let tenant_routes = auth_routes.layer(axum::middleware::from_fn_with_state(
-        router_state,
+    let auth_with_middleware = auth_routes.layer(axum::middleware::from_fn_with_state(
+        router_state.clone(),
         tenant_router_middleware,
     ));
 
+    // Dashboard-specific routes (signup, quickstart, dashboard pages) ship in
+    // 99c.2..99c.6. The placeholder router is empty for now but is mounted
+    // through the same middleware so the dashboard handle gets injected on
+    // root-domain requests.
+    let dashboard_pages = dashboard::dashboard_pages_router().layer(
+        axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),
+    );
+
     let manage_routes = manage_router(manage_state);
+
+    // Hold the DashboardState binding alive past the router build. Future
+    // sub-tasks (99c.2+) will pass it into dashboard_pages_router as state.
+    let _dashboard_state = dashboard_state;
 
     let base_domain = cfg.base_domain.clone();
     let app = Router::new()
@@ -122,7 +158,8 @@ async fn main() -> Result<()> {
                 }
             }),
         )
-        .merge(tenant_routes);
+        .merge(auth_with_middleware)
+        .merge(dashboard_pages);
 
     if cfg.pre_migrate_count > 0 {
         pre_warm(
