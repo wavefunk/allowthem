@@ -8,11 +8,15 @@
 //! gets a CsrfToken in extensions and POST validation rejects mismatches.
 
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use minijinja::Environment;
+use serde::Deserialize;
 
+use allowthem_core::error::AuthError;
+use allowthem_saas::{SaasError, validate_slug};
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::{CsrfToken, csrf_middleware};
 
@@ -45,8 +49,62 @@ async fn post_signup(_state: State<SignupState>, _csrf: CsrfToken) -> Response {
     StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
-async fn get_slug_check(_state: State<SignupState>) -> Response {
-    StatusCode::NOT_IMPLEMENTED.into_response()
+#[derive(Deserialize)]
+struct SlugCheckQuery {
+    slug: String,
+}
+
+/// HTMX-driven live slug availability check. Returns a small fragment
+/// (green check / red error). Server-side validation on POST is the
+/// source of truth — this is a UX hint, never security.
+async fn get_slug_check(
+    State(state): State<SignupState>,
+    Query(q): Query<SlugCheckQuery>,
+) -> Result<Response, BrowserError> {
+    let slug = q.slug.trim().to_lowercase();
+    let env = state.templates.as_ref();
+
+    // `validate_slug` already checks the reserved list internally
+    // (crates/saas/tenants.rs:17-19), so one call covers format + reserved.
+    let html = match validate_slug(&slug) {
+        Err(SaasError::SlugReserved) => render_slug_err(env, "Reserved")?,
+        Err(SaasError::SlugInvalid(_)) => {
+            render_slug_err(env, "Use 3–40 lowercase letters, digits, or `-`")?
+        }
+        Err(other) => return Err(saas_to_browser_error(other)),
+        Ok(()) => match state.control_db.tenant_by_slug(&slug).await {
+            Ok(Some(_)) => render_slug_err(env, "Already taken")?,
+            Ok(None) => render_slug_ok(env, &slug)?,
+            Err(e) => return Err(saas_to_browser_error(e)),
+        },
+    };
+    Ok(html.into_response())
+}
+
+fn render_slug_ok(
+    env: &Environment<'static>,
+    slug: &str,
+) -> Result<axum::response::Html<String>, BrowserError> {
+    let tmpl = env.get_template("_partials/_slug_check_ok.html")?;
+    let html = tmpl.render(minijinja::context! { slug => slug })?;
+    Ok(axum::response::Html(html))
+}
+
+fn render_slug_err(
+    env: &Environment<'static>,
+    msg: &str,
+) -> Result<axum::response::Html<String>, BrowserError> {
+    let tmpl = env.get_template("_partials/_slug_check_err.html")?;
+    let html = tmpl.render(minijinja::context! { msg => msg })?;
+    Ok(axum::response::Html(html))
+}
+
+/// Bridge a `SaasError` into the existing `BrowserError` types without
+/// modifying `crates/server`. `BrowserError::Auth(AuthError::Validation(_))`
+/// renders as a 422 page; that's the closest user-facing fit for a
+/// non-Slug Saas error reaching this handler.
+fn saas_to_browser_error(err: SaasError) -> BrowserError {
+    BrowserError::Auth(AuthError::Validation(err.to_string()))
 }
 
 /// Render the signup form into a full HTML page.
