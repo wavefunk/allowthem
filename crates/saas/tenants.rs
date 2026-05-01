@@ -102,6 +102,24 @@ pub struct TenantBuilderConfig {
     pub signing_key: [u8; 32],
     pub csrf_key: [u8; 32],
     pub base_domain: String,
+    /// Drives the cookie name + Secure attribute for tenant sessions.
+    /// `__Host-` requires Secure → requires HTTPS, so dev (HTTP localhost)
+    /// uses the plain name and `Secure=false`.
+    pub is_production: bool,
+}
+
+/// Cookie name for tenant sessions.
+///
+/// Production uses the `__Host-` prefix, which forbids the `Domain` attribute
+/// and requires `Secure` — both already true under SaaS deployment via Caddy
+/// (per parent spec §6.2). Dev uses the plain name to keep the local HTTP
+/// workflow friction-free.
+pub fn tenant_cookie_name(is_production: bool) -> &'static str {
+    if is_production {
+        "__Host-allowthem_session"
+    } else {
+        "allowthem_session"
+    }
 }
 
 /// Result of a successful `provision_tenant` call.
@@ -333,12 +351,16 @@ impl ControlDb {
             .map_err(|e| SaasError::ProvisionFailed(e.to_string()))?;
 
         // Steps 5+6: Build handle — AllowThemBuilder::build() runs core migrations via Db::new.
+        // No `cookie_domain` — host-only cookies satisfy the `__Host-` prefix
+        // (see crates/core/sessions.rs:313). Tenant sessions are bound to the
+        // exact `<slug>.<base_domain>` host the issuing request hit.
         let ath = allowthem_core::AllowThemBuilder::with_pool(pool)
             .mfa_key(config.mfa_key)
             .signing_key(config.signing_key)
             .csrf_key(config.csrf_key)
             .base_url(format!("https://{}.{}", slug, config.base_domain))
-            .cookie_domain(format!(".{}.{}", slug, config.base_domain))
+            .cookie_name(tenant_cookie_name(config.is_production))
+            .cookie_secure(config.is_production)
             .build()
             .await
             .map_err(|e| SaasError::ProvisionFailed(e.to_string()))?;
@@ -549,7 +571,50 @@ mod tests {
             signing_key: [2u8; 32],
             csrf_key: [3u8; 32],
             base_domain: "test.local".into(),
+            is_production: false,
         }
+    }
+
+    #[test]
+    fn tenant_cookie_name_prod_uses_host_prefix() {
+        assert_eq!(tenant_cookie_name(true), "__Host-allowthem_session");
+    }
+
+    #[test]
+    fn tenant_cookie_name_dev_drops_prefix() {
+        assert_eq!(tenant_cookie_name(false), "allowthem_session");
+    }
+
+    #[tokio::test]
+    async fn provision_prod_handle_emits_host_prefixed_cookie() {
+        let db = test_db().await;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = TenantBuilderConfig {
+            is_production: true,
+            ..test_builder_config()
+        };
+
+        let result = db
+            .provision_tenant(
+                "Prod Co".into(),
+                "prodco".into(),
+                "owner@prodco.com".into(),
+                dir.path(),
+                &config,
+            )
+            .await
+            .expect("provision_tenant");
+
+        // Build a cookie value via the new tenant handle; assert __Host- prefix,
+        // Secure flag, and absence of Domain attribute.
+        let token = allowthem_core::sessions::generate_token();
+        let cookie = result.ath.session_cookie(&token);
+        assert!(
+            cookie.starts_with("__Host-allowthem_session="),
+            "expected __Host-allowthem_session prefix, got: {cookie}"
+        );
+        assert!(cookie.contains("; Secure"), "Secure flag required for __Host-: {cookie}");
+        assert!(!cookie.contains("Domain="), "no Domain= attribute allowed for __Host-: {cookie}");
     }
 
     #[tokio::test]

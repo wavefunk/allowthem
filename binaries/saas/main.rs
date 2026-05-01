@@ -63,6 +63,7 @@ async fn main() -> Result<()> {
         signing_key,
         csrf_key,
         base_domain: cfg.base_domain.clone(),
+        is_production: cfg.is_production,
     });
 
     if let Some(cmd) = cli::parse() {

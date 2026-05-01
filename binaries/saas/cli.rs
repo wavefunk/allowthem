@@ -105,6 +105,8 @@ mod tests {
             signing_key: [2u8; 32],
             csrf_key: [3u8; 32],
             base_domain: "example.com".into(),
+
+            is_production: false,
         })
     }
 

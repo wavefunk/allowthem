@@ -196,12 +196,16 @@ async fn build_handle_with_path(
         .await
         .map_err(|e| SaasError::ProvisionFailed(e.to_string()))?;
 
+    // No `cookie_domain` — host-only cookies satisfy the `__Host-` prefix
+    // (see `crates/core/sessions.rs:313`). Cookie name + Secure attribute
+    // are picked per environment via `tenant_cookie_name`.
     allowthem_core::AllowThemBuilder::with_pool(pool)
         .mfa_key(config.mfa_key)
         .signing_key(config.signing_key)
         .csrf_key(config.csrf_key)
         .base_url(format!("https://{slug}.{}", config.base_domain))
-        .cookie_domain(format!(".{slug}.{}", config.base_domain))
+        .cookie_name(crate::tenants::tenant_cookie_name(config.is_production))
+        .cookie_secure(config.is_production)
         .build()
         .await
         .map_err(|e| SaasError::ProvisionFailed(e.to_string()))
@@ -418,6 +422,8 @@ mod tests {
                 signing_key: [0u8; 32],
                 csrf_key: [0u8; 32],
                 base_domain: "example.com".into(),
+
+                is_production: false,
             }),
             seen_times: Arc::new(DashMap::new()),
         }
