@@ -13,7 +13,7 @@ use crate::error::{SaasError, map_slug_conflict};
 use crate::router::is_reserved_slug;
 
 /// Validates slug format per spec §4 step 1: ^[a-z][a-z0-9-]{2,39}$
-pub(crate) fn validate_slug(slug: &str) -> Result<(), SaasError> {
+pub fn validate_slug(slug: &str) -> Result<(), SaasError> {
     if is_reserved_slug(slug) {
         return Err(SaasError::SlugReserved);
     }
