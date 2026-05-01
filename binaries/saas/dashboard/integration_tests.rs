@@ -92,8 +92,8 @@ impl Fixture {
             dashboard_handle: Some(dashboard_ath),
         };
 
-        let onboarding = signup_routes(signup_state.clone())
-            .merge(quickstart_routes(signup_state.clone()));
+        let onboarding =
+            signup_routes(signup_state.clone()).merge(quickstart_routes(signup_state.clone()));
         let app = onboarding.layer(axum::middleware::from_fn_with_state(
             router_state,
             tenant_router_middleware,
@@ -240,13 +240,7 @@ async fn signup_happy_path_creates_artifacts_and_redirects() {
     let fx = Fixture::new().await;
     let (cookie, csrf_token) = fetch_csrf(&fx).await;
 
-    let form = signup_form(
-        &csrf_token,
-        "owner@acme.com",
-        "supersecret",
-        "Acme",
-        "acme",
-    );
+    let form = signup_form(&csrf_token, "owner@acme.com", "supersecret", "Acme", "acme");
     let resp = fx.post_form("/signup", &form, Some(&cookie)).await;
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
 
@@ -277,14 +271,13 @@ async fn signup_happy_path_creates_artifacts_and_redirects() {
         .await
         .unwrap()
         .expect("tenant");
-    let (role,): (String,) = sqlx::query_as(
-        "SELECT role FROM tenant_members WHERE tenant_id = ?1 AND email = ?2",
-    )
-    .bind(tenant.id.as_slice())
-    .bind("owner@acme.com")
-    .fetch_one(fx.state.control_db.pool())
-    .await
-    .unwrap();
+    let (role,): (String,) =
+        sqlx::query_as("SELECT role FROM tenant_members WHERE tenant_id = ?1 AND email = ?2")
+            .bind(tenant.id.as_slice())
+            .bind("owner@acme.com")
+            .fetch_one(fx.state.control_db.pool())
+            .await
+            .unwrap();
     assert_eq!(role, "owner");
 }
 
@@ -426,13 +419,7 @@ async fn quickstart_404_without_session() {
 async fn quickstart_renders_with_correct_session() {
     let fx = Fixture::new().await;
     let (cookie, csrf) = fetch_csrf(&fx).await;
-    let form = signup_form(
-        &csrf,
-        "owner@acme.com",
-        "supersecret",
-        "Acme",
-        "acme",
-    );
+    let form = signup_form(&csrf, "owner@acme.com", "supersecret", "Acme", "acme");
     let resp = fx.post_form("/signup", &form, Some(&cookie)).await;
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
 
@@ -460,7 +447,10 @@ async fn quickstart_renders_with_correct_session() {
         .method("GET")
         .uri(&location)
         .header(header::HOST, BASE_DOMAIN)
-        .header(header::COOKIE, HeaderValue::from_str(&session_cookie).unwrap())
+        .header(
+            header::COOKIE,
+            HeaderValue::from_str(&session_cookie).unwrap(),
+        )
         .body(Body::empty())
         .unwrap();
     let resp = fx.app.clone().oneshot(req).await.unwrap();

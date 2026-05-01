@@ -104,7 +104,10 @@ mod tests {
             cookie.starts_with("__Host-allowthem_dashboard_session="),
             "expected __Host- prefix, got: {cookie}",
         );
-        assert!(cookie.contains("; Secure"), "Secure flag required: {cookie}");
+        assert!(
+            cookie.contains("; Secure"),
+            "Secure flag required: {cookie}"
+        );
         assert!(
             !cookie.contains("Domain="),
             "no Domain= attribute allowed for __Host-: {cookie}",

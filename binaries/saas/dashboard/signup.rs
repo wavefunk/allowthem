@@ -74,11 +74,7 @@ async fn post_signup(
     }
 
     // 1. Pull + cheap-validate fields. We don't echo password back.
-    let email_raw = form
-        .get("email")
-        .map(String::as_str)
-        .unwrap_or("")
-        .trim();
+    let email_raw = form.get("email").map(String::as_str).unwrap_or("").trim();
     let password = form.get("password").map(String::as_str).unwrap_or("");
     let password_confirm = form
         .get("password_confirm")
@@ -97,7 +93,14 @@ async fn post_signup(
         .to_lowercase();
 
     if password != password_confirm {
-        return form_err(&state, &csrf, email_raw, tenant_name, &slug, "Passwords do not match.");
+        return form_err(
+            &state,
+            &csrf,
+            email_raw,
+            tenant_name,
+            &slug,
+            "Passwords do not match.",
+        );
     }
     if password.len() < MIN_PASSWORD_LEN {
         return form_err(
@@ -130,7 +133,14 @@ async fn post_signup(
         return form_err(&state, &csrf, email_raw, tenant_name, &slug, msg);
     }
     if Email::new(email_raw.to_string()).is_err() {
-        return form_err(&state, &csrf, email_raw, tenant_name, &slug, "Enter a valid email.");
+        return form_err(
+            &state,
+            &csrf,
+            email_raw,
+            tenant_name,
+            &slug,
+            "Enter a valid email.",
+        );
     }
 
     // 2. Project SignupState → DashboardState and run the chain.
@@ -165,7 +175,14 @@ async fn post_signup(
             );
         }
         Err(DashboardSignupError::InvalidEmail) => {
-            return form_err(&state, &csrf, email_raw, tenant_name, &slug, "Enter a valid email.");
+            return form_err(
+                &state,
+                &csrf,
+                email_raw,
+                tenant_name,
+                &slug,
+                "Enter a valid email.",
+            );
         }
         Err(DashboardSignupError::ProvisionFailed(saas_err)) => {
             let msg = match saas_err {
@@ -185,12 +202,7 @@ async fn post_signup(
     };
 
     // 3. Convert the new tenant id (BLOB → UUID → TenantId) for the cache.
-    let tenant_id = match result
-        .provision
-        .tenant
-        .id_as_uuid()
-        .map(TenantId::from)
-    {
+    let tenant_id = match result.provision.tenant.id_as_uuid().map(TenantId::from) {
         Some(t) => t,
         None => {
             return Err(BrowserError::Auth(AuthError::Validation(

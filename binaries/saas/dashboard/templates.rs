@@ -139,7 +139,9 @@ mod tests {
     #[test]
     fn quickstart_template_renders_with_full_context() {
         let env = build_dashboard_env();
-        let tmpl = env.get_template("quickstart.html").expect("quickstart.html");
+        let tmpl = env
+            .get_template("quickstart.html")
+            .expect("quickstart.html");
         let html = tmpl
             .render(minijinja::context! {
                 csrf_token => "csrf",

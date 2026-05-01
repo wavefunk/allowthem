@@ -332,9 +332,7 @@ mod tests {
 
     /// Helper: open the dashboard handle pointing at the same tempdir so a
     /// test can verify side effects (user, role, role assignment).
-    async fn open_dashboard_for_inspection(
-        dir: &tempfile::TempDir,
-    ) -> allowthem_core::AllowThem {
+    async fn open_dashboard_for_inspection(dir: &tempfile::TempDir) -> allowthem_core::AllowThem {
         crate::dashboard::open_dashboard_handle(
             dir.path(),
             "example.com",

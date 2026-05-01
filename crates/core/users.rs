@@ -278,11 +278,7 @@ impl Db {
     /// freshly created super-admin verified). The transactional update inside
     /// `verify_email` keeps its inline `UPDATE` to stay atomic with the
     /// "mark token used" write.
-    pub async fn set_email_verified(
-        &self,
-        id: UserId,
-        verified: bool,
-    ) -> Result<(), AuthError> {
+    pub async fn set_email_verified(&self, id: UserId, verified: bool) -> Result<(), AuthError> {
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         let result = sqlx::query(
             "UPDATE allowthem_users SET email_verified = ?1, updated_at = ?2 WHERE id = ?3",

@@ -146,7 +146,17 @@ pub async fn new_form(
     BrowserAdminUser(user): BrowserAdminUser,
     csrf: CsrfToken,
 ) -> Result<Response, AppError> {
-    let html = render_new_form(&state, user.email.as_str(), csrf.as_str(), "", "", &[], false, "", "")?;
+    let html = render_new_form(
+        &state,
+        user.email.as_str(),
+        csrf.as_str(),
+        "",
+        "",
+        &[],
+        false,
+        "",
+        "",
+    )?;
     Ok(html.into_response())
 }
 
@@ -210,7 +220,7 @@ pub async fn create(
             let uris = app.redirect_uri_list()?;
             let created_by_email = resolve_user_email(&state, app.created_by).await;
             let shell = ShellContext::new(true, "/admin/applications", "allowthem")
-        .with_session(user.email.as_str());
+                .with_session(user.email.as_str());
             let html = crate::templates::render(
                 &state.templates,
                 "admin/application_detail.html",
@@ -365,7 +375,7 @@ pub async fn update(
             let app = state.ath.db().get_application(id).await?;
             let uris = app.redirect_uri_list()?;
             let shell = ShellContext::new(true, "/admin/applications", "allowthem")
-        .with_session(user.email.as_str());
+                .with_session(user.email.as_str());
             let html = crate::templates::render(
                 &state.templates,
                 "admin/application_edit.html",
@@ -384,7 +394,7 @@ pub async fn update(
             let app = state.ath.db().get_application(id).await?;
             let uris = app.redirect_uri_list()?;
             let shell = ShellContext::new(true, "/admin/applications", "allowthem")
-        .with_session(user.email.as_str());
+                .with_session(user.email.as_str());
             let html = crate::templates::render(
                 &state.templates,
                 "admin/application_edit.html",
@@ -462,8 +472,8 @@ fn render_new_form(
     form_logo_url: &str,
     form_primary_color: &str,
 ) -> Result<axum::response::Html<String>, AppError> {
-    let shell = ShellContext::new(true, "/admin/applications", "allowthem")
-        .with_session(admin_email);
+    let shell =
+        ShellContext::new(true, "/admin/applications", "allowthem").with_session(admin_email);
     crate::templates::render(
         &state.templates,
         "admin/application_new.html",

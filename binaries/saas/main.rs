@@ -147,15 +147,13 @@ async fn main() -> Result<()> {
         is_production: cfg.is_production,
     };
 
-    let onboarding_routes = signup_routes(signup_state.clone())
-        .merge(quickstart_routes(signup_state));
+    let onboarding_routes =
+        signup_routes(signup_state.clone()).merge(quickstart_routes(signup_state));
 
-    let onboarding_with_middleware = onboarding_routes.layer(
-        axum::middleware::from_fn_with_state(
-            router_state.clone(),
-            tenant_router_middleware,
-        ),
-    );
+    let onboarding_with_middleware = onboarding_routes.layer(axum::middleware::from_fn_with_state(
+        router_state.clone(),
+        tenant_router_middleware,
+    ));
 
     let dashboard_pages = dashboard::dashboard_pages_router().layer(
         axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),

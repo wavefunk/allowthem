@@ -102,8 +102,7 @@ pub async fn dashboard_signup(
     params: DashboardSignupParams,
 ) -> Result<DashboardSignupResult, DashboardSignupError> {
     // Step 1: validate + create dashboard user.
-    let email =
-        Email::new(params.email.clone()).map_err(|_| DashboardSignupError::InvalidEmail)?;
+    let email = Email::new(params.email.clone()).map_err(|_| DashboardSignupError::InvalidEmail)?;
 
     let user = state
         .ath
@@ -279,7 +278,12 @@ mod tests {
         assert_eq!(dashboard_user.id, result.user.id);
 
         // Tenant + owner member exist.
-        let tenant = state.control_db.tenant_by_slug("acme").await.unwrap().unwrap();
+        let tenant = state
+            .control_db
+            .tenant_by_slug("acme")
+            .await
+            .unwrap()
+            .unwrap();
         let (role, accepted_at): (String, Option<String>) = sqlx::query_as(
             "SELECT role, accepted_at FROM tenant_members WHERE tenant_id = ?1 AND email = ?2",
         )
@@ -405,14 +409,10 @@ mod tests {
             .await
             .unwrap();
 
-        let result = provision_tenant_for_user(
-            &state,
-            user.id,
-            "Alice Co".into(),
-            "alice-co".into(),
-        )
-        .await
-        .expect("provision_tenant_for_user");
+        let result =
+            provision_tenant_for_user(&state, user.id, "Alice Co".into(), "alice-co".into())
+                .await
+                .expect("provision_tenant_for_user");
 
         assert_eq!(result.tenant.slug, "alice-co");
         assert_eq!(result.tenant.owner_email, "alice@acme.com");
@@ -421,13 +421,8 @@ mod tests {
     #[tokio::test]
     async fn provision_tenant_for_user_user_not_found() {
         let (state, _dir) = test_dashboard_state().await;
-        let result = provision_tenant_for_user(
-            &state,
-            UserId::new(),
-            "Ghost".into(),
-            "ghost".into(),
-        )
-        .await;
+        let result =
+            provision_tenant_for_user(&state, UserId::new(), "Ghost".into(), "ghost".into()).await;
         let Err(err) = result else {
             panic!("expected UserNotFound");
         };

@@ -22,14 +22,8 @@ use super::signup::no_store;
 
 pub fn quickstart_routes(state: SignupState) -> Router {
     Router::new()
-        .route(
-            "/quickstart/{token}",
-            get(get_quickstart),
-        )
-        .route(
-            "/quickstart/{token}/dismiss",
-            post(post_dismiss),
-        )
+        .route("/quickstart/{token}", get(get_quickstart))
+        .route("/quickstart/{token}/dismiss", post(post_dismiss))
         .layer(axum::middleware::from_fn(csrf_middleware))
         .with_state(state)
 }
@@ -118,9 +112,5 @@ fn render_quickstart(
 }
 
 fn redirect_to_login() -> Response {
-    (
-        StatusCode::SEE_OTHER,
-        [(header::LOCATION, "/login?next=/")],
-    )
-        .into_response()
+    (StatusCode::SEE_OTHER, [(header::LOCATION, "/login?next=/")]).into_response()
 }

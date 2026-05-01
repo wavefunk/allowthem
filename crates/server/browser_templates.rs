@@ -36,8 +36,7 @@ const AUTH_MAIN_MFA_SETUP_PARTIAL: &str =
     include_str!("templates/_partials/_auth_main_mfa_setup.html");
 const AUTH_MAIN_MFA_RECOVERY_PARTIAL: &str =
     include_str!("templates/_partials/_auth_main_mfa_recovery.html");
-const AUTH_MAIN_CONSENT_PARTIAL: &str =
-    include_str!("templates/_partials/_auth_main_consent.html");
+const AUTH_MAIN_CONSENT_PARTIAL: &str = include_str!("templates/_partials/_auth_main_consent.html");
 const ERROR_HTML: &str = include_str!("templates/error.html");
 
 /// Register the default browser templates into an existing environment.

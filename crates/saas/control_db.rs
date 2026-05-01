@@ -170,12 +170,11 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(count, 1);
 
-        let (actor, action, ctx): (String, String, String) = sqlx::query_as(
-            "SELECT actor, action, context FROM control_audit_events LIMIT 1",
-        )
-        .fetch_one(db.pool())
-        .await
-        .unwrap();
+        let (actor, action, ctx): (String, String, String) =
+            sqlx::query_as("SELECT actor, action, context FROM control_audit_events LIMIT 1")
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
         assert_eq!(actor, "owner@acme.com");
         assert_eq!(action, "tenant.provisioned");
         assert!(ctx.contains("acme"));

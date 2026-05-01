@@ -1162,9 +1162,6 @@ mod consent_tests {
             "HX response must include the OOB #wf-screen-label"
         );
         assert!(body.contains("CONSENT"), "status_hint CONSENT must render");
-        assert!(
-            body.contains("HxApp"),
-            "app_name must render in the kicker"
-        );
+        assert!(body.contains("HxApp"), "app_name must render in the kicker");
     }
 }

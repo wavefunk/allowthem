@@ -613,8 +613,14 @@ mod tests {
             cookie.starts_with("__Host-allowthem_session="),
             "expected __Host-allowthem_session prefix, got: {cookie}"
         );
-        assert!(cookie.contains("; Secure"), "Secure flag required for __Host-: {cookie}");
-        assert!(!cookie.contains("Domain="), "no Domain= attribute allowed for __Host-: {cookie}");
+        assert!(
+            cookie.contains("; Secure"),
+            "Secure flag required for __Host-: {cookie}"
+        );
+        assert!(
+            !cookie.contains("Domain="),
+            "no Domain= attribute allowed for __Host-: {cookie}"
+        );
     }
 
     #[tokio::test]
