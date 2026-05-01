@@ -133,4 +133,42 @@ mod tests {
         // the call returns. Real path coverage lives in the overlap guardrail.
         let _ = router;
     }
+
+    /// Paths the dashboard pages router will own once 99c.2..99c.6 land.
+    /// Empty in 99c.1 — kept here so the path-overlap guard test ship and
+    /// 99c.2 only has to extend a list, not write a fixture.
+    pub(super) const DASHBOARD_PATHS: &[&str] = &[
+        // 99c.2: "/signup", "/signup/slug-check", "/quickstart/{token}",
+        //        "/quickstart/{token}/dismiss"
+        // 99c.3: "/applications", ...
+    ];
+
+    #[tokio::test]
+    async fn no_dashboard_path_resolves_on_empty_dashboard_router() {
+        // With no paths registered, the loop is trivially satisfied. The
+        // value of this test is the scaffolding: 99c.2 adds entries to
+        // DASHBOARD_PATHS and the same loop catches accidental overlap with
+        // the shared auth router before boot panics on Router::merge.
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let router = dashboard_pages_router();
+        for path in DASHBOARD_PATHS {
+            let req = Request::builder()
+                .uri(*path)
+                .body(Body::empty())
+                .expect("request");
+            let resp = router.clone().oneshot(req).await.expect("oneshot");
+            // Empty router → 404 for any path. The assertion documents the
+            // expected baseline — when 99c.2 wires real handlers, this
+            // becomes "the dashboard handler responds, the auth handler
+            // doesn't have a conflicting registration".
+            assert_eq!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "empty dashboard router should 404 on {path}"
+            );
+        }
+    }
 }
