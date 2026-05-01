@@ -14,6 +14,8 @@
 #[allow(dead_code)]
 pub mod auth_helpers;
 #[allow(dead_code)]
+pub mod quickstart;
+#[allow(dead_code)]
 pub mod quickstart_cache;
 #[allow(dead_code)]
 pub mod signup;
