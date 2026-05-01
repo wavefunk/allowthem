@@ -8,11 +8,17 @@
 //!   (signup + quickstart in 99c.2; app CRUD, super-admin in 99c.3+).
 //! - Submodules for the user-facing onboarding surface live alongside.
 
-// QuickstartCache is wired into the binary by Step 13 (signup/quickstart
-// routers). Until then, suppress unused-code warnings on the module so the
-// individual steps still pass `clippy -D warnings`.
+// Submodules wired into the binary by Step 13 (signup/quickstart routers).
+// Until then, suppress unused-code warnings so each intermediate step
+// still passes `clippy -D warnings`.
+#[allow(dead_code)]
+pub mod auth_helpers;
 #[allow(dead_code)]
 pub mod quickstart_cache;
+#[allow(dead_code)]
+pub mod state;
+#[allow(dead_code)]
+pub mod templates;
 
 use std::path::Path;
 use std::time::Duration;
@@ -25,6 +31,10 @@ use allowthem_saas::dashboard_cookie_name;
 
 #[allow(unused_imports)]
 pub use quickstart_cache::{QuickstartCache, QuickstartEntry};
+#[allow(unused_imports)]
+pub use state::SignupState;
+#[allow(unused_imports)]
+pub use templates::build_dashboard_env;
 
 /// Open `<tenant_data_dir>/dashboard.db` (creating + migrating if missing) and
 /// build the dashboard's `AllowThem` handle.
