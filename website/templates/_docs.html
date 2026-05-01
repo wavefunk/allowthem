@@ -1,6 +1,7 @@
 {% extends "_base.html" %}
 
 {% block body %}
+<div class="mk-wrap">
 {% include "_partials/nav.html" %}
 <div class="wf-docs-shell">
   {% block sidebar %}
@@ -33,4 +34,5 @@
   toc.appendChild(frag);
 })();
 </script>
+</div>
 {% endblock %}
