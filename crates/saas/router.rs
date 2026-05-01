@@ -84,6 +84,12 @@ pub struct TenantRouterState {
     pub tenant_data_dir: PathBuf,
     pub config: Arc<TenantBuilderConfig>,
     pub seen_times: Arc<DashMap<TenantId, Instant>>,
+    /// When `Some`, requests for the root domain (`<base_domain>` exactly)
+    /// get this handle inserted into request extensions before falling
+    /// through to the next layer. Used so the shared auth routes can serve
+    /// the dashboard from `dashboard.db` without per-handler branching.
+    /// `None` is the default for tests and any non-SaaS embedding.
+    pub dashboard_handle: Option<AllowThem>,
 }
 
 pub async fn tenant_router_middleware(
@@ -103,7 +109,12 @@ pub async fn tenant_router_middleware(
     let base_domain = &state.config.base_domain;
     let slug = match parse_slug(&host, base_domain) {
         Some(SlugOrRoot::Slug(s)) => s,
-        Some(SlugOrRoot::Root) => return next.run(request).await,
+        Some(SlugOrRoot::Root) => {
+            if let Some(ref dh) = state.dashboard_handle {
+                request.extensions_mut().insert(dh.clone());
+            }
+            return next.run(request).await;
+        }
         None => return StatusCode::NOT_FOUND.into_response(),
     };
 
@@ -422,10 +433,10 @@ mod tests {
                 signing_key: [0u8; 32],
                 csrf_key: [0u8; 32],
                 base_domain: "example.com".into(),
-
                 is_production: false,
             }),
             seen_times: Arc::new(DashMap::new()),
+            dashboard_handle: None,
         }
     }
 
@@ -524,5 +535,73 @@ mod tests {
             10,
         )
         .await;
+    }
+
+    // -- Root-branch dashboard handle injection (99c.1 Task 4) -----------------
+
+    /// Build the middleware as a tower-style closure and run a single request
+    /// through it, returning whether `Extension<AllowThem>` was visible to the
+    /// inner handler.
+    async fn root_request_sees_extension(state: TenantRouterState, host: &str) -> bool {
+        use axum::Router;
+        use axum::body::Body;
+        use axum::http::header;
+        use axum::middleware::from_fn_with_state;
+        use axum::routing::get;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tower::ServiceExt;
+
+        let observed = Arc::new(AtomicBool::new(false));
+        let observed_for_handler = observed.clone();
+
+        let app = Router::new()
+            .route(
+                "/",
+                get(move |req: Request<Body>| {
+                    let observed = observed_for_handler.clone();
+                    async move {
+                        if req.extensions().get::<AllowThem>().is_some() {
+                            observed.store(true, Ordering::SeqCst);
+                        }
+                        StatusCode::OK
+                    }
+                }),
+            )
+            .layer(from_fn_with_state(state, tenant_router_middleware));
+
+        let req = Request::builder()
+            .uri("/")
+            .header(header::HOST, host)
+            .body(Body::empty())
+            .unwrap();
+        let _resp = app.oneshot(req).await.unwrap();
+        observed.load(Ordering::SeqCst)
+    }
+
+    async fn make_dashboard_handle() -> AllowThem {
+        allowthem_core::AllowThemBuilder::new("sqlite::memory:")
+            .mfa_key([0u8; 32])
+            .signing_key([0u8; 32])
+            .csrf_key([0u8; 32])
+            .base_url("https://example.com")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn root_branch_injects_dashboard_handle_when_set() {
+        let dh = make_dashboard_handle().await;
+        let mut state = make_state().await;
+        state.dashboard_handle = Some(dh);
+        assert!(root_request_sees_extension(state, "example.com").await);
+    }
+
+    #[tokio::test]
+    async fn root_branch_no_injection_when_none() {
+        let state = make_state().await;
+        assert!(!root_request_sees_extension(state, "example.com").await);
     }
 }

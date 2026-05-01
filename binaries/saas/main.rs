@@ -77,6 +77,8 @@ async fn main() -> Result<()> {
         tenant_data_dir: tenant_data_dir.clone(),
         config: tenant_config.clone(),
         seen_times: Arc::new(DashMap::new()),
+        // 99c.1 Task 6 wires this to the actual dashboard handle.
+        dashboard_handle: None,
     };
     let manage_state = ManageState::new(
         control_db.clone(),
