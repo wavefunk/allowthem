@@ -271,6 +271,34 @@ impl Db {
         Ok(())
     }
 
+    /// Update a user's `email_verified` flag. Also updates `updated_at`.
+    ///
+    /// Pool-level helper for callers that update verification status outside
+    /// the token-redemption transaction (e.g. the seed-admin CLI marking a
+    /// freshly created super-admin verified). The transactional update inside
+    /// `verify_email` keeps its inline `UPDATE` to stay atomic with the
+    /// "mark token used" write.
+    pub async fn set_email_verified(
+        &self,
+        id: UserId,
+        verified: bool,
+    ) -> Result<(), AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let result = sqlx::query(
+            "UPDATE allowthem_users SET email_verified = ?1, updated_at = ?2 WHERE id = ?3",
+        )
+        .bind(verified)
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+        Ok(())
+    }
+
     /// Delete a user by ID. Cascades to sessions, user_roles, user_permissions.
     pub async fn delete_user(&self, id: UserId) -> Result<(), AuthError> {
         let result = sqlx::query("DELETE FROM allowthem_users WHERE id = ?")
@@ -563,6 +591,33 @@ mod tests {
         }
         let page = db.list_users_paginated(3, None).await.unwrap();
         assert_eq!(page.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn set_email_verified_toggles_flag() {
+        let ath = setup().await;
+        let db = ath.db();
+        let user = make_user(db, 99).await;
+        assert!(!user.email_verified);
+
+        db.set_email_verified(user.id, true).await.unwrap();
+        let after = db.get_user(user.id).await.unwrap();
+        assert!(after.email_verified);
+
+        db.set_email_verified(user.id, false).await.unwrap();
+        let after = db.get_user(user.id).await.unwrap();
+        assert!(!after.email_verified);
+    }
+
+    #[tokio::test]
+    async fn set_email_verified_unknown_id_returns_not_found() {
+        let ath = setup().await;
+        let db = ath.db();
+        let err = db
+            .set_email_verified(UserId::new(), true)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AuthError::NotFound));
     }
 
     #[tokio::test]
