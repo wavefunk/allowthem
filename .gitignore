@@ -22,3 +22,5 @@ tests/e2e/.seeded-client-id
 tasks.org
 /node_modules/
 /.playwright-cli/
+/.playwright-profile/
+/.playwright/
