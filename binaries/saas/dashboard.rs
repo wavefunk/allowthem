@@ -4,9 +4,15 @@
 //!   backed by `<tenant_data_dir>/dashboard.db`. Creates and migrates the
 //!   file on first boot. Used by both the runtime path and the
 //!   `seed-admin` CLI.
-//! - [`dashboard_pages_router`] — placeholder router for dashboard-specific
-//!   pages (signup, quickstart, app CRUD, super-admin). Empty in 99c.1;
-//!   sub-tasks 99c.2..99c.6 fill it in.
+//! - [`dashboard_pages_router`] — composes the dashboard-specific pages
+//!   (signup + quickstart in 99c.2; app CRUD, super-admin in 99c.3+).
+//! - Submodules for the user-facing onboarding surface live alongside.
+
+// QuickstartCache is wired into the binary by Step 13 (signup/quickstart
+// routers). Until then, suppress unused-code warnings on the module so the
+// individual steps still pass `clippy -D warnings`.
+#[allow(dead_code)]
+pub mod quickstart_cache;
 
 use std::path::Path;
 use std::time::Duration;
@@ -16,6 +22,9 @@ use eyre::Result;
 
 use allowthem_core::{AllowThem, AllowThemBuilder};
 use allowthem_saas::dashboard_cookie_name;
+
+#[allow(unused_imports)]
+pub use quickstart_cache::{QuickstartCache, QuickstartEntry};
 
 /// Open `<tenant_data_dir>/dashboard.db` (creating + migrating if missing) and
 /// build the dashboard's `AllowThem` handle.
