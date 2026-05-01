@@ -15,6 +15,9 @@ pub mod signup;
 pub mod state;
 pub mod templates;
 
+#[cfg(test)]
+mod integration_tests;
+
 use std::path::Path;
 use std::time::Duration;
 
