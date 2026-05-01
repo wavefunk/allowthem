@@ -1,0 +1,101 @@
+{# _signup_form.html — single-form signup: email + password +
+   password_confirm + tenant_name + slug.
+
+   Expected context: csrf_token, email, tenant_name, slug, error.
+   `password` and `password_confirm` are never echoed back to the form.
+#}
+<main class="wf-auth-form">
+  <div class="wf-auth-top">
+    <p class="wf-kicker">Allowthem · Create workspace</p>
+  </div>
+
+  <div class="wf-auth-wrap">
+    <h1>Create your workspace</h1>
+    <p class="wf-auth-sub">One signup, one workspace. You can add more later.</p>
+
+    {% if error %}
+      {% set flash = { "kind": "err", "message": error } %}
+      <div class="wf-mt-4">
+        {% include "_partials/_flash.html" %}
+      </div>
+    {% endif %}
+
+    <form id="signup-form"
+          method="post"
+          action="/signup"
+          class="wf-f wf-col wf-gap-5 wf-mt-5"
+          autocomplete="on">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="wf-field">
+        <label class="wf-label" for="email">Email</label>
+        <input class="wf-input"
+               id="email"
+               name="email"
+               type="email"
+               value="{{ email }}"
+               required
+               autocomplete="email">
+      </div>
+
+      <div class="wf-field">
+        <label class="wf-label" for="password">Password</label>
+        <input class="wf-input"
+               id="password"
+               name="password"
+               type="password"
+               required
+               minlength="8"
+               autocomplete="new-password">
+      </div>
+
+      <div class="wf-field">
+        <label class="wf-label" for="password_confirm">Confirm password</label>
+        <input class="wf-input"
+               id="password_confirm"
+               name="password_confirm"
+               type="password"
+               required
+               minlength="8"
+               autocomplete="new-password">
+      </div>
+
+      <div class="wf-field">
+        <label class="wf-label" for="tenant_name">Workspace name</label>
+        <input class="wf-input"
+               id="tenant_name"
+               name="tenant_name"
+               type="text"
+               value="{{ tenant_name }}"
+               required
+               maxlength="80"
+               placeholder="Acme Inc">
+      </div>
+
+      <div class="wf-field">
+        <label class="wf-label" for="slug">Workspace URL</label>
+        <input class="wf-input"
+               id="slug"
+               name="slug"
+               type="text"
+               value="{{ slug }}"
+               required
+               pattern="[a-z][a-z0-9-]{2,39}"
+               minlength="3"
+               maxlength="40"
+               placeholder="acme"
+               hx-get="/signup/slug-check"
+               hx-target="#slug-check"
+               hx-trigger="keyup changed delay:400ms, blur">
+        <small class="wf-help">3–40 lowercase letters, digits, or `-`.</small>
+        <div id="slug-check" class="wf-mt-2"></div>
+      </div>
+
+      <button type="submit" class="wf-btn wf-btn-primary">Create workspace</button>
+
+      <p class="wf-auth-sub wf-mt-2">
+        Already have an account? <a href="/login">Sign in</a>.
+      </p>
+    </form>
+  </div>
+</main>
