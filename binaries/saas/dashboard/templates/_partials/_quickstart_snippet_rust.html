@@ -1,0 +1,13 @@
+{# _quickstart_snippet_rust.html — placeholder for allowthem-client (h6d). #}
+<p class="wf-snippet-banner">
+  Requires the <code>allowthem-client</code> crate (ships with Epic h6d).
+</p>
+<pre class="wf-code"><code>// Rust — confidential client
+use allowthem_client::AllowthemClient;
+
+let client = AllowthemClient::builder()
+    .issuer("{{ issuer }}")
+    .client_id("{{ client_id }}")
+    .client_secret("{{ client_secret }}")
+    .build()
+    .await?;</code></pre>

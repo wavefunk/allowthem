@@ -18,6 +18,18 @@ const SIGNUP_HTML: &str = include_str!("templates/signup.html");
 const SIGNUP_FORM_PARTIAL: &str = include_str!("templates/_partials/_signup_form.html");
 const SLUG_CHECK_OK_PARTIAL: &str = include_str!("templates/_partials/_slug_check_ok.html");
 const SLUG_CHECK_ERR_PARTIAL: &str = include_str!("templates/_partials/_slug_check_err.html");
+const QUICKSTART_HTML: &str = include_str!("templates/quickstart.html");
+const QS_CREDENTIALS_PARTIAL: &str =
+    include_str!("templates/_partials/_quickstart_credentials.html");
+const QS_SNIPPETS_PARTIAL: &str = include_str!("templates/_partials/_quickstart_snippets.html");
+const QS_SNIPPET_CURL_PARTIAL: &str =
+    include_str!("templates/_partials/_quickstart_snippet_curl.html");
+const QS_SNIPPET_BROWSER_PARTIAL: &str =
+    include_str!("templates/_partials/_quickstart_snippet_browser.html");
+const QS_SNIPPET_SERVER_PARTIAL: &str =
+    include_str!("templates/_partials/_quickstart_snippet_server.html");
+const QS_SNIPPET_RUST_PARTIAL: &str =
+    include_str!("templates/_partials/_quickstart_snippet_rust.html");
 
 pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     let mut env = Environment::new();
@@ -35,7 +47,35 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     env.add_template_owned("_partials/_slug_check_err.html", SLUG_CHECK_ERR_PARTIAL)
         .expect("_partials/_slug_check_err.html");
 
-    // Quickstart templates land in Step 10.
+    env.add_template_owned("quickstart.html", QUICKSTART_HTML)
+        .expect("quickstart.html");
+    env.add_template_owned(
+        "_partials/_quickstart_credentials.html",
+        QS_CREDENTIALS_PARTIAL,
+    )
+    .expect("_partials/_quickstart_credentials.html");
+    env.add_template_owned("_partials/_quickstart_snippets.html", QS_SNIPPETS_PARTIAL)
+        .expect("_partials/_quickstart_snippets.html");
+    env.add_template_owned(
+        "_partials/_quickstart_snippet_curl.html",
+        QS_SNIPPET_CURL_PARTIAL,
+    )
+    .expect("_partials/_quickstart_snippet_curl.html");
+    env.add_template_owned(
+        "_partials/_quickstart_snippet_browser.html",
+        QS_SNIPPET_BROWSER_PARTIAL,
+    )
+    .expect("_partials/_quickstart_snippet_browser.html");
+    env.add_template_owned(
+        "_partials/_quickstart_snippet_server.html",
+        QS_SNIPPET_SERVER_PARTIAL,
+    )
+    .expect("_partials/_quickstart_snippet_server.html");
+    env.add_template_owned(
+        "_partials/_quickstart_snippet_rust.html",
+        QS_SNIPPET_RUST_PARTIAL,
+    )
+    .expect("_partials/_quickstart_snippet_rust.html");
 
     Arc::new(env)
 }
@@ -94,5 +134,50 @@ mod tests {
             .render(minijinja::context! { msg => "Reserved" })
             .expect("render");
         assert!(html.contains("Reserved"));
+    }
+
+    #[test]
+    fn quickstart_template_renders_with_full_context() {
+        let env = build_dashboard_env();
+        let tmpl = env.get_template("quickstart.html").expect("quickstart.html");
+        let html = tmpl
+            .render(minijinja::context! {
+                csrf_token => "csrf",
+                token => "abc",
+                slug => "acme",
+                issuer => "https://acme.example.com",
+                client_id => "ath_test",
+                client_secret => "very-secret",
+                redirect_uri => "http://localhost/callback",
+            })
+            .expect("render");
+        assert!(html.contains("ath_test"), "client_id rendered");
+        assert!(html.contains("very-secret"), "client_secret rendered");
+        assert!(html.contains("/quickstart/abc/dismiss"), "dismiss form");
+    }
+
+    #[test]
+    fn quickstart_snippets_substitute_values() {
+        let env = build_dashboard_env();
+        for name in [
+            "_partials/_quickstart_snippet_curl.html",
+            "_partials/_quickstart_snippet_browser.html",
+            "_partials/_quickstart_snippet_server.html",
+            "_partials/_quickstart_snippet_rust.html",
+        ] {
+            let tmpl = env.get_template(name).unwrap_or_else(|_| panic!("{name}"));
+            let html = tmpl
+                .render(minijinja::context! {
+                    issuer => "https://acme.example.com",
+                    client_id => "ath_test",
+                    client_secret => "very-secret",
+                    redirect_uri => "http://localhost/callback",
+                })
+                .unwrap_or_else(|_| panic!("render {name}"));
+            assert!(
+                html.contains("ath_test") || html.contains("acme.example.com"),
+                "snippet {name} should substitute issuer/client_id"
+            );
+        }
     }
 }
