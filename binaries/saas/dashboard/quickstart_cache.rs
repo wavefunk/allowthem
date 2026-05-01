@@ -14,7 +14,7 @@ use std::time::Duration;
 use moka::future::Cache;
 
 use allowthem_core::sessions::generate_token;
-use allowthem_core::types::{ClientId, UserId};
+use allowthem_core::types::UserId;
 use allowthem_saas::TenantId;
 
 /// Default time-to-live for a quickstart entry. The plaintext secret is
@@ -34,7 +34,11 @@ pub struct QuickstartEntry {
     pub dashboard_user_id: UserId,
     pub tenant_id: TenantId,
     pub slug: String,
-    pub client_id: ClientId,
+    /// `client_id` of the freshly created OIDC application. Stored as
+    /// `String` rather than `ClientId` because `ProvisionResult.client_id`
+    /// is already `String` (no public `ClientId` constructor exists outside
+    /// the core crate).
+    pub client_id: String,
     /// Plaintext OAuth client secret. Surfaced once on the quickstart
     /// page; never persisted.
     pub client_secret: String,
@@ -89,20 +93,16 @@ impl Default for QuickstartCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use allowthem_core::types::{ClientId, UserId};
+    use allowthem_core::types::UserId;
     use std::time::Duration;
     use uuid::Uuid;
 
     fn sample_entry() -> QuickstartEntry {
-        // ClientId only exposes pub(crate) constructors in core; round-trip
-        // through serde to build one in this external crate's tests.
-        let client_id: ClientId =
-            serde_json::from_str("\"ath_test1234567890abcd\"").expect("client_id");
         QuickstartEntry {
             dashboard_user_id: UserId::new(),
             tenant_id: TenantId::from(Uuid::now_v7()),
             slug: "acme".into(),
-            client_id,
+            client_id: "ath_test1234567890abcd".into(),
             client_secret: "very-secret".into(),
             issuer: "https://acme.example.com".into(),
         }
