@@ -16,6 +16,7 @@ pub mod quickstart_cache;
 pub mod signup;
 pub mod state;
 pub mod templates;
+pub mod users;
 
 #[cfg(test)]
 mod integration_tests;
