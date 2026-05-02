@@ -10,6 +10,7 @@ import { refreshAcrossTabs } from "./cross_tab.js";
 import { AuthError } from "./errors.js";
 import { EventEmitter } from "./events.js";
 import { parseIdTokenClaims, validateIdToken } from "./idtoken.js";
+import { ProactiveTimer } from "./proactive.js";
 import {
   generateChallenge,
   generateRandomString,
@@ -67,6 +68,7 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
     config.storage === "session" ? createSessionStore() : createMemoryStore();
 
   const events = new EventEmitter();
+  const proactive = new ProactiveTimer();
 
   // In-tab single-flight: concurrent getAccessToken calls during a refresh
   // share one Promise so only one POST /oauth/token fires. Cross-tab
@@ -163,23 +165,60 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
       nonce: txn.nonce,
     });
 
-    store.put({
+    const stored = {
       accessToken: tokens.access_token,
       idToken: tokens.id_token,
       ...(tokens.refresh_token !== undefined
         ? { refreshToken: tokens.refresh_token }
         : {}),
       expiresAt: Date.now() + tokens.expires_in * 1000,
-    });
+    };
+    store.put(stored);
+    rescheduleProactive(stored.expiresAt);
 
     // h6d.1 already ran validateIdToken above, so id_token is guaranteed
-    // present and parseable here. parseIdTokenClaims throws on parse
-    // failure; the success path is total.
+    // present and parseable here.
     const claims = parseIdTokenClaims(tokens.id_token);
     events.emit("login", { user: claims as unknown as UserClaims });
 
     cleanQueryString();
     return { appState: txn.appState };
+  }
+
+  /**
+   * (Re-)schedule the proactive timer when `proactiveRefresh: true`.
+   * No-op otherwise.
+   */
+  function rescheduleProactive(expiresAt: number): void {
+    if (!config.proactiveRefresh) return;
+    const skewMs = skewSeconds * 1000;
+    const ms = expiresAt - Date.now() - skewMs;
+    proactive.schedule(ms, () => {
+      // Fire-and-forget. Errors route through handleRefreshFailure
+      // (proactive source: no caller to rethrow to).
+      void (async () => {
+        try {
+          if (!inFlight) {
+            inFlight = (async () => {
+              try {
+                return await refreshAcrossTabs({
+                  store,
+                  expirySkewMs: skewMs,
+                  refreshOnce,
+                });
+              } finally {
+                inFlight = null;
+              }
+            })();
+          }
+          await inFlight;
+        } catch (err) {
+          if (err instanceof AuthError) {
+            await handleRefreshFailure(err, "proactive");
+          }
+        }
+      })();
+    });
   }
 
   interface TokenExchangeArgs {
@@ -300,6 +339,7 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
     }
     store.clear();
     inFlight = null;
+    proactive.cancel();
     events.emit("logout", { reason: "expired" });
     void source; // marker for future telemetry split
   }
@@ -330,6 +370,7 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
       expiresAt: Date.now() + resp.expires_in * 1000,
     };
     store.put(fresh);
+    rescheduleProactive(fresh.expiresAt);
     events.emit("token_refreshed", { expiresAt: fresh.expiresAt });
     return fresh;
   }
@@ -356,6 +397,7 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
   async function logout(opts?: LogoutOptions): Promise<void> {
     store.clear();
     inFlight = null;
+    proactive.cancel();
     sessionStorage.removeItem("allowthem:txn");
     // Emit AFTER clear so a handler that calls isAuthenticated() / getUser()
     // sees the post-logout state.

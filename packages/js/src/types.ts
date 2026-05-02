@@ -57,6 +57,14 @@ export interface ClientConfig {
   expirySkewSeconds?: number;
 
   /**
+   * Schedule a background refresh `expirySkewSeconds` before `expiresAt`.
+   * Default `false` — for SPAs that make frequent API calls, the
+   * synchronous refresh inside `getAccessToken` is enough. Long-lived
+   * tabs (dashboards, kiosks) opt in.
+   */
+  proactiveRefresh?: boolean;
+
+  /**
    * Hook fired when a token refresh fails (typically `invalid_grant`
    * because the refresh token rotated out from another tab). The
    * callback runs *before* the SDK clears local state and emits
