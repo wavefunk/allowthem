@@ -64,8 +64,7 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
   const userinfoEndpoint = `${issuer}/oauth/userinfo`;
 
   const skewSeconds = config.expirySkewSeconds ?? DEFAULT_SKEW_SECONDS;
-  const store: TokenStore =
-    config.storage === "session" ? createSessionStore() : createMemoryStore();
+  const store: TokenStore = resolveStore(config.storage);
 
   const events = new EventEmitter();
   const proactive = new ProactiveTimer();
@@ -416,6 +415,25 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
     getAccessToken,
     logout,
   };
+}
+
+function resolveStore(
+  storage: ClientConfig["storage"],
+): TokenStore {
+  if (storage === undefined || storage === "memory") return createMemoryStore();
+  if (storage === "session") return createSessionStore();
+  if (isTokenStore(storage)) return storage;
+  throw new AuthError("config_error", "invalid storage");
+}
+
+function isTokenStore(v: unknown): v is TokenStore {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as { get?: unknown; put?: unknown; clear?: unknown };
+  return (
+    typeof o.get === "function" &&
+    typeof o.put === "function" &&
+    typeof o.clear === "function"
+  );
 }
 
 function validateConfig(c: ClientConfig): void {

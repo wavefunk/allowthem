@@ -46,9 +46,11 @@ export interface ClientConfig {
   /**
    * Where to keep tokens. Default `"memory"` — gone on tab close.
    * `"session"` persists access + id tokens in `sessionStorage` (refresh
-   * token stays in memory regardless, per spec §5.2).
+   * token stays in memory regardless, per spec §5.2). A custom
+   * `TokenStore`-shaped object can be passed for IndexedDB / BFF /
+   * cross-tab adapters.
    */
-  storage?: "memory" | "session";
+  storage?: "memory" | "session" | import("./tokens.js").TokenStore;
 
   /**
    * How many seconds before `expiresAt` to treat the token as expired

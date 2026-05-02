@@ -13,3 +13,4 @@ export type {
   EventPayloads,
   EventHandler,
 } from "./events.js";
+export type { TokenSet, TokenStore } from "./tokens.js";
