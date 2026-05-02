@@ -1,0 +1,28 @@
+{# _dashboard_shell.html — layout used by tenant-scoped dashboard pages
+   (applications, users, settings). 99c.5 fills in real sidebar nav and
+   breadcrumbs; this is the v1 placeholder.
+
+   Expected context (when extended by a page):
+   - tenant.{name, slug}    — current workspace (optional but normal).
+   - workspaces             — list of {tenant, role} pairs for the user
+                              (optional; empty hides the switcher).
+   - role                   — current user's role for the tenant (optional).
+
+   Block contracts:
+   - dashboard_nav          — page fills this with its own sidenav items.
+   - dashboard_breadcrumbs  — optional breadcrumb row.
+   - dashboard_content      — main page body (this is what most pages override).
+#}
+{% extends "_partials/_app_shell.html" %}
+
+{% block sidebar_nav %}
+  {% include "_partials/_workspace_switcher.html" ignore missing %}
+  <nav class="wf-sidenav">
+    {% block dashboard_nav %}{% endblock %}
+  </nav>
+{% endblock %}
+
+{% block content %}
+  {% block dashboard_breadcrumbs %}{% endblock %}
+  {% block dashboard_content %}{% endblock %}
+{% endblock %}

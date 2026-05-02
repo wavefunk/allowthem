@@ -30,6 +30,9 @@ const QS_SNIPPET_SERVER_PARTIAL: &str =
     include_str!("templates/_partials/_quickstart_snippet_server.html");
 const QS_SNIPPET_RUST_PARTIAL: &str =
     include_str!("templates/_partials/_quickstart_snippet_rust.html");
+const DASHBOARD_SHELL_PARTIAL: &str =
+    include_str!("templates/_partials/_dashboard_shell.html");
+const SUSPENDED_PARTIAL: &str = include_str!("templates/_partials/_suspended.html");
 
 pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     let mut env = Environment::new();
@@ -76,6 +79,15 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
         QS_SNIPPET_RUST_PARTIAL,
     )
     .expect("_partials/_quickstart_snippet_rust.html");
+
+    // Dashboard shell + tenant-status partials (99c.3+).
+    env.add_template_owned(
+        "_partials/_dashboard_shell.html",
+        DASHBOARD_SHELL_PARTIAL,
+    )
+    .expect("_partials/_dashboard_shell.html");
+    env.add_template_owned("_partials/_suspended.html", SUSPENDED_PARTIAL)
+        .expect("_partials/_suspended.html");
 
     Arc::new(env)
 }
@@ -156,6 +168,36 @@ mod tests {
         assert!(html.contains("ath_test"), "client_id rendered");
         assert!(html.contains("very-secret"), "client_secret rendered");
         assert!(html.contains("/quickstart/abc/dismiss"), "dismiss form");
+    }
+
+    #[test]
+    fn dashboard_shell_renders() {
+        let env = build_dashboard_env();
+        let tmpl = env
+            .get_template("_partials/_dashboard_shell.html")
+            .expect("_dashboard_shell.html");
+        let body = tmpl
+            .render(minijinja::context! {})
+            .expect("render dashboard shell");
+        assert!(
+            body.contains("wf-sidenav"),
+            "dashboard shell should expose sidebar nav block"
+        );
+    }
+
+    #[test]
+    fn suspended_partial_renders_with_tenant() {
+        let env = build_dashboard_env();
+        let tmpl = env
+            .get_template("_partials/_suspended.html")
+            .expect("_suspended.html");
+        let body = tmpl
+            .render(minijinja::context! {
+                tenant => minijinja::context! { name => "Acme", slug => "acme" },
+            })
+            .expect("render suspended");
+        assert!(body.contains("Workspace suspended"));
+        assert!(body.contains("Acme"));
     }
 
     #[test]
