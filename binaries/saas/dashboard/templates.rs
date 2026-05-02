@@ -30,13 +30,11 @@ const QS_SNIPPET_SERVER_PARTIAL: &str =
     include_str!("templates/_partials/_quickstart_snippet_server.html");
 const QS_SNIPPET_RUST_PARTIAL: &str =
     include_str!("templates/_partials/_quickstart_snippet_rust.html");
-const DASHBOARD_SHELL_PARTIAL: &str =
-    include_str!("templates/_partials/_dashboard_shell.html");
+const DASHBOARD_SHELL_PARTIAL: &str = include_str!("templates/_partials/_dashboard_shell.html");
 const SUSPENDED_PARTIAL: &str = include_str!("templates/_partials/_suspended.html");
 const WORKSPACE_SWITCHER_PARTIAL: &str =
     include_str!("templates/_partials/_workspace_switcher.html");
-const APPLICATION_FORM_PARTIAL: &str =
-    include_str!("templates/_partials/_application_form.html");
+const APPLICATION_FORM_PARTIAL: &str = include_str!("templates/_partials/_application_form.html");
 const APPLICATION_SECRET_PANEL_PARTIAL: &str =
     include_str!("templates/_partials/_application_secret_panel.html");
 const APPLICATIONS_LIST_HTML: &str = include_str!("templates/applications/list.html");
@@ -91,11 +89,8 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     .expect("_partials/_quickstart_snippet_rust.html");
 
     // Dashboard shell + tenant-status partials (99c.3+).
-    env.add_template_owned(
-        "_partials/_dashboard_shell.html",
-        DASHBOARD_SHELL_PARTIAL,
-    )
-    .expect("_partials/_dashboard_shell.html");
+    env.add_template_owned("_partials/_dashboard_shell.html", DASHBOARD_SHELL_PARTIAL)
+        .expect("_partials/_dashboard_shell.html");
     env.add_template_owned("_partials/_suspended.html", SUSPENDED_PARTIAL)
         .expect("_partials/_suspended.html");
     env.add_template_owned(
@@ -105,11 +100,8 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     .expect("_partials/_workspace_switcher.html");
 
     // Application CRUD pages (99c.3).
-    env.add_template_owned(
-        "_partials/_application_form.html",
-        APPLICATION_FORM_PARTIAL,
-    )
-    .expect("_partials/_application_form.html");
+    env.add_template_owned("_partials/_application_form.html", APPLICATION_FORM_PARTIAL)
+        .expect("_partials/_application_form.html");
     env.add_template_owned(
         "_partials/_application_secret_panel.html",
         APPLICATION_SECRET_PANEL_PARTIAL,

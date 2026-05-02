@@ -155,12 +155,10 @@ async fn main() -> Result<()> {
         tenant_router_middleware,
     ));
 
-    let dashboard_router_state =
-        dashboard::state::DashboardRouterState::from(signup_state.clone());
-    let dashboard_pages =
-        dashboard::dashboard_pages_router(dashboard_router_state).layer(
-            axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),
-        );
+    let dashboard_router_state = dashboard::state::DashboardRouterState::from(signup_state.clone());
+    let dashboard_pages = dashboard::dashboard_pages_router(dashboard_router_state).layer(
+        axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),
+    );
 
     let manage_routes = manage_router(manage_state);
 

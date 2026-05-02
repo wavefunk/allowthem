@@ -609,17 +609,13 @@ impl Db {
     /// application_id)`, so `COUNT(*)` is exactly the distinct-user count.
     /// The semantic is "users who have authorized this app" — which is what
     /// the SaaS dashboard surfaces as "Connected users."
-    pub async fn count_users_for_application(
-        &self,
-        id: ApplicationId,
-    ) -> Result<u64, AuthError> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM allowthem_consents WHERE application_id = ?1",
-        )
-        .bind(id)
-        .fetch_one(self.pool())
-        .await
-        .map_err(AuthError::Database)?;
+    pub async fn count_users_for_application(&self, id: ApplicationId) -> Result<u64, AuthError> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_consents WHERE application_id = ?1")
+                .bind(id)
+                .fetch_one(self.pool())
+                .await
+                .map_err(AuthError::Database)?;
         Ok(count as u64)
     }
 

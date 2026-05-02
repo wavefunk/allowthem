@@ -29,9 +29,7 @@ use allowthem_saas::TenantId;
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{
-    HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope,
-};
+use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
 use super::state::DashboardRouterState;
 
 // ---------------------------------------------------------------------------
@@ -42,10 +40,7 @@ pub fn application_routes() -> Router<DashboardRouterState> {
     Router::new()
         .route("/t/{slug}/applications", get(list).post(create))
         .route("/t/{slug}/applications/new", get(new_form))
-        .route(
-            "/t/{slug}/applications/{app_id}",
-            get(detail).post(update),
-        )
+        .route("/t/{slug}/applications/{app_id}", get(detail).post(update))
         .route("/t/{slug}/applications/{app_id}/edit", get(edit_form))
         .route(
             "/t/{slug}/applications/{app_id}/regenerate-secret",
@@ -165,8 +160,7 @@ async fn detail(
         Ok(a) => a,
         Err(AuthError::NotFound) => {
             return Ok(
-                Redirect::to(&format!("/t/{}/applications", scope.tenant.slug))
-                    .into_response(),
+                Redirect::to(&format!("/t/{}/applications", scope.tenant.slug)).into_response(),
             );
         }
         Err(e) => return Err(e.into()),
@@ -358,11 +352,7 @@ async fn update(
         }),
     )
     .await;
-    Ok(Redirect::to(&format!(
-        "/t/{}/applications/{}",
-        scope.tenant.slug, app_id
-    ))
-    .into_response())
+    Ok(Redirect::to(&format!("/t/{}/applications/{}", scope.tenant.slug, app_id)).into_response())
 }
 
 async fn regenerate_secret(

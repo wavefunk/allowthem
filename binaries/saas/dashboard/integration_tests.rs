@@ -94,10 +94,19 @@ impl Fixture {
 
         let onboarding =
             signup_routes(signup_state.clone()).merge(quickstart_routes(signup_state.clone()));
-        let app = onboarding.layer(axum::middleware::from_fn_with_state(
-            router_state,
+        let onboarding_with_middleware = onboarding.layer(axum::middleware::from_fn_with_state(
+            router_state.clone(),
             tenant_router_middleware,
         ));
+
+        let dashboard_router_state =
+            crate::dashboard::state::DashboardRouterState::from(signup_state.clone());
+        let dashboard_pages =
+            crate::dashboard::dashboard_pages_router(dashboard_router_state).layer(
+                axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),
+            );
+
+        let app = onboarding_with_middleware.merge(dashboard_pages);
 
         Self {
             app,
@@ -531,13 +540,7 @@ async fn post_signup_with_mismatched_csrf_is_rejected() {
     let (cookie, _real_csrf) = fetch_csrf(&fx).await;
     // Send a *different* csrf_token in the body than what csrf_pre cookie
     // carries — double-submit must fail.
-    let form = signup_form(
-        "wrong-token",
-        "y@example.com",
-        "supersecret",
-        "Y",
-        "ytest",
-    );
+    let form = signup_form("wrong-token", "y@example.com", "supersecret", "Y", "ytest");
     let resp = fx.post_form("/signup", &form, Some(&cookie)).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
@@ -558,8 +561,7 @@ async fn slug_check_returns_invalid_for_bad_format() {
 #[tokio::test]
 async fn get_signup_when_already_authenticated_redirects_to_root() {
     let fx = Fixture::new().await;
-    let (session_cookie, _location) =
-        signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (session_cookie, _location) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
 
     // Hit GET /signup again while signed in. The handler short-circuits to /.
     let req = Request::builder()
@@ -605,8 +607,7 @@ async fn quickstart_404_for_other_users_token() {
 #[tokio::test]
 async fn quickstart_dismiss_evicts_and_subsequent_get_404s() {
     let fx = Fixture::new().await;
-    let (session_cookie, location) =
-        signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (session_cookie, location) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
 
     // POST /quickstart/{token}/dismiss — need a fresh CSRF inside this
     // session because csrf_middleware now derives the token from the
@@ -668,8 +669,7 @@ async fn quickstart_eviction_makes_subsequent_gets_404() {
     // Equivalent to the TTL case but driven through the public cache API
     // — exercising what would happen after the 10-min TTL elapses.
     let fx = Fixture::new().await;
-    let (session_cookie, location) =
-        signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (session_cookie, location) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
 
     let token = location.trim_start_matches("/quickstart/");
     fx.state.quickstart_cache.evict(token).await;
@@ -695,4 +695,229 @@ fn extract_csrf_from_body(body: &str) -> String {
     let rest = &body[start + needle.len()..];
     let end = rest.find('"').expect("closing quote");
     rest[..end].to_owned()
+}
+
+// ---------------------------------------------------------------------------
+// 99c.3 application management — integration tests
+// ---------------------------------------------------------------------------
+
+async fn get_authed(fx: &Fixture, path: &str, session_cookie: &str) -> axum::response::Response {
+    let req = Request::builder()
+        .method("GET")
+        .uri(path)
+        .header(header::HOST, BASE_DOMAIN)
+        .header(header::COOKIE, session_cookie)
+        .body(Body::empty())
+        .expect("build GET");
+    fx.app.clone().oneshot(req).await.expect("oneshot")
+}
+
+/// Authenticated GET form-page → extract the session-bound csrf token from
+/// the rendered HTML. csrf_middleware derives the token from the session
+/// cookie when one is present, so no separate `csrf_pre` cookie is involved.
+async fn fetch_csrf_for_authed_form(fx: &Fixture, path: &str, session_cookie: &str) -> String {
+    let resp = get_authed(fx, path, session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = std::str::from_utf8(&bytes).unwrap();
+    extract_csrf_from_body(body)
+}
+
+#[tokio::test]
+async fn applications_list_for_owner_renders_with_create_button() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = get_authed(&fx, "/t/acme/applications", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let bytes = body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let html = std::str::from_utf8(&bytes).unwrap();
+    assert!(
+        html.contains("New application"),
+        "owner sees the create button"
+    );
+    assert!(
+        html.contains("Registered applications") || html.contains("No applications"),
+        "list panel rendered"
+    );
+}
+
+#[tokio::test]
+async fn applications_list_for_unknown_slug_is_404() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = get_authed(&fx, "/t/zulu/applications", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn applications_list_unauthenticated_redirects_to_login() {
+    let fx = Fixture::new().await;
+    let (_session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/t/acme/applications")
+        .header(header::HOST, BASE_DOMAIN)
+        .body(Body::empty())
+        .expect("build GET");
+    let resp = fx.app.clone().oneshot(req).await.expect("oneshot");
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap();
+    assert!(loc.starts_with("/login?next="), "redirect target: {loc}");
+}
+
+#[tokio::test]
+async fn application_detail_unknown_uuid_redirects_to_list() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = get_authed(
+        &fx,
+        "/t/acme/applications/00000000-0000-0000-0000-000000000000",
+        &session_cookie,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap();
+    assert_eq!(loc, "/t/acme/applications");
+}
+
+#[tokio::test]
+async fn application_detail_for_default_app_renders_client_id() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let tenant = fx
+        .state
+        .control_db
+        .tenant_by_slug("acme")
+        .await
+        .unwrap()
+        .unwrap();
+    let tenant_id = allowthem_saas::TenantId::from(tenant.id_as_uuid().unwrap());
+    let ath = fx
+        .state
+        .handle_cache
+        .get_or_init(tenant_id, async {
+            allowthem_saas::build_handle_with_path(
+                &tenant.db_path,
+                &fx.state.tenant_data_dir,
+                &fx.state.tenant_config,
+                "acme",
+            )
+            .await
+        })
+        .await
+        .expect("tenant handle");
+    let apps = ath.db().list_applications().await.unwrap();
+    let app = apps.first().expect("default app provisioned by signup");
+
+    let resp = get_authed(
+        &fx,
+        &format!("/t/acme/applications/{}", app.id),
+        &session_cookie,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let html = std::str::from_utf8(&bytes).unwrap();
+    assert!(html.contains(app.client_id.as_str()));
+    assert!(
+        !html.contains("Save this client secret now"),
+        "plain detail page must NOT show the one-time secret panel"
+    );
+}
+
+#[tokio::test]
+async fn create_application_records_audit_and_shows_secret() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _location) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/applications/new", &session_cookie).await;
+
+    let form = vec![
+        ("name", "Test App"),
+        ("client_type", "confidential"),
+        ("redirect_uris", "https://app.test/callback"),
+        ("logo_url", ""),
+        ("csrf_token", csrf.as_str()),
+    ];
+    let resp = fx
+        .post_form("/t/acme/applications", &form, Some(&session_cookie))
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = std::str::from_utf8(&bytes).unwrap();
+    assert!(
+        body.contains("Save this client secret now"),
+        "create response must show the one-time secret panel"
+    );
+    assert!(body.contains("Test App"));
+
+    // Audit row recorded on the control plane.
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM control_audit_events WHERE action = 'application.created'",
+    )
+    .fetch_one(fx.state.control_db.pool())
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn create_public_application_omits_secret_panel() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/applications/new", &session_cookie).await;
+
+    let form = vec![
+        ("name", "SPA"),
+        ("client_type", "public"),
+        ("redirect_uris", "https://spa.test/callback"),
+        ("logo_url", ""),
+        ("csrf_token", csrf.as_str()),
+    ];
+    let resp = fx
+        .post_form("/t/acme/applications", &form, Some(&session_cookie))
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = std::str::from_utf8(&bytes).unwrap();
+    assert!(body.contains("SPA"));
+    assert!(
+        !body.contains("Save this client secret now"),
+        "public client has no client_secret"
+    );
+    assert!(body.contains("Public"), "public type tag rendered");
+}
+
+#[tokio::test]
+async fn create_application_without_csrf_is_rejected() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let form = vec![
+        ("name", "X"),
+        ("client_type", "confidential"),
+        ("redirect_uris", "https://app.test/callback"),
+        ("logo_url", ""),
+        ("csrf_token", "fake"),
+    ];
+    let resp = fx
+        .post_form("/t/acme/applications", &form, Some(&session_cookie))
+        .await;
+    // csrf_middleware rejects: derived token from session ≠ "fake".
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
