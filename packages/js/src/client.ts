@@ -6,6 +6,7 @@
  * the build progressively add `getAccessToken`, `getUser`, `logout`.
  */
 
+import { refreshAcrossTabs } from "./cross_tab.js";
 import { AuthError } from "./errors.js";
 import { EventEmitter } from "./events.js";
 import { parseIdTokenClaims, validateIdToken } from "./idtoken.js";
@@ -243,46 +244,54 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
         "access token expired and no refresh_token",
       );
     }
-    const fresh = await refreshOnce();
+    // In-tab single-flight wraps the entire cross-tab path so concurrent
+    // in-tab callers join one promise — no per-caller BroadcastChannel
+    // election overhead, no five POSTs racing the lock.
+    if (!inFlight) {
+      inFlight = (async () => {
+        try {
+          return await refreshAcrossTabs({
+            store,
+            expirySkewMs: skewMs,
+            refreshOnce,
+          });
+        } finally {
+          inFlight = null;
+        }
+      })();
+    }
+    const fresh = await inFlight;
     return fresh.accessToken;
   }
 
   async function refreshOnce(): Promise<TokenSetState> {
-    if (inFlight) return inFlight;
-    inFlight = (async () => {
-      try {
-        const cur = store.get();
-        if (!cur?.refreshToken) {
-          throw new AuthError("login_required", "no refresh token");
-        }
-        const resp = await tokenExchange({
-          grantType: "refresh_token",
-          refreshToken: cur.refreshToken,
-        });
-        // No nonce on refresh-issued id_tokens (OIDC core: `nonce` is for
-        // identity-of-this-flow; refresh doesn't restart the flow).
-        validateIdToken(resp.id_token, {
-          issuer,
-          clientId: config.clientId,
-        });
-        const fresh: TokenSetState = {
-          accessToken: resp.access_token,
-          idToken: resp.id_token,
-          ...(resp.refresh_token !== undefined
-            ? { refreshToken: resp.refresh_token }
-            : cur.refreshToken !== undefined
-              ? { refreshToken: cur.refreshToken }
-              : {}),
-          expiresAt: Date.now() + resp.expires_in * 1000,
-        };
-        store.put(fresh);
-        events.emit("token_refreshed", { expiresAt: fresh.expiresAt });
-        return fresh;
-      } finally {
-        inFlight = null;
-      }
-    })();
-    return inFlight;
+    const cur = store.get();
+    if (!cur?.refreshToken) {
+      throw new AuthError("login_required", "no refresh token");
+    }
+    const resp = await tokenExchange({
+      grantType: "refresh_token",
+      refreshToken: cur.refreshToken,
+    });
+    // No nonce on refresh-issued id_tokens (OIDC core: `nonce` is for
+    // identity-of-this-flow; refresh doesn't restart the flow).
+    validateIdToken(resp.id_token, {
+      issuer,
+      clientId: config.clientId,
+    });
+    const fresh: TokenSetState = {
+      accessToken: resp.access_token,
+      idToken: resp.id_token,
+      ...(resp.refresh_token !== undefined
+        ? { refreshToken: resp.refresh_token }
+        : cur.refreshToken !== undefined
+          ? { refreshToken: cur.refreshToken }
+          : {}),
+      expiresAt: Date.now() + resp.expires_in * 1000,
+    };
+    store.put(fresh);
+    events.emit("token_refreshed", { expiresAt: fresh.expiresAt });
+    return fresh;
   }
 
   async function getUser(): Promise<UserClaims | null> {

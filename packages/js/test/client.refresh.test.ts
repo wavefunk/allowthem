@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { AuthError } from "../src/errors.js";
 import { createAllowthemClient } from "../src/client.js";
 import type { ClientConfig } from "../src/types.js";
+import { installFifoLocks } from "./_helpers/cross_tab_stubs.js";
 
 const TXN_KEY = "allowthem:txn";
 
@@ -39,6 +40,7 @@ function setLocation(search: string): void {
 const NOW_S = Math.floor(Date.now() / 1000);
 
 let fetchSpy: ReturnType<typeof vi.fn>;
+let uninstallLocks: (() => void) | null = null;
 
 beforeEach(() => {
   sessionStorage.clear();
@@ -48,10 +50,15 @@ beforeEach(() => {
     writable: true,
     configurable: true,
   });
+  // Install Web Locks stub so refreshAcrossTabs takes the lock path
+  // (zero delay), not the BroadcastChannel election (50ms wait).
+  uninstallLocks = installFifoLocks();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  uninstallLocks?.();
+  uninstallLocks = null;
 });
 
 interface TestTxn {
