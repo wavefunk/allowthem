@@ -104,6 +104,7 @@ fn render_quickstart(
         token => token,
         slug => &entry.slug,
         issuer => &entry.issuer,
+        base_domain => &state.base_domain,
         client_id => &entry.client_id,
         client_secret => &entry.client_secret,
         redirect_uri => redirect_uri,

@@ -35,7 +35,7 @@ pub struct Consent {
 }
 
 /// The set of supported OIDC scopes.
-const SUPPORTED_SCOPES: &[&str] = &["openid", "profile", "email"];
+const SUPPORTED_SCOPES: &[&str] = &["openid", "profile", "email", "offline_access"];
 
 /// Parse and validate a space-separated scope string.
 ///
@@ -271,6 +271,19 @@ mod tests {
     fn valid_scopes_all_three() {
         let scopes = validate_scopes("openid profile email").unwrap();
         assert_eq!(scopes, vec!["openid", "profile", "email"]);
+    }
+
+    #[test]
+    fn offline_access_is_accepted() {
+        let scopes = validate_scopes("openid offline_access").unwrap();
+        assert!(scopes.iter().any(|s| s == "offline_access"));
+    }
+
+    #[test]
+    fn full_default_scope_is_accepted() {
+        // Mirrors @allowthem/js's DEFAULT_SCOPE.
+        let scopes = validate_scopes("openid profile email offline_access").unwrap();
+        assert_eq!(scopes, vec!["openid", "profile", "email", "offline_access"]);
     }
 
     #[test]
