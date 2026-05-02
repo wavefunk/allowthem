@@ -45,9 +45,9 @@ function makeIdToken(claims: Record<string, unknown>): string {
   return `${header}.${body}.fake-signature`;
 }
 
-function setLocation(search: string): void {
+function setLocation(search: string, hash = ""): void {
   Object.defineProperty(window, "location", {
-    value: { search, pathname: "/callback", assign: () => {} },
+    value: { search, pathname: "/callback", hash, assign: () => {} },
     writable: true,
   });
   // Prevent jsdom's history navigation from throwing on replaceState
@@ -232,5 +232,48 @@ describe("handleRedirectCallback — error paths", () => {
     await expect(client.handleRedirectCallback()).rejects.toMatchObject({
       code: "http_500",
     });
+  });
+});
+
+describe("handleRedirectCallback — cleanQueryString preserves location.hash", () => {
+  // Regression guard: the impl-review (#27) flagged that `cleanQueryString`
+  // must call `replaceState({}, "", pathname + hash)` so callers using SPA
+  // hash-routing don't lose their `#section` after the auth redirect.
+  it("on success — replaceState target includes hash", async () => {
+    seedTransaction("st1", "n1");
+    setLocation("?code=abc&state=st1", "#section");
+    const idToken = makeIdToken({
+      iss: "https://acme.allowthem.io",
+      sub: "user-1",
+      aud: "ath_test",
+      exp: NOW_S + 3600,
+      iat: NOW_S,
+      nonce: "n1",
+    });
+    mockTokenResponse(idToken);
+
+    const client = createAllowthemClient(config);
+    await client.handleRedirectCallback();
+    const replaceSpy = window.history.replaceState as unknown as ReturnType<typeof vi.fn>;
+    expect(replaceSpy).toHaveBeenCalled();
+    const target = replaceSpy.mock.calls[0]![2] as string;
+    expect(target).toBe("/callback#section");
+  });
+
+  it("on OIDC error response — replaceState target includes hash", async () => {
+    seedTransaction("st1", "n1");
+    setLocation(
+      "?error=access_denied&error_description=user-cancelled&state=st1",
+      "#section",
+    );
+
+    const client = createAllowthemClient(config);
+    await expect(client.handleRedirectCallback()).rejects.toMatchObject({
+      code: "access_denied",
+    });
+    const replaceSpy = window.history.replaceState as unknown as ReturnType<typeof vi.fn>;
+    expect(replaceSpy).toHaveBeenCalled();
+    const target = replaceSpy.mock.calls[0]![2] as string;
+    expect(target).toBe("/callback#section");
   });
 });

@@ -451,7 +451,10 @@ function validateConfig(c: ClientConfig): void {
 
 function cleanQueryString(): void {
   // Strip the auth callback params so they don't survive a refresh and
-  // don't leak via the address bar.
-  window.history.replaceState({}, "", window.location.pathname);
+  // don't leak via the address bar. Preserve `location.hash` so SPA
+  // hash-routing (`#/dashboard`, `#section`, etc.) survives the round-trip
+  // through the IdP — otherwise users land on the route's root after auth.
+  const hash = window.location.hash;
+  window.history.replaceState({}, "", `${window.location.pathname}${hash}`);
 }
 
