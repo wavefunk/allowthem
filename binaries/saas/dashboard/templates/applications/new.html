@@ -1,0 +1,27 @@
+{# applications/new.html — create-application form.
+
+   Expected context: tenant, role, csrf_token, name, client_type,
+   redirect_uris, logo_url, error.
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}New application — {{ tenant.name }}{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">
+    <a class="wf-link" href="/t/{{ tenant.slug }}/applications">Applications</a> · NEW
+  </div>
+{% endblock %}
+
+{% block dashboard_content %}
+  <form class="wf-form" method="POST" action="/t/{{ tenant.slug }}/applications">
+    <h1>New application</h1>
+    {% with is_edit = false %}
+      {% include "_partials/_application_form.html" %}
+    {% endwith %}
+    <div class="wf-form-actions">
+      <a class="wf-btn" href="/t/{{ tenant.slug }}/applications">Cancel</a>
+      <button class="wf-btn primary" type="submit">Create application</button>
+    </div>
+  </form>
+{% endblock %}

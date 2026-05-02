@@ -33,6 +33,16 @@ const QS_SNIPPET_RUST_PARTIAL: &str =
 const DASHBOARD_SHELL_PARTIAL: &str =
     include_str!("templates/_partials/_dashboard_shell.html");
 const SUSPENDED_PARTIAL: &str = include_str!("templates/_partials/_suspended.html");
+const WORKSPACE_SWITCHER_PARTIAL: &str =
+    include_str!("templates/_partials/_workspace_switcher.html");
+const APPLICATION_FORM_PARTIAL: &str =
+    include_str!("templates/_partials/_application_form.html");
+const APPLICATION_SECRET_PANEL_PARTIAL: &str =
+    include_str!("templates/_partials/_application_secret_panel.html");
+const APPLICATIONS_LIST_HTML: &str = include_str!("templates/applications/list.html");
+const APPLICATIONS_NEW_HTML: &str = include_str!("templates/applications/new.html");
+const APPLICATIONS_DETAIL_HTML: &str = include_str!("templates/applications/detail.html");
+const APPLICATIONS_EDIT_HTML: &str = include_str!("templates/applications/edit.html");
 
 pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     let mut env = Environment::new();
@@ -88,6 +98,31 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     .expect("_partials/_dashboard_shell.html");
     env.add_template_owned("_partials/_suspended.html", SUSPENDED_PARTIAL)
         .expect("_partials/_suspended.html");
+    env.add_template_owned(
+        "_partials/_workspace_switcher.html",
+        WORKSPACE_SWITCHER_PARTIAL,
+    )
+    .expect("_partials/_workspace_switcher.html");
+
+    // Application CRUD pages (99c.3).
+    env.add_template_owned(
+        "_partials/_application_form.html",
+        APPLICATION_FORM_PARTIAL,
+    )
+    .expect("_partials/_application_form.html");
+    env.add_template_owned(
+        "_partials/_application_secret_panel.html",
+        APPLICATION_SECRET_PANEL_PARTIAL,
+    )
+    .expect("_partials/_application_secret_panel.html");
+    env.add_template_owned("applications/list.html", APPLICATIONS_LIST_HTML)
+        .expect("applications/list.html");
+    env.add_template_owned("applications/new.html", APPLICATIONS_NEW_HTML)
+        .expect("applications/new.html");
+    env.add_template_owned("applications/detail.html", APPLICATIONS_DETAIL_HTML)
+        .expect("applications/detail.html");
+    env.add_template_owned("applications/edit.html", APPLICATIONS_EDIT_HTML)
+        .expect("applications/edit.html");
 
     Arc::new(env)
 }
@@ -198,6 +233,74 @@ mod tests {
             .expect("render suspended");
         assert!(body.contains("Workspace suspended"));
         assert!(body.contains("Acme"));
+    }
+
+    #[test]
+    fn application_templates_register() {
+        let env = build_dashboard_env();
+        for name in [
+            "applications/list.html",
+            "applications/new.html",
+            "applications/detail.html",
+            "applications/edit.html",
+            "_partials/_application_form.html",
+            "_partials/_application_secret_panel.html",
+            "_partials/_workspace_switcher.html",
+        ] {
+            env.get_template(name)
+                .unwrap_or_else(|_| panic!("{name} should resolve in dashboard env"));
+        }
+    }
+
+    #[test]
+    fn applications_list_renders_with_role_admin() {
+        let env = build_dashboard_env();
+        let tmpl = env
+            .get_template("applications/list.html")
+            .expect("applications/list.html");
+        let body = tmpl
+            .render(minijinja::context! {
+                tenant => minijinja::context! { name => "Acme", slug => "acme" },
+                role => "admin",
+                applications => Vec::<minijinja::Value>::new(),
+                workspaces => Vec::<minijinja::Value>::new(),
+            })
+            .expect("render list");
+        assert!(body.contains("New application"), "admin sees create button");
+        assert!(body.contains("ALLOWTHEM") || body.contains("Acme"));
+    }
+
+    #[test]
+    fn applications_list_hides_create_button_for_viewer() {
+        let env = build_dashboard_env();
+        let tmpl = env
+            .get_template("applications/list.html")
+            .expect("applications/list.html");
+        let body = tmpl
+            .render(minijinja::context! {
+                tenant => minijinja::context! { name => "Acme", slug => "acme" },
+                role => "viewer",
+                applications => Vec::<minijinja::Value>::new(),
+                workspaces => Vec::<minijinja::Value>::new(),
+            })
+            .expect("render list");
+        assert!(
+            !body.contains("New application"),
+            "viewer should NOT see the create button"
+        );
+    }
+
+    #[test]
+    fn application_secret_panel_renders_secret() {
+        let env = build_dashboard_env();
+        let tmpl = env
+            .get_template("_partials/_application_secret_panel.html")
+            .expect("_application_secret_panel.html");
+        let body = tmpl
+            .render(minijinja::context! { client_secret => "shh-very-secret" })
+            .expect("render secret panel");
+        assert!(body.contains("shh-very-secret"));
+        assert!(body.contains("Copy"));
     }
 
     #[test]
