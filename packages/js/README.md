@@ -13,13 +13,13 @@ npm install @allowthem/js
 `packages/js/` in the [allowthem](https://github.com/wavefunk/allowthem)
 repo.)
 
-## Usage
+## Quickstart — browser
 
 ```ts
 import { createAllowthemClient } from "@allowthem/js";
 
 const auth = createAllowthemClient({
-  domain: "acme.allowthem.io",
+  domain: "your-tenant.allowthem.io",
   clientId: "ath_xxx",
   redirectUri: window.location.origin + "/callback",
 });
@@ -34,6 +34,56 @@ const { appState } = await auth.handleRedirectCallback();
 const accessToken = await auth.getAccessToken();
 const user = await auth.getUser();
 ```
+
+## Quickstart — server
+
+The server entry verifies access tokens from a `Bearer` header without
+calling out to the IdP — JWKS keys are fetched once and cached, then
+RS256 signatures are checked locally. Express middleware ships in the
+package; Fastify / Hono / Next.js Route Handlers consume `verify()`
+directly.
+
+```ts
+import { createAllowthemVerifier } from "@allowthem/js/server";
+
+const verifier = createAllowthemVerifier({
+  domain: "your-tenant.allowthem.io",
+  audience: "ath_xxx", // your client_id
+});
+
+// Express:
+app.use("/api", verifier.middleware());
+
+// Or directly:
+const user = await verifier.verify(authorizationHeader);
+```
+
+## Configuration reference
+
+### `ClientConfig` (browser)
+
+| Field                    | Type                              | Default                                     | Description                                                       |
+| ------------------------ | --------------------------------- | ------------------------------------------- | ----------------------------------------------------------------- |
+| `domain`                 | `string`                          | required                                    | Tenant host, no scheme. e.g. `"acme.allowthem.io"`.               |
+| `clientId`               | `string`                          | required                                    | OIDC client_id of the registered application.                     |
+| `redirectUri`            | `string`                          | required                                    | Default redirect URI (must match the application's registered URIs). |
+| `scope`                  | `string`                          | `"openid profile email offline_access"`    | OIDC scope string. `offline_access` requests a refresh token.     |
+| `audience`               | `string`                          | unset                                       | Forwarded as `audience` to authorize. No-op against current allowthem. |
+| `storage`                | `"memory" \| "session" \| TokenStore` | `"memory"`                              | In-memory by default. `"session"` persists access+id tokens (refresh stays in memory). Custom adapter for IndexedDB / BFF. |
+| `expirySkewSeconds`      | `number`                          | `60`                                        | Refresh window before `expiresAt`.                                |
+| `proactiveRefresh`       | `boolean`                         | `false`                                     | Schedule a background refresh `expirySkewSeconds` before expiry.  |
+| `onTokenExpired`         | `(err) => void \| Promise<void>` | unset                                       | Hook fired when refresh fails. SDK still clears local state regardless. |
+
+### `VerifierConfig` (server)
+
+| Field                              | Type            | Default | Description                                                       |
+| ---------------------------------- | --------------- | ------- | ----------------------------------------------------------------- |
+| `domain`                           | `string`        | required | Tenant host, no scheme.                                          |
+| `audience`                         | `string`        | required | Required. Must match the access token's `aud` claim.             |
+| `jwksCacheTtlSeconds`              | `number`        | `3600`  | TTL before the JWKS cache is considered stale.                   |
+| `jwksMinRefreshIntervalSeconds`    | `number`        | `60`    | Anti-DoS rate limit on cache-miss refreshes.                     |
+| `clockSkewSeconds`                 | `number`        | `60`    | Tolerance for `exp` / `nbf`.                                     |
+| `fetch`                            | `typeof fetch`  | `globalThis.fetch` | Override for non-Node runtimes (Workers, etc.).        |
 
 ## Browser support
 
