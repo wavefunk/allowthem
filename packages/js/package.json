@@ -1,27 +1,95 @@
 {
   "name": "@allowthem/js",
-  "version": "0.0.0",
-  "description": "Browser SDK for allowthem auth (PKCE, OIDC).",
+  "version": "0.0.5",
+  "description": "Browser + server SDK for allowthem auth (OIDC + PKCE).",
   "license": "MIT",
-  "private": true,
+  "author": "Wave Funk",
+  "homepage": "https://github.com/wavefunk/allowthem#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wavefunk/allowthem.git",
+    "directory": "packages/js"
+  },
+  "bugs": {
+    "url": "https://github.com/wavefunk/allowthem/issues"
+  },
+  "keywords": [
+    "oidc",
+    "oauth",
+    "pkce",
+    "auth",
+    "allowthem"
+  ],
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/index.d.ts",
+        "require": "./dist/index.d.cts"
+      },
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./server": {
+      "types": {
+        "import": "./dist/server/index.d.ts",
+        "require": "./dist/server/index.d.cts"
+      },
+      "import": "./dist/server/index.mjs",
+      "require": "./dist/server/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
   "scripts": {
+    "prebuild": "rimraf dist",
+    "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit && vitest run --reporter=basic",
+    "prepublishOnly": "npm run build && npm test",
+    "size": "size-limit"
   },
   "dependencies": {
     "jose": "5.9.6"
   },
   "devDependencies": {
-    "typescript": "5.6.3",
-    "vitest": "1.6.0",
-    "jsdom": "24.1.0",
+    "@size-limit/preset-small-lib": "11.1.6",
+    "@types/express": "5.0.0",
     "@types/node": "20.14.0",
-    "@types/express": "5.0.0"
+    "jsdom": "24.1.0",
+    "rimraf": "5.0.10",
+    "size-limit": "11.1.6",
+    "tsup": "8.3.5",
+    "typescript": "5.6.3",
+    "vitest": "1.6.0"
   },
   "engines": {
-    "node": ">=20"
-  }
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "size-limit": [
+    {
+      "name": "browser entry (gzip)",
+      "path": "dist/index.mjs",
+      "limit": "8 KB"
+    },
+    {
+      "name": "server entry (gzip)",
+      "path": "dist/server/index.mjs",
+      "limit": "30 KB"
+    }
+  ]
 }

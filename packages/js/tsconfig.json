@@ -14,5 +14,11 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["src", "test", "server", "vitest.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "server",
+    "vitest.config.ts",
+    "tsup.config.ts"
+  ]
 }
