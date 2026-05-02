@@ -23,6 +23,7 @@ use allowthem_core::Email;
 use allowthem_server::browser_error::BrowserError;
 
 use super::extractors::{RequireTenantMember, TenantScope};
+use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
 const PAGE_SIZE: u32 = 50;
@@ -258,12 +259,18 @@ async fn list(
         || nonempty(&query.from).is_some()
         || nonempty(&query.to).is_some();
 
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/audit", scope.tenant.slug),
+        scope.role,
+    );
     let body = render(
         &state,
         "audit/list.html",
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
+            nav_sections => nav,
             entries => entries_view,
             total => total,
             page => page,

@@ -18,6 +18,28 @@
 {% block sidebar_nav %}
   {% include "_partials/_workspace_switcher.html" ignore missing %}
   <nav class="wf-sidenav">
+    {% if nav_sections %}
+      {% for section in nav_sections %}
+        <div class="wf-sidenav-section">
+          <div class="wf-sidenav-heading">{{ section.heading }}</div>
+          <ul class="wf-sidenav-items">
+            {% for item in section.items %}
+              <li class="wf-sidenav-item
+                         {% if item.active %} active{% endif %}
+                         {% if item.muted %} muted{% endif %}
+                         {% if item.coming_soon %} coming-soon{% endif %}">
+                <a href="{{ item.href }}">
+                  {{ item.label }}
+                  {% if item.coming_soon %}
+                    <span class="wf-tag muted sm">Coming soon</span>
+                  {% endif %}
+                </a>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endfor %}
+    {% endif %}
     {% block dashboard_nav %}{% endblock %}
   </nav>
 {% endblock %}
