@@ -189,7 +189,7 @@ pub(crate) async fn build_handle(
     build_handle_with_path(&tenant.db_path, &tenant_data_dir, &config, slug).await
 }
 
-async fn build_handle_with_path(
+pub async fn build_handle_with_path(
     db_file: &str,
     tenant_data_dir: &std::path::Path,
     config: &TenantBuilderConfig,
