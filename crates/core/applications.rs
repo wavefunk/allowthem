@@ -603,6 +603,16 @@ impl Db {
         .map_err(AuthError::Database)
     }
 
+    /// Count of all applications in the tenant DB. Used by the SaaS
+    /// super-admin tenant detail panel (99c.6 §6.1).
+    pub async fn count_applications(&self) -> Result<u64, AuthError> {
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_applications")
+            .fetch_one(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+        Ok(n as u64)
+    }
+
     /// Count of distinct users who have consented to this application.
     ///
     /// Backed by `allowthem_consents`, which has `UNIQUE(user_id,
