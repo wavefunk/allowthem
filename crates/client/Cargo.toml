@@ -6,6 +6,7 @@ description = "External-mode AuthClient for allowthem — JWT validation via JWK
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [lib]
 path = "./client.rs"
