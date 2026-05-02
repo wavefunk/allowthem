@@ -3,18 +3,21 @@
  *
  * The exported `createAllowthemClient` returns an {@link AllowthemClient}
  * configured for one tenant + one OIDC application. Subsequent steps in
- * the build progressively add `handleRedirectCallback`, `getAccessToken`,
- * `getUser`, `logout`. This file is mutated across multiple commits;
- * each handler lands as its own atomic change.
+ * the build progressively add `getAccessToken`, `getUser`, `logout`.
  */
 
 import { AuthError } from "./errors.js";
+import { validateIdToken } from "./idtoken.js";
 import {
   generateChallenge,
   generateRandomString,
   generateVerifier,
 } from "./pkce.js";
-import { storeTransaction, sweepStaleTransactions } from "./transactions.js";
+import {
+  popTransaction,
+  storeTransaction,
+  sweepStaleTransactions,
+} from "./transactions.js";
 import {
   createMemoryStore,
   createSessionStore,
@@ -24,6 +27,7 @@ import type {
   AllowthemClient,
   ClientConfig,
   LoginOptions,
+  TokenResponse,
 } from "./types.js";
 
 const DEFAULT_SCOPE = "openid profile email offline_access";
@@ -51,16 +55,15 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
 
   const issuer = `https://${config.domain}`;
   const authorizeEndpoint = `${issuer}/oauth/authorize`;
-  // tokenEndpoint and userinfoEndpoint will land with subsequent steps.
+  const tokenEndpoint = `${issuer}/oauth/token`;
+  // userinfoEndpoint is wired in by Step 12.
 
   const skewSeconds = config.expirySkewSeconds ?? DEFAULT_SKEW_SECONDS;
   const store: TokenStore =
     config.storage === "session" ? createSessionStore() : createMemoryStore();
 
-  // The skew is wired in as later steps add getAccessToken; reference it
-  // here so TS doesn't drop it on the floor before then.
+  // Reference for next steps so TS doesn't drop unused locals.
   void skewSeconds;
-  void store;
 
   async function loginWithRedirect(opts?: LoginOptions): Promise<never> {
     const codeVerifier = generateVerifier();
@@ -89,8 +92,8 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
     url.searchParams.set("nonce", nonce);
     url.searchParams.set("code_challenge", codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
-    // NB (review): the allowthem authorize endpoint does not currently
-    // parse `audience` or `prompt`; serde silently ignores unknown query
+    // NB: the allowthem authorize endpoint does not currently parse
+    // `audience` or `prompt`; serde silently ignores unknown query
     // fields, so sending them is forward-compat — no effect today.
     if (config.audience) url.searchParams.set("audience", config.audience);
     if (opts?.prompt) url.searchParams.set("prompt", opts.prompt);
@@ -101,9 +104,109 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
     return new Promise<never>(() => {});
   }
 
+  async function handleRedirectCallback(): Promise<{ appState: unknown }> {
+    const params = new URLSearchParams(window.location.search);
+    const stateFromUrl = params.get("state");
+    if (!stateFromUrl) {
+      throw new AuthError("invalid_state", "missing state parameter");
+    }
+
+    if (params.has("error")) {
+      const code = params.get("error")!;
+      const description = params.get("error_description") ?? undefined;
+      const txn = popTransaction(stateFromUrl);
+      // Without a matching transaction, surface invalid_state instead of the
+      // attacker-supplied `error` code — prevents an attacker from steering
+      // the caller's error-handling branch via a forged redirect.
+      if (!txn) {
+        throw new AuthError("invalid_state", "state did not match any pending login");
+      }
+      cleanQueryString();
+      throw new AuthError(code, description, txn.appState);
+    }
+
+    const code = params.get("code");
+    if (!code) {
+      throw new AuthError("invalid_response", "neither code nor error in callback");
+    }
+
+    const txn = popTransaction(stateFromUrl);
+    if (!txn) {
+      throw new AuthError("invalid_state", "state did not match any pending login");
+    }
+
+    const tokens = await tokenExchange({
+      grantType: "authorization_code",
+      code,
+      codeVerifier: txn.codeVerifier,
+      redirectUri: txn.redirectUri,
+    });
+
+    validateIdToken(tokens.id_token, {
+      issuer,
+      clientId: config.clientId,
+      nonce: txn.nonce,
+    });
+
+    store.put({
+      accessToken: tokens.access_token,
+      idToken: tokens.id_token,
+      ...(tokens.refresh_token !== undefined
+        ? { refreshToken: tokens.refresh_token }
+        : {}),
+      expiresAt: Date.now() + tokens.expires_in * 1000,
+    });
+
+    cleanQueryString();
+    return { appState: txn.appState };
+  }
+
+  interface TokenExchangeArgs {
+    grantType: "authorization_code" | "refresh_token";
+    code?: string;
+    codeVerifier?: string;
+    redirectUri?: string;
+    refreshToken?: string;
+  }
+
+  async function tokenExchange(args: TokenExchangeArgs): Promise<TokenResponse> {
+    const body = new URLSearchParams();
+    body.set("grant_type", args.grantType);
+    body.set("client_id", config.clientId);
+    if (args.grantType === "authorization_code") {
+      body.set("code", args.code!);
+      body.set("code_verifier", args.codeVerifier!);
+      body.set("redirect_uri", args.redirectUri!);
+    } else {
+      body.set("refresh_token", args.refreshToken!);
+    }
+
+    const resp = await fetch(tokenEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+      credentials: "omit",
+    });
+
+    if (!resp.ok) {
+      let payload: { error?: string; error_description?: string } = {};
+      try {
+        payload = (await resp.json()) as typeof payload;
+      } catch {
+        // body was empty / non-JSON; payload stays empty.
+      }
+      throw new AuthError(
+        payload.error ?? `http_${resp.status}`,
+        payload.error_description ?? `token endpoint returned ${resp.status}`,
+      );
+    }
+
+    return (await resp.json()) as TokenResponse;
+  }
+
   return {
     loginWithRedirect,
-    handleRedirectCallback: stub("handleRedirectCallback"),
+    handleRedirectCallback,
     isAuthenticated: stub("isAuthenticated"),
     getUser: stub("getUser"),
     getAccessToken: stub("getAccessToken"),
@@ -122,6 +225,12 @@ function validateConfig(c: ClientConfig): void {
   if (!c.redirectUri) {
     throw new AuthError("config_error", "redirectUri is required");
   }
+}
+
+function cleanQueryString(): void {
+  // Strip the auth callback params so they don't survive a refresh and
+  // don't leak via the address bar.
+  window.history.replaceState({}, "", window.location.pathname);
 }
 
 function stub<T>(name: string): () => T {
