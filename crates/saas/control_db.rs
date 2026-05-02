@@ -18,7 +18,9 @@ pub struct TenantUsage {
 }
 
 /// Role of a dashboard user inside a tenant. Mirrors `tenant_members.role`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, sqlx::Type)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize, sqlx::Type,
+)]
 #[sqlx(rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum TenantRole {
@@ -34,6 +36,28 @@ impl TenantRole {
 
     pub fn is_admin_or_owner(&self) -> bool {
         matches!(self, TenantRole::Owner | TenantRole::Admin)
+    }
+
+    /// SQL-side spelling. Matches the `tenant_members.role` CHECK.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TenantRole::Owner => "owner",
+            TenantRole::Admin => "admin",
+            TenantRole::Viewer => "viewer",
+        }
+    }
+}
+
+impl std::str::FromStr for TenantRole {
+    type Err = SaasError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "owner" => Ok(TenantRole::Owner),
+            "admin" => Ok(TenantRole::Admin),
+            "viewer" => Ok(TenantRole::Viewer),
+            other => Err(SaasError::InvalidRole(other.to_owned())),
+        }
     }
 }
 

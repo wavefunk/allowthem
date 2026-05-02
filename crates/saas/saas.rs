@@ -21,6 +21,6 @@ pub use router::{
     tenant_router_middleware,
 };
 pub use tenants::{
-    ProvisionResult, Tenant, TenantBuilderConfig, TenantId, TenantStatus, tenant_cookie_name,
-    validate_slug,
+    MemberId, PlanId, ProvisionResult, Tenant, TenantBuilderConfig, TenantId, TenantMember,
+    TenantPlan, TenantStatus, tenant_cookie_name, validate_slug,
 };

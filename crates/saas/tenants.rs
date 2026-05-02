@@ -96,6 +96,103 @@ impl From<Uuid> for TenantId {
     }
 }
 
+/// UUIDv7-backed identifier for a `tenant_members` row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MemberId(Uuid);
+
+impl MemberId {
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+
+    /// Raw 16-byte payload suitable for binding to a SQLite BLOB column.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl Default for MemberId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<Uuid> for MemberId {
+    fn from(u: Uuid) -> Self {
+        Self(u)
+    }
+}
+
+/// UUIDv7-backed identifier for a `tenant_plans` row. Plans are seeded
+/// (no `new()` — the IDs come from the seed migration), so unlike
+/// [`MemberId`] there's no constructor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PlanId(Uuid);
+
+impl PlanId {
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl From<Uuid> for PlanId {
+    fn from(u: Uuid) -> Self {
+        Self(u)
+    }
+}
+
+/// One row of `tenant_members`. Mirrors the BLOB-as-`Vec<u8>` convention
+/// used by [`Tenant`]; call [`Self::id_as_member_id`] to unpack into a
+/// typed handle.
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct TenantMember {
+    pub id: Vec<u8>,
+    pub tenant_id: Vec<u8>,
+    pub email: String,
+    pub role: crate::control_db::TenantRole,
+    pub invited_at: DateTime<Utc>,
+    pub accepted_at: Option<DateTime<Utc>>,
+    /// Unix seconds; `NULL` once the invite has been accepted (and the
+    /// hash is also cleared then).
+    pub invite_token_expires_at: Option<i64>,
+}
+
+impl TenantMember {
+    pub fn id_as_member_id(&self) -> Option<MemberId> {
+        Uuid::from_slice(&self.id).ok().map(MemberId::from)
+    }
+
+    pub fn tenant_id_as_tenant_id(&self) -> Option<TenantId> {
+        Uuid::from_slice(&self.tenant_id).ok().map(TenantId::from)
+    }
+}
+
+/// One row of `tenant_plans`. Read-only at v1 (plans are seeded by a
+/// migration). `features` is the raw JSON string from the column;
+/// callers parse on demand.
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct TenantPlan {
+    pub id: Vec<u8>,
+    pub name: String,
+    pub mau_limit: i64,
+    pub price_cents: i64,
+    pub features: String,
+}
+
+impl TenantPlan {
+    pub fn id_as_plan_id(&self) -> Option<PlanId> {
+        Uuid::from_slice(&self.id).ok().map(PlanId::from)
+    }
+}
+
 /// SaaS-wide keys and base domain needed when building a tenant AllowThem handle.
 pub struct TenantBuilderConfig {
     pub mfa_key: [u8; 32],
@@ -453,6 +550,37 @@ impl ControlDb {
 mod tests {
     use super::*;
     use crate::control_db::tests::test_pool;
+
+    #[test]
+    fn member_id_roundtrips_through_uuid() {
+        let id = MemberId::new();
+        assert_eq!(id.as_bytes().len(), 16);
+        let copy = MemberId::from(*id.as_uuid());
+        assert_eq!(copy, id);
+    }
+
+    #[test]
+    fn plan_id_roundtrips_through_uuid() {
+        let uuid = Uuid::now_v7();
+        let pid = PlanId::from(uuid);
+        assert_eq!(pid.as_uuid(), &uuid);
+    }
+
+    #[test]
+    fn tenant_role_str_round_trip() {
+        use std::str::FromStr;
+        for role in [
+            crate::control_db::TenantRole::Owner,
+            crate::control_db::TenantRole::Admin,
+            crate::control_db::TenantRole::Viewer,
+        ] {
+            assert_eq!(
+                crate::control_db::TenantRole::from_str(role.as_str()).unwrap(),
+                role
+            );
+        }
+        assert!(crate::control_db::TenantRole::from_str("guest").is_err());
+    }
 
     async fn test_db() -> ControlDb {
         let pool = test_pool().await;
