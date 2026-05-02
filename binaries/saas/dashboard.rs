@@ -9,6 +9,7 @@
 //! - Submodules for the user-facing onboarding surface live alongside.
 
 pub mod auth_helpers;
+pub mod extractors;
 pub mod quickstart;
 pub mod quickstart_cache;
 pub mod signup;
@@ -27,6 +28,9 @@ use eyre::Result;
 use allowthem_core::{AllowThem, AllowThemBuilder};
 use allowthem_saas::dashboard_cookie_name;
 
+// Re-exports — `extractors::*` and `state::DashboardRouterState` start
+// being consumed by the application handlers in Step 8. Until then they
+// are reachable via their submodule paths (e.g. `dashboard::extractors::HtmlForm`).
 pub use quickstart_cache::{QuickstartCache, QuickstartEntry};
 pub use state::SignupState;
 pub use templates::build_dashboard_env;

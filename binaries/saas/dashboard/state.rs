@@ -1,4 +1,5 @@
-//! Shared state for the dashboard onboarding handlers (signup + quickstart).
+//! Shared state for the dashboard handlers (signup, quickstart, and
+//! tenant-scoped pages introduced in 99c.3+).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,4 +31,40 @@ pub struct SignupState {
     pub base_domain: String,
     pub templates: Arc<Environment<'static>>,
     pub is_production: bool,
+}
+
+/// HTTP-handler state for tenant-scoped dashboard pages (applications,
+/// users, settings). Strict superset of `SignupState` minus
+/// `quickstart_cache` — the dashboard-pages router doesn't need the
+/// quickstart token cache.
+///
+/// `From<SignupState>` projects from the existing onboarding state so
+/// `binaries/saas/main.rs` can compose both routers from one source of
+/// truth.
+#[allow(dead_code)] // Steps 8-10 of 99c.3 land the handlers that read every field.
+#[derive(Clone)]
+pub struct DashboardRouterState {
+    pub ath: AllowThem,
+    pub control_db: Arc<ControlDb>,
+    pub handle_cache: HandleCache,
+    pub tenant_data_dir: PathBuf,
+    pub tenant_config: Arc<TenantBuilderConfig>,
+    pub templates: Arc<Environment<'static>>,
+    pub is_production: bool,
+    pub base_domain: String,
+}
+
+impl From<SignupState> for DashboardRouterState {
+    fn from(s: SignupState) -> Self {
+        Self {
+            ath: s.ath,
+            control_db: s.control_db,
+            handle_cache: s.handle_cache,
+            tenant_data_dir: s.tenant_data_dir,
+            tenant_config: s.tenant_config,
+            templates: s.templates,
+            is_production: s.is_production,
+            base_domain: s.base_domain,
+        }
+    }
 }

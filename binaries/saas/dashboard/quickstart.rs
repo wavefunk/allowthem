@@ -11,12 +11,11 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 
-use allowthem_core::User;
-use allowthem_core::types::UserId;
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::{CsrfToken, csrf_middleware};
 
 use super::SignupState;
+use super::auth_helpers::current_dashboard_user;
 use super::quickstart_cache::QuickstartEntry;
 use super::signup::no_store;
 
@@ -34,7 +33,7 @@ async fn get_quickstart(
     csrf: CsrfToken,
     headers: HeaderMap,
 ) -> Result<Response, BrowserError> {
-    let user = match current_dashboard_user(&state, &headers).await? {
+    let user = match current_dashboard_user(&state.ath, &headers).await? {
         Some(u) => u,
         None => return Ok(redirect_to_login()),
     };
@@ -52,7 +51,7 @@ async fn post_dismiss(
     Path(token): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, BrowserError> {
-    let user = match current_dashboard_user(&state, &headers).await? {
+    let user = match current_dashboard_user(&state.ath, &headers).await? {
         Some(u) => u,
         None => return Ok(redirect_to_login()),
     };
@@ -64,30 +63,6 @@ async fn post_dismiss(
         state.quickstart_cache.evict(&token).await;
     }
     Ok((StatusCode::SEE_OTHER, [(header::LOCATION, "/")]).into_response())
-}
-
-/// Resolve the `Cookie` header on the request to a dashboard `User`, or
-/// `None` if no valid session is present. Mirrors the logic in
-/// `crates/server/extractors.rs:30-46` but inline so we don't take an
-/// `Arc<dyn AuthClient>` dependency.
-async fn current_dashboard_user(
-    state: &SignupState,
-    headers: &HeaderMap,
-) -> Result<Option<User>, BrowserError> {
-    let Some(cookie_header) = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()) else {
-        return Ok(None);
-    };
-    let Some(token) = state.ath.parse_session_cookie(cookie_header) else {
-        return Ok(None);
-    };
-    let ttl = state.ath.session_config().ttl;
-    let session = match state.ath.db().validate_session(&token, ttl).await? {
-        Some(s) => s,
-        None => return Ok(None),
-    };
-    let user_id: UserId = session.user_id;
-    let user = state.ath.db().get_user(user_id).await?;
-    Ok(Some(user))
 }
 
 fn render_quickstart(
