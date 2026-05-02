@@ -9,6 +9,7 @@
 //! - Submodules for the user-facing onboarding surface live alongside.
 
 pub mod applications;
+pub mod audit;
 pub mod auth_helpers;
 pub mod extractors;
 pub mod quickstart;
@@ -83,6 +84,7 @@ pub async fn open_dashboard_handle(
 pub fn dashboard_pages_router(state: state::DashboardRouterState) -> Router {
     Router::new()
         .merge(applications::application_routes())
+        .merge(audit::audit_routes())
         .layer(axum::middleware::from_fn(
             allowthem_server::csrf::csrf_middleware,
         ))
@@ -172,6 +174,9 @@ mod tests {
         "/t/test-slug/applications/00000000-0000-0000-0000-000000000000/edit",
         "/t/test-slug/applications/00000000-0000-0000-0000-000000000000/regenerate-secret",
         "/t/test-slug/applications/00000000-0000-0000-0000-000000000000/delete",
+        // 99c.5 audit log.
+        "/t/test-slug/audit",
+        "/t/test-slug/audit/export.csv",
     ];
 
     #[tokio::test]
