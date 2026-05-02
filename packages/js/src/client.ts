@@ -260,8 +260,48 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
         }
       })();
     }
-    const fresh = await inFlight;
-    return fresh.accessToken;
+    try {
+      const fresh = await inFlight;
+      return fresh.accessToken;
+    } catch (err) {
+      if (err instanceof AuthError) {
+        await handleRefreshFailure(err, "ondemand");
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Refresh-failure handler.
+   *
+   * Always: emit `'error'`, run the user callback (if supplied), then
+   * clear local state and emit `'logout' { reason: "expired" }`. The
+   * callback runs before clear so it can read remaining state, but the
+   * cleanup is fail-closed — a stale tab must not claim authenticated.
+   *
+   * @param source — "ondemand" rethrows the original error to the
+   *   `getAccessToken` caller; "proactive" swallows (no caller).
+   */
+  async function handleRefreshFailure(
+    err: AuthError,
+    source: "ondemand" | "proactive",
+  ): Promise<void> {
+    events.emit("error", {
+      code: err.code,
+      ...(err.description !== undefined ? { description: err.description } : {}),
+    });
+    if (config.onTokenExpired) {
+      try {
+        await config.onTokenExpired(err);
+      } catch (cbErr) {
+        // eslint-disable-next-line no-console
+        console.error("[allowthem] onTokenExpired callback threw:", cbErr);
+      }
+    }
+    store.clear();
+    inFlight = null;
+    events.emit("logout", { reason: "expired" });
+    void source; // marker for future telemetry split
   }
 
   async function refreshOnce(): Promise<TokenSetState> {

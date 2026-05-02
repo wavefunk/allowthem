@@ -55,6 +55,17 @@ export interface ClientConfig {
    * and trigger a refresh. Default 60.
    */
   expirySkewSeconds?: number;
+
+  /**
+   * Hook fired when a token refresh fails (typically `invalid_grant`
+   * because the refresh token rotated out from another tab). The
+   * callback runs *before* the SDK clears local state and emits
+   * `'logout'`; cleanup always happens regardless of what the callback
+   * does. Use it to redirect the user to a re-login flow or show a
+   * "session expired" banner — but don't try to recover here, the SDK
+   * is already fail-closed.
+   */
+  onTokenExpired?: (err: import("./errors.js").AuthError) => void | Promise<void>;
 }
 
 /**
