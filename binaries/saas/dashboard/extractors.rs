@@ -14,10 +14,6 @@
 //! Also exposes [`HtmlForm`], a `serde_html_form`-backed form extractor
 //! that handles repeated fields (e.g. multiple `redirect_uris`).
 
-// Steps 8-10 of 99c.3 wire the handlers that consume these. The
-// `#[allow(dead_code)]` is removed once `applications.rs` lands.
-#![allow(dead_code)]
-
 use axum::body::Bytes;
 use axum::extract::{FromRequest, FromRequestParts, Path, Request};
 use axum::http::{StatusCode, header, request::Parts};
@@ -94,6 +90,8 @@ pub struct RequireTenantMember(pub TenantScope);
 pub struct RequireTenantAdmin(pub TenantScope);
 
 /// Owner only; everyone else → 403. Used for irrevocable actions.
+/// Consumed by 99c.4's user delete + 99c.5's owner-only settings.
+#[allow(dead_code)]
 pub struct RequireTenantOwner(pub TenantScope);
 
 async fn resolve_scope(

@@ -148,21 +148,26 @@ async fn main() -> Result<()> {
     };
 
     let onboarding_routes =
-        signup_routes(signup_state.clone()).merge(quickstart_routes(signup_state));
+        signup_routes(signup_state.clone()).merge(quickstart_routes(signup_state.clone()));
 
     let onboarding_with_middleware = onboarding_routes.layer(axum::middleware::from_fn_with_state(
         router_state.clone(),
         tenant_router_middleware,
     ));
 
-    let dashboard_pages = dashboard::dashboard_pages_router().layer(
-        axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),
-    );
+    let dashboard_router_state =
+        dashboard::state::DashboardRouterState::from(signup_state.clone());
+    let dashboard_pages =
+        dashboard::dashboard_pages_router(dashboard_router_state).layer(
+            axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),
+        );
 
     let manage_routes = manage_router(manage_state);
 
-    // Hold the DashboardState binding alive past the router build. Future
-    // sub-tasks (99c.3+) will pass it into dashboard_pages_router as state.
+    // `DashboardState` (the synchronous-CLI shape) is no longer needed
+    // separately for the runtime path; sub-task 99c.6's super-admin work
+    // may revive it. Hold the binding alive in case a future call site
+    // wants it without a re-construction.
     let _dashboard_state = dashboard_state;
 
     let base_domain = cfg.base_domain.clone();
