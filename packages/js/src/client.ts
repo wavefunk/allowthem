@@ -7,7 +7,7 @@
  */
 
 import { AuthError } from "./errors.js";
-import { validateIdToken } from "./idtoken.js";
+import { parseIdTokenClaims, validateIdToken } from "./idtoken.js";
 import {
   generateChallenge,
   generateRandomString,
@@ -28,6 +28,7 @@ import type {
   ClientConfig,
   LoginOptions,
   TokenResponse,
+  UserClaims,
 } from "./types.js";
 
 const DEFAULT_SCOPE = "openid profile email offline_access";
@@ -56,7 +57,7 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
   const issuer = `https://${config.domain}`;
   const authorizeEndpoint = `${issuer}/oauth/authorize`;
   const tokenEndpoint = `${issuer}/oauth/token`;
-  // userinfoEndpoint is wired in by Step 12.
+  const userinfoEndpoint = `${issuer}/oauth/userinfo`;
 
   const skewSeconds = config.expirySkewSeconds ?? DEFAULT_SKEW_SECONDS;
   const store: TokenStore =
@@ -273,11 +274,30 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
     return inFlight;
   }
 
+  async function getUser(): Promise<UserClaims | null> {
+    const tokens = store.get();
+    if (!tokens) return null;
+    try {
+      const accessToken = await getAccessToken();
+      const resp = await fetch(userinfoEndpoint, {
+        headers: { authorization: `Bearer ${accessToken}` },
+        credentials: "omit",
+      });
+      if (resp.ok) {
+        return (await resp.json()) as UserClaims;
+      }
+      // 401 etc. — fall through to id_token claims.
+    } catch {
+      // Network error or refresh failure — fall through to id_token claims.
+    }
+    return parseIdTokenClaims(tokens.idToken) as unknown as UserClaims;
+  }
+
   return {
     loginWithRedirect,
     handleRedirectCallback,
     isAuthenticated,
-    getUser: stub("getUser"),
+    getUser,
     getAccessToken,
     logout: stub("logout"),
   };
