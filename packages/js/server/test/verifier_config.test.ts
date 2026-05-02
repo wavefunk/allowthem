@@ -42,9 +42,11 @@ describe("createAllowthemVerifier — config validation", () => {
       .toThrowError(new AuthError("config_error", "audience is required"));
   });
 
-  it("reaches the stub for a valid config (Step 5 replaces this)", () => {
-    expect(() => createAllowthemVerifier(valid))
-      .toThrow(/not yet implemented/);
+  it("returns a verifier instance for a valid config", () => {
+    const verifier = createAllowthemVerifier(valid);
+    expect(typeof verifier.verify).toBe("function");
+    expect(typeof verifier.requireRole).toBe("function");
+    expect(typeof verifier.hasPermission).toBe("function");
   });
 
   it("DEFAULTS frozen-ish — values match spec", () => {
