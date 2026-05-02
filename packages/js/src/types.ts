@@ -128,6 +128,15 @@ export interface TokenResponse {
  */
 export interface AllowthemClient {
   /**
+   * Subscribe to a lifecycle event. Returns an unsubscribe function.
+   * Events: `'login' | 'logout' | 'token_refreshed' | 'error'`.
+   */
+  on<E extends import("./events.js").EventName>(
+    event: E,
+    handler: import("./events.js").EventHandler<E>,
+  ): () => void;
+
+  /**
    * Redirect the browser to the authorize endpoint with PKCE parameters.
    * Resolves never — the page navigates away.
    */

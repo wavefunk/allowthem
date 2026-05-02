@@ -7,6 +7,7 @@
  */
 
 import { AuthError } from "./errors.js";
+import { EventEmitter } from "./events.js";
 import { parseIdTokenClaims, validateIdToken } from "./idtoken.js";
 import {
   generateChallenge,
@@ -63,6 +64,8 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
   const skewSeconds = config.expirySkewSeconds ?? DEFAULT_SKEW_SECONDS;
   const store: TokenStore =
     config.storage === "session" ? createSessionStore() : createMemoryStore();
+
+  const events = new EventEmitter();
 
   // In-tab single-flight: concurrent getAccessToken calls during a refresh
   // share one Promise so only one POST /oauth/token fires. Cross-tab
@@ -304,6 +307,7 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
   }
 
   return {
+    on: events.on.bind(events),
     loginWithRedirect,
     handleRedirectCallback,
     isAuthenticated,
