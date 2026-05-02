@@ -42,6 +42,7 @@ const APPLICATIONS_NEW_HTML: &str = include_str!("templates/applications/new.htm
 const APPLICATIONS_DETAIL_HTML: &str = include_str!("templates/applications/detail.html");
 const APPLICATIONS_EDIT_HTML: &str = include_str!("templates/applications/edit.html");
 const AUDIT_LIST_HTML: &str = include_str!("templates/audit/list.html");
+const USERS_LIST_HTML: &str = include_str!("templates/users/list.html");
 
 pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     let mut env = Environment::new();
@@ -120,6 +121,10 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     // Audit log page (99c.5).
     env.add_template_owned("audit/list.html", AUDIT_LIST_HTML)
         .expect("audit/list.html");
+
+    // User management list (99c.4).
+    env.add_template_owned("users/list.html", USERS_LIST_HTML)
+        .expect("users/list.html");
 
     Arc::new(env)
 }

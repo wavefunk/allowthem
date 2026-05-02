@@ -1,0 +1,132 @@
+{# users/list.html — tenant-scoped user directory.
+
+   Expected context:
+   - tenant.{name, slug}
+   - role: "owner" | "admin" | "viewer"
+   - nav_sections: rendered by _dashboard_shell.html
+   - users: Vec<UserListEntry>
+   - total: u32
+   - page: u32
+   - total_pages: u32
+   - q, status, mfa, verified: filter values to echo
+   - has_filters: bool
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}Users — {{ tenant.name }}{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">{{ tenant.name }} · USERS</div>
+{% endblock %}
+
+{% block dashboard_content %}
+  <div class="wf-panel" style="margin:16px 24px 0">
+    <div class="wf-panel-head">
+      <div class="wf-panel-title">Users ({{ total }})</div>
+    </div>
+    <form method="get" action="/t/{{ tenant.slug }}/users"
+          style="display:flex; gap:12px; flex-wrap:wrap; padding:12px 16px;">
+      <label>
+        Search
+        <input type="text" name="q" value="{{ q }}" placeholder="email or username" />
+      </label>
+      <label>
+        Status
+        <select name="status">
+          <option value="" {% if status == "" %}selected{% endif %}>Any</option>
+          <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+          <option value="blocked" {% if status == "blocked" %}selected{% endif %}>Blocked</option>
+        </select>
+      </label>
+      <label>
+        MFA
+        <select name="mfa">
+          <option value="" {% if mfa == "" %}selected{% endif %}>Any</option>
+          <option value="yes" {% if mfa == "yes" %}selected{% endif %}>Enrolled</option>
+          <option value="no" {% if mfa == "no" %}selected{% endif %}>Not enrolled</option>
+        </select>
+      </label>
+      <label>
+        Email verified
+        <select name="verified">
+          <option value="" {% if verified == "" %}selected{% endif %}>Any</option>
+          <option value="yes" {% if verified == "yes" %}selected{% endif %}>Verified</option>
+          <option value="no" {% if verified == "no" %}selected{% endif %}>Unverified</option>
+        </select>
+      </label>
+      <div style="display:flex; gap:8px; align-items:flex-end;">
+        <button type="submit" class="wf-btn primary sm">Filter</button>
+        {% if has_filters %}
+          <a class="wf-btn sm" href="/t/{{ tenant.slug }}/users">Reset</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+
+  {% if users %}
+    <div class="wf-tablewrap">
+      <div class="wf-tablescroll">
+        <table class="wf-table sticky">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Username</th>
+              <th>Status</th>
+              <th>MFA</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+              <tr>
+                <td>
+                  <a class="wf-link" href="/t/{{ tenant.slug }}/users/{{ u.id }}">
+                    {{ u.email }}
+                  </a>
+                </td>
+                <td>{{ u.username or "—" }}</td>
+                <td>
+                  {% if u.is_active %}
+                    <span class="wf-tag ok">Active</span>
+                  {% else %}
+                    <span class="wf-tag bad">Blocked</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if u.has_mfa %}
+                    <span class="wf-tag">Enrolled</span>
+                  {% else %}
+                    <span class="wf-tag muted">—</span>
+                  {% endif %}
+                </td>
+                <td>{{ u.created_at }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="wf-pager" style="display:flex; justify-content:space-between; align-items:center; padding:12px 24px;">
+      <span>Page {{ page }} of {{ total_pages }} — {{ total }} users</span>
+      <span style="display:flex; gap:8px;">
+        {% if page > 1 %}
+          <a class="wf-btn sm"
+             href="/t/{{ tenant.slug }}/users?q={{ q }}&status={{ status }}&mfa={{ mfa }}&verified={{ verified }}&page={{ page - 1 }}">
+            ← Previous
+          </a>
+        {% endif %}
+        {% if page < total_pages %}
+          <a class="wf-btn sm"
+             href="/t/{{ tenant.slug }}/users?q={{ q }}&status={{ status }}&mfa={{ mfa }}&verified={{ verified }}&page={{ page + 1 }}">
+            Next →
+          </a>
+        {% endif %}
+      </span>
+    </div>
+  {% else %}
+    <p class="wf-empty" style="margin:12px 24px;">
+      {% if has_filters %}No users match these filters.{% else %}No users yet.{% endif %}
+    </p>
+  {% endif %}
+{% endblock %}
