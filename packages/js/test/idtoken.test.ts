@@ -88,8 +88,14 @@ describe("validateIdToken", () => {
     expect(() => validateIdToken(jwt, opts)).toThrow(/aud/);
   });
 
-  it("accepts aud as array containing clientId", () => {
-    const jwt = makeJwt({ ...baseClaims(), aud: ["other", CLIENT_ID] });
+  it("accepts aud as array containing clientId (with required azp)", () => {
+    // OIDC §3.1.3.7 step 4: array aud requires azp = clientId. The
+    // dedicated azp-enforcement describe-block tests the negative paths.
+    const jwt = makeJwt({
+      ...baseClaims(),
+      aud: ["other", CLIENT_ID],
+      azp: CLIENT_ID,
+    });
     const c = validateIdToken(jwt, opts);
     expect(Array.isArray(c.aud)).toBe(true);
   });
@@ -126,5 +132,66 @@ describe("validateIdToken", () => {
   it("rejects token with non-numeric exp", () => {
     const jwt = makeJwt({ ...baseClaims(), exp: "soon" as unknown as number });
     expect(() => validateIdToken(jwt, opts)).toThrow(/expired/);
+  });
+});
+
+/**
+ * OIDC Core §3.1.3.7 step 4: when `aud` is an array (or contains multiple
+ * values), `azp` (Authorized Party) MUST be present and equal `clientId`.
+ * Without this check, an attacker who legitimately holds a token issued for
+ * a *different* client in a multi-aud token could replay it against this
+ * relying party. This is the canonical OIDC token-substitution attack.
+ */
+describe("validateIdToken — azp (authorized party) enforcement", () => {
+  it("rejects array aud when azp is missing", () => {
+    const jwt = makeJwt({
+      ...baseClaims(),
+      aud: [CLIENT_ID, "other_client"],
+      // azp omitted intentionally
+    });
+    expect(() =>
+      validateIdToken(jwt, { issuer: ISSUER, clientId: CLIENT_ID, nonce: NONCE, now: () => NOW_MS }),
+    ).toThrowError(new AuthError("invalid_id_token", "azp claim required when aud is an array"));
+  });
+
+  it("rejects array aud when azp does not equal clientId", () => {
+    const jwt = makeJwt({
+      ...baseClaims(),
+      aud: [CLIENT_ID, "other_client"],
+      azp: "other_client",
+    });
+    expect(() =>
+      validateIdToken(jwt, { issuer: ISSUER, clientId: CLIENT_ID, nonce: NONCE, now: () => NOW_MS }),
+    ).toThrowError(new AuthError("invalid_id_token", "azp mismatch"));
+  });
+
+  it("accepts array aud when azp equals clientId", () => {
+    const jwt = makeJwt({
+      ...baseClaims(),
+      aud: [CLIENT_ID, "other_client"],
+      azp: CLIENT_ID,
+    });
+    expect(() =>
+      validateIdToken(jwt, { issuer: ISSUER, clientId: CLIENT_ID, nonce: NONCE, now: () => NOW_MS }),
+    ).not.toThrow();
+  });
+
+  it("accepts string aud without requiring azp", () => {
+    // Single-aud case: azp is optional per OIDC §3.1.3.7. The existing
+    // happy-path tests cover this; this test makes the contract explicit.
+    const jwt = makeJwt({ ...baseClaims(), aud: CLIENT_ID });
+    expect(() =>
+      validateIdToken(jwt, { issuer: ISSUER, clientId: CLIENT_ID, nonce: NONCE, now: () => NOW_MS }),
+    ).not.toThrow();
+  });
+
+  it("rejects single-element array aud when azp is missing", () => {
+    // OIDC Core §3.1.3.7 step 4 requires azp whenever aud is an *array* —
+    // a one-element array is still an array, and a paranoid IdP that always
+    // emits arrays should still get the azp check.
+    const jwt = makeJwt({ ...baseClaims(), aud: [CLIENT_ID] });
+    expect(() =>
+      validateIdToken(jwt, { issuer: ISSUER, clientId: CLIENT_ID, nonce: NONCE, now: () => NOW_MS }),
+    ).toThrowError(new AuthError("invalid_id_token", "azp claim required when aud is an array"));
   });
 });

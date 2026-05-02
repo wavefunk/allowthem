@@ -22,6 +22,11 @@ export interface IdTokenClaims {
   exp: number;
   iat?: number;
   nonce?: string;
+  /**
+   * Authorized Party — REQUIRED by OIDC Core §3.1.3.7 step 4 when `aud` is
+   * an array. When present, MUST equal `clientId` of this RP.
+   */
+  azp?: string;
   [k: string]: unknown;
 }
 
@@ -78,6 +83,19 @@ export function validateIdToken(
     : claims.aud === opts.clientId;
   if (!audOk) {
     throw new AuthError("invalid_id_token", "aud mismatch");
+  }
+
+  // OIDC Core §3.1.3.7 step 4: when `aud` is an array, `azp` MUST be
+  // present and MUST equal `clientId`. Defends against token substitution
+  // — an attacker holding a token legitimately issued for a different
+  // client in a multi-aud token can't replay it here.
+  if (Array.isArray(claims.aud)) {
+    if (typeof claims.azp !== "string" || claims.azp.length === 0) {
+      throw new AuthError("invalid_id_token", "azp claim required when aud is an array");
+    }
+    if (claims.azp !== opts.clientId) {
+      throw new AuthError("invalid_id_token", "azp mismatch");
+    }
   }
 
   if (typeof claims.exp !== "number" || claims.exp < now - skew) {
