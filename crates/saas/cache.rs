@@ -47,6 +47,12 @@ impl SlugCache {
         }
         Ok(result)
     }
+
+    /// Number of entries currently cached. Used by the super-admin
+    /// health page (99c.6 §4.5).
+    pub fn entry_count(&self) -> u64 {
+        self.0.entry_count()
+    }
 }
 
 #[derive(Clone)]

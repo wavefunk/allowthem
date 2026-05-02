@@ -33,6 +33,10 @@ pub struct SearchUsersParams<'a> {
     pub query: Option<&'a str>,
     pub is_active: Option<bool>,
     pub has_mfa: Option<bool>,
+    /// Optional filter on `email_verified`. `Some(true)` returns only users
+    /// with verified emails; `Some(false)` only unverified; `None` includes
+    /// both. Surfaced for the dashboard user-management page (99c.4).
+    pub email_verified: Option<bool>,
     pub limit: u32,
     pub offset: u32,
 }
@@ -97,6 +101,16 @@ impl UserCursor {
 }
 
 impl Db {
+    /// Count of all users in the tenant DB. Used by the SaaS super-admin
+    /// tenant detail panel (99c.6 §6.1).
+    pub async fn count_users(&self) -> Result<u64, AuthError> {
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_users")
+            .fetch_one(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+        Ok(n as u64)
+    }
+
     /// Create a user with email, plaintext password, optional username, and optional custom data.
     ///
     /// Hashes the password with Argon2id (via `password::hash_password`).
@@ -405,6 +419,11 @@ impl Db {
             ));
         }
 
+        if let Some(verified) = params.email_verified {
+            where_clauses.push("u.email_verified = ?".into());
+            bind_values.push(if verified { "1".into() } else { "0".into() });
+        }
+
         let where_sql = if where_clauses.is_empty() {
             String::new()
         } else {
@@ -629,5 +648,68 @@ mod tests {
         let page2 = db.list_users_paginated(3, Some(&cursor)).await.unwrap();
         assert_eq!(page2.len(), 2);
         assert!(!page2.iter().any(|u| page1.iter().any(|v| v.id == u.id)));
+    }
+
+    fn unfiltered(limit: u32) -> SearchUsersParams<'static> {
+        SearchUsersParams {
+            query: None,
+            is_active: None,
+            has_mfa: None,
+            email_verified: None,
+            limit,
+            offset: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn search_users_filter_email_verified_true() {
+        let ath = setup().await;
+        let db = ath.db();
+        let u1 = make_user(db, 1).await;
+        let _u2 = make_user(db, 2).await;
+        db.set_email_verified(u1.id, true).await.unwrap();
+
+        let result = db
+            .search_users(SearchUsersParams {
+                email_verified: Some(true),
+                ..unfiltered(10)
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.users.len(), 1);
+        assert_eq!(result.users[0].id, u1.id);
+    }
+
+    #[tokio::test]
+    async fn search_users_filter_email_verified_false() {
+        let ath = setup().await;
+        let db = ath.db();
+        let u1 = make_user(db, 1).await;
+        let u2 = make_user(db, 2).await;
+        db.set_email_verified(u1.id, true).await.unwrap();
+
+        let result = db
+            .search_users(SearchUsersParams {
+                email_verified: Some(false),
+                ..unfiltered(10)
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.users[0].id, u2.id);
+    }
+
+    #[tokio::test]
+    async fn search_users_filter_email_verified_none_includes_both() {
+        let ath = setup().await;
+        let db = ath.db();
+        let u1 = make_user(db, 1).await;
+        let _u2 = make_user(db, 2).await;
+        db.set_email_verified(u1.id, true).await.unwrap();
+
+        let result = db.search_users(unfiltered(10)).await.unwrap();
+        assert_eq!(result.total, 2);
+        assert_eq!(result.users.len(), 2);
     }
 }
