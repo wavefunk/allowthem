@@ -260,7 +260,8 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
       );
     }
 
-    return (await resp.json()) as TokenResponse;
+    const parsed = (await resp.json().catch(() => null)) as unknown;
+    return assertTokenResponseShape(parsed);
   }
 
   function isAuthenticated(): boolean {
@@ -447,6 +448,29 @@ function validateConfig(c: ClientConfig): void {
   if (!c.redirectUri) {
     throw new AuthError("config_error", "redirectUri is required");
   }
+}
+
+/**
+ * Validate a 200 response from `POST /oauth/token`. The cast-and-trust
+ * pattern previously surfaced as opaque TypeErrors when an upstream returned
+ * a malformed body; this guard normalises the failure to
+ * `AuthError("invalid_response", ...)` so callers can branch on it.
+ */
+function assertTokenResponseShape(body: unknown): TokenResponse {
+  if (body === null || typeof body !== "object") {
+    throw new AuthError("invalid_response", "token endpoint returned a non-object body");
+  }
+  const obj = body as Record<string, unknown>;
+  if (typeof obj["access_token"] !== "string" || obj["access_token"] === "") {
+    throw new AuthError("invalid_response", "token response missing access_token");
+  }
+  if (typeof obj["id_token"] !== "string" || obj["id_token"] === "") {
+    throw new AuthError("invalid_response", "token response missing id_token");
+  }
+  if (typeof obj["expires_in"] !== "number" || !Number.isFinite(obj["expires_in"])) {
+    throw new AuthError("invalid_response", "token response missing or invalid expires_in");
+  }
+  return body as TokenResponse;
 }
 
 function cleanQueryString(): void {

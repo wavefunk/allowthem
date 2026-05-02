@@ -235,6 +235,76 @@ describe("handleRedirectCallback — error paths", () => {
   });
 });
 
+describe("handleRedirectCallback — malformed token-endpoint shape", () => {
+  // Spec gap: tokenExchange casts `(await resp.json()) as TokenResponse`
+  // without runtime validation. A misbehaving / impostor IdP returning a
+  // 200 with missing fields previously surfaced as an opaque TypeError
+  // ("Cannot read properties of undefined (reading 'split')") — caller
+  // can't catch it as AuthError. The guard surfaces a typed
+  // `AuthError("invalid_response", ...)` instead.
+  function setUp200WithBody(body: unknown): void {
+    seedTransaction("st1", "n1");
+    setLocation("?code=abc&state=st1");
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => body,
+    });
+  }
+
+  it("missing access_token in 200 response → invalid_response", async () => {
+    setUp200WithBody({ token_type: "Bearer", expires_in: 3600, id_token: "x.y.z" });
+    const client = createAllowthemClient(config);
+    await expect(client.handleRedirectCallback()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("missing id_token in 200 response → invalid_response", async () => {
+    setUp200WithBody({ access_token: "at-1", token_type: "Bearer", expires_in: 3600 });
+    const client = createAllowthemClient(config);
+    await expect(client.handleRedirectCallback()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("missing expires_in → invalid_response", async () => {
+    setUp200WithBody({ access_token: "at-1", token_type: "Bearer", id_token: "x.y.z" });
+    const client = createAllowthemClient(config);
+    await expect(client.handleRedirectCallback()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("non-numeric expires_in → invalid_response", async () => {
+    setUp200WithBody({
+      access_token: "at-1",
+      token_type: "Bearer",
+      expires_in: "soon",
+      id_token: "x.y.z",
+    });
+    const client = createAllowthemClient(config);
+    await expect(client.handleRedirectCallback()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("non-object body (string) → invalid_response", async () => {
+    setUp200WithBody("not-an-object");
+    const client = createAllowthemClient(config);
+    await expect(client.handleRedirectCallback()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("null body → invalid_response", async () => {
+    setUp200WithBody(null);
+    const client = createAllowthemClient(config);
+    await expect(client.handleRedirectCallback()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+});
+
 describe("handleRedirectCallback — cleanQueryString preserves location.hash", () => {
   // Regression guard: the impl-review (#27) flagged that `cleanQueryString`
   // must call `replaceState({}, "", pathname + hash)` so callers using SPA
