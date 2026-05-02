@@ -11,8 +11,10 @@ import {
   jwtVerify,
   type JWTPayload,
 } from "jose";
+import type { RequestHandler } from "express";
 import { AuthError } from "./errors.js";
 import { JwksCache } from "./jwks.js";
+import { createMiddleware, type MiddlewareOptions } from "./middleware.js";
 
 /**
  * Construction-time configuration. See spec §2.
@@ -52,14 +54,15 @@ export interface AllowthemUser {
 /**
  * Verifier instance returned by {@link createAllowthemVerifier}.
  *
- * Step 7 widens this interface to add `middleware(opts?): RequestHandler`
- * — added there so this file's typecheck doesn't depend on `middleware.ts`
- * or `@types/express` at Step 3/5 commit time.
+ * `middleware` is an Express request-handler factory — see
+ * {@link MiddlewareOptions}. Other frameworks (Fastify, Koa, Hono) can call
+ * {@link AllowthemVerifier.verify} directly and skip the factory.
  */
 export interface AllowthemVerifier {
   verify(bearerToken: string): Promise<AllowthemUser>;
   requireRole(user: AllowthemUser, role: string): void;
   hasPermission(user: AllowthemUser, perm: string): boolean;
+  middleware(opts?: MiddlewareOptions): RequestHandler;
 }
 
 /** Defaults applied when a {@link VerifierConfig} field is omitted. */
@@ -198,11 +201,22 @@ export function createAllowthemVerifier(config: VerifierConfig): AllowthemVerifi
     return mapClaims(payload);
   }
 
-  return {
+  // The placeholder + reassignment pattern is intentional: `createMiddleware`
+  // needs the `verifier` reference as a closure capture, but `verifier` is
+  // the object literal we're constructing. The two-step form avoids
+  // `undefined as any` casts and an outer `let` hoist that obscures intent.
+  // JS event-loop semantics guarantee `verifier.middleware` is set before
+  // any caller can invoke it.
+  const verifier: AllowthemVerifier = {
     verify,
     requireRole,
     hasPermission,
+    middleware: () => {
+      throw new Error("middleware accessor not yet wired (impl bug)");
+    },
   };
+  verifier.middleware = (opts) => createMiddleware(verifier, opts);
+  return verifier;
 }
 
 function validateConfig(config: VerifierConfig): void {
