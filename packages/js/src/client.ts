@@ -27,6 +27,7 @@ import type {
   AllowthemClient,
   ClientConfig,
   LoginOptions,
+  LogoutOptions,
   TokenResponse,
   UserClaims,
 } from "./types.js";
@@ -293,13 +294,22 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
     return parseIdTokenClaims(tokens.idToken) as unknown as UserClaims;
   }
 
+  async function logout(opts?: LogoutOptions): Promise<void> {
+    store.clear();
+    inFlight = null;
+    sessionStorage.removeItem("allowthem:txn");
+    if (opts?.returnTo) {
+      window.location.assign(opts.returnTo);
+    }
+  }
+
   return {
     loginWithRedirect,
     handleRedirectCallback,
     isAuthenticated,
     getUser,
     getAccessToken,
-    logout: stub("logout"),
+    logout,
   };
 }
 
@@ -322,8 +332,3 @@ function cleanQueryString(): void {
   window.history.replaceState({}, "", window.location.pathname);
 }
 
-function stub<T>(name: string): () => T {
-  return () => {
-    throw new AuthError("invalid_response", `${name} not yet implemented`);
-  };
-}
