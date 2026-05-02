@@ -358,6 +358,101 @@ impl ControlDb {
     }
 }
 
+// ---------------------------------------------------------------------------
+// tenant_members CRUD — last-owner-invariant writes.
+//
+// The invariant: a tenant must always have at least one accepted owner.
+// We enforce it inside an explicit transaction (count owners, decide,
+// then mutate) rather than relying on a single-statement subquery,
+// which would be brittle to read and to test.
+// ---------------------------------------------------------------------------
+
+impl ControlDb {
+    /// Number of accepted owners for the given tenant.
+    pub async fn count_owners(&self, tenant_id: &TenantId) -> Result<i64, SaasError> {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tenant_members \
+             WHERE tenant_id = ?1 AND role = 'owner' AND accepted_at IS NOT NULL",
+        )
+        .bind(tenant_id.as_bytes())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(n)
+    }
+
+    /// Update a member's role. Rejects with [`SaasError::CannotDemoteLastOwner`]
+    /// if this would leave the tenant with zero accepted owners.
+    pub async fn update_member_role(
+        &self,
+        member_id: &MemberId,
+        new_role: TenantRole,
+    ) -> Result<(), SaasError> {
+        let mut tx = self.pool.begin().await?;
+        let target: Option<(Vec<u8>, String, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT tenant_id, role, accepted_at FROM tenant_members WHERE id = ?1",
+        )
+        .bind(member_id.as_bytes())
+        .fetch_optional(&mut *tx)
+        .await?;
+        let (tenant_blob, current_role, accepted_at) = target.ok_or(SaasError::MemberNotFound)?;
+
+        let demoting_owner = current_role == "owner" && !matches!(new_role, TenantRole::Owner);
+        if demoting_owner && accepted_at.is_some() {
+            let n: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM tenant_members \
+                 WHERE tenant_id = ?1 AND role = 'owner' AND accepted_at IS NOT NULL",
+            )
+            .bind(&tenant_blob)
+            .fetch_one(&mut *tx)
+            .await?;
+            if n <= 1 {
+                return Err(SaasError::CannotDemoteLastOwner);
+            }
+        }
+
+        sqlx::query("UPDATE tenant_members SET role = ?1 WHERE id = ?2")
+            .bind(new_role.as_str())
+            .bind(member_id.as_bytes())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Remove a member. Rejects with [`SaasError::CannotRemoveLastOwner`]
+    /// if removing this row would leave the tenant with zero accepted owners.
+    pub async fn remove_member(&self, member_id: &MemberId) -> Result<(), SaasError> {
+        let mut tx = self.pool.begin().await?;
+        let target: Option<(Vec<u8>, String, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT tenant_id, role, accepted_at FROM tenant_members WHERE id = ?1",
+        )
+        .bind(member_id.as_bytes())
+        .fetch_optional(&mut *tx)
+        .await?;
+        let (tenant_blob, role, accepted_at) = target.ok_or(SaasError::MemberNotFound)?;
+
+        if role == "owner" && accepted_at.is_some() {
+            let n: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM tenant_members \
+                 WHERE tenant_id = ?1 AND role = 'owner' AND accepted_at IS NOT NULL",
+            )
+            .bind(&tenant_blob)
+            .fetch_one(&mut *tx)
+            .await?;
+            if n <= 1 {
+                return Err(SaasError::CannotRemoveLastOwner);
+            }
+        }
+
+        sqlx::query("DELETE FROM tenant_members WHERE id = ?1")
+            .bind(member_id.as_bytes())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -821,5 +916,117 @@ pub(crate) mod tests {
         db.accept_invite(&live).await.unwrap();
         let after = db.find_pending_invite_by_hash(&live).await.unwrap();
         assert!(after.is_none());
+    }
+
+    // ----- 99c.5 Step 4: last-owner invariant -----
+
+    /// Insert an accepted member and return the typed [`MemberId`] so
+    /// last-owner tests can target the row directly.
+    async fn insert_member_typed(
+        db: &ControlDb,
+        tenant_id: &TenantId,
+        email: &str,
+        role: &str,
+    ) -> MemberId {
+        let mid = MemberId::new();
+        sqlx::query(
+            "INSERT INTO tenant_members (id, tenant_id, email, role, accepted_at) \
+             VALUES (?, ?, ?, ?, datetime('now'))",
+        )
+        .bind(mid.as_bytes())
+        .bind(tenant_id.as_bytes())
+        .bind(email)
+        .bind(role)
+        .execute(db.pool())
+        .await
+        .unwrap();
+        mid
+    }
+
+    #[tokio::test]
+    async fn count_owners_counts_only_accepted_owners() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "count").await;
+        insert_member_typed(&db, &tid, "owner@x.com", "owner").await;
+        insert_member_typed(&db, &tid, "admin@x.com", "admin").await;
+        // Pending owner — must NOT count.
+        db.invite_member(&tid, "pending@x.com", TenantRole::Owner, &token_hash(8), future_ts())
+            .await
+            .unwrap();
+
+        assert_eq!(db.count_owners(&tid).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn update_member_role_demote_last_owner_fails() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "demote-last").await;
+        let owner = insert_member_typed(&db, &tid, "lone@x.com", "owner").await;
+
+        let err = db
+            .update_member_role(&owner, TenantRole::Admin)
+            .await
+            .expect_err("demote sole owner");
+        assert!(matches!(err, SaasError::CannotDemoteLastOwner));
+
+        // Row unchanged.
+        let after = db.get_tenant_member(&owner).await.unwrap().unwrap();
+        assert_eq!(after.role, TenantRole::Owner);
+    }
+
+    #[tokio::test]
+    async fn update_member_role_demote_one_of_two_owners_succeeds() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "demote-ok").await;
+        let first = insert_member_typed(&db, &tid, "a@x.com", "owner").await;
+        insert_member_typed(&db, &tid, "b@x.com", "owner").await;
+
+        db.update_member_role(&first, TenantRole::Admin).await.unwrap();
+        let after = db.get_tenant_member(&first).await.unwrap().unwrap();
+        assert_eq!(after.role, TenantRole::Admin);
+    }
+
+    #[tokio::test]
+    async fn update_role_unknown_member_returns_not_found() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let bogus = MemberId::new();
+        let err = db
+            .update_member_role(&bogus, TenantRole::Admin)
+            .await
+            .expect_err("unknown");
+        assert!(matches!(err, SaasError::MemberNotFound));
+    }
+
+    #[tokio::test]
+    async fn remove_last_owner_fails() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "rm-last").await;
+        let owner = insert_member_typed(&db, &tid, "only@x.com", "owner").await;
+
+        let err = db.remove_member(&owner).await.expect_err("remove last");
+        assert!(matches!(err, SaasError::CannotRemoveLastOwner));
+        assert!(db.get_tenant_member(&owner).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn remove_one_of_two_owners_succeeds() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "rm-ok").await;
+        let first = insert_member_typed(&db, &tid, "a@x.com", "owner").await;
+        insert_member_typed(&db, &tid, "b@x.com", "owner").await;
+
+        db.remove_member(&first).await.unwrap();
+        assert!(db.get_tenant_member(&first).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn remove_admin_succeeds() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "rm-admin").await;
+        insert_member_typed(&db, &tid, "owner@x.com", "owner").await;
+        let admin = insert_member_typed(&db, &tid, "admin@x.com", "admin").await;
+
+        db.remove_member(&admin).await.unwrap();
+        assert!(db.get_tenant_member(&admin).await.unwrap().is_none());
     }
 }
