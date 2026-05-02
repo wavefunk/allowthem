@@ -70,6 +70,8 @@ impl Fixture {
         let handle_cache = HandleCache::new(10);
         let slug_cache = SlugCache::new(10, 60);
 
+        let email_sender: Arc<dyn allowthem_core::EmailSender> =
+            Arc::new(allowthem_core::LogEmailSender);
         let signup_state = SignupState {
             ath: dashboard_ath.clone(),
             control_db: control_db.clone(),
@@ -79,12 +81,13 @@ impl Fixture {
             quickstart_cache: QuickstartCache::new(),
             base_domain: BASE_DOMAIN.into(),
             templates: build_dashboard_env(),
+            email_sender,
             is_production: false,
         };
 
         let router_state = TenantRouterState {
             control_db: control_db.clone(),
-            slug_cache,
+            slug_cache: slug_cache.clone(),
             handle_cache,
             tenant_data_dir,
             config: tenant_config,
@@ -100,7 +103,10 @@ impl Fixture {
         ));
 
         let dashboard_router_state =
-            crate::dashboard::state::DashboardRouterState::from(signup_state.clone());
+            crate::dashboard::state::DashboardRouterState::from_signup(
+                signup_state.clone(),
+                slug_cache.clone(),
+            );
         let dashboard_pages =
             crate::dashboard::dashboard_pages_router(dashboard_router_state).layer(
                 axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),

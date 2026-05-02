@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
 
     let router_state = TenantRouterState {
         control_db: control_db.clone(),
-        slug_cache,
+        slug_cache: slug_cache.clone(),
         handle_cache: handle_cache.clone(),
         tenant_data_dir: tenant_data_dir.clone(),
         config: tenant_config.clone(),
@@ -135,6 +135,11 @@ async fn main() -> Result<()> {
     // (99c.3..99c.6, currently empty placeholder). Both go through the same
     // tenant_router_middleware so the dashboard handle lands in extensions
     // on root-domain requests for the shared `csrf_middleware` + handlers.
+    // One `Arc<dyn EmailSender>` instance shared across SignupState +
+    // DashboardRouterState (via `from_signup`). Keeps log output and any
+    // future swap-in (SMTP, SES) consistent across surfaces.
+    let email_sender: Arc<dyn allowthem_core::EmailSender> = Arc::new(LogEmailSender);
+
     let signup_state = SignupState {
         ath: dashboard_state.ath.clone(),
         control_db: control_db.clone(),
@@ -144,6 +149,7 @@ async fn main() -> Result<()> {
         quickstart_cache: QuickstartCache::new(),
         base_domain: cfg.base_domain.clone(),
         templates: build_dashboard_env(),
+        email_sender: email_sender.clone(),
         is_production: cfg.is_production,
     };
 
@@ -155,7 +161,10 @@ async fn main() -> Result<()> {
         tenant_router_middleware,
     ));
 
-    let dashboard_router_state = dashboard::state::DashboardRouterState::from(signup_state.clone());
+    let dashboard_router_state = dashboard::state::DashboardRouterState::from_signup(
+        signup_state.clone(),
+        slug_cache.clone(),
+    );
     let dashboard_pages = dashboard::dashboard_pages_router(dashboard_router_state).layer(
         axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),
     );
