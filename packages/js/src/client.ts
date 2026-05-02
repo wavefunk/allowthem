@@ -171,6 +171,12 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
       expiresAt: Date.now() + tokens.expires_in * 1000,
     });
 
+    // h6d.1 already ran validateIdToken above, so id_token is guaranteed
+    // present and parseable here. parseIdTokenClaims throws on parse
+    // failure; the success path is total.
+    const claims = parseIdTokenClaims(tokens.id_token);
+    events.emit("login", { user: claims as unknown as UserClaims });
+
     cleanQueryString();
     return { appState: txn.appState };
   }
@@ -270,6 +276,7 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
           expiresAt: Date.now() + resp.expires_in * 1000,
         };
         store.put(fresh);
+        events.emit("token_refreshed", { expiresAt: fresh.expiresAt });
         return fresh;
       } finally {
         inFlight = null;
@@ -301,6 +308,9 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
     store.clear();
     inFlight = null;
     sessionStorage.removeItem("allowthem:txn");
+    // Emit AFTER clear so a handler that calls isAuthenticated() / getUser()
+    // sees the post-logout state.
+    events.emit("logout", { reason: "user" });
     if (opts?.returnTo) {
       window.location.assign(opts.returnTo);
     }

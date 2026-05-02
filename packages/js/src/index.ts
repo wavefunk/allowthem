@@ -8,3 +8,8 @@ export type {
   TokenResponse,
   UserClaims,
 } from "./types.js";
+export type {
+  EventName,
+  EventPayloads,
+  EventHandler,
+} from "./events.js";
