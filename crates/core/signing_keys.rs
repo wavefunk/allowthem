@@ -309,12 +309,16 @@ pub fn build_discovery(issuer: &str) -> OidcDiscovery {
         userinfo_endpoint: format!("{issuer}/oauth/userinfo"),
         jwks_uri: format!("{issuer}/.well-known/jwks.json"),
         issuer: issuer.to_string(),
-        scopes_supported: vec!["openid", "profile", "email"],
+        scopes_supported: vec!["openid", "profile", "email", "offline_access"],
         response_types_supported: vec!["code"],
         grant_types_supported: vec!["authorization_code", "refresh_token"],
         subject_types_supported: vec!["public"],
         id_token_signing_alg_values_supported: vec!["RS256"],
-        token_endpoint_auth_methods_supported: vec!["client_secret_post", "client_secret_basic"],
+        token_endpoint_auth_methods_supported: vec![
+            "client_secret_post",
+            "client_secret_basic",
+            "none",
+        ],
         code_challenge_methods_supported: vec!["S256"],
     }
 }
@@ -597,10 +601,12 @@ mod tests {
             "https://auth.example.com/.well-known/jwks.json"
         );
         assert!(!doc.scopes_supported.is_empty());
+        assert!(doc.scopes_supported.contains(&"offline_access"));
         assert!(!doc.response_types_supported.is_empty());
         assert!(!doc.grant_types_supported.is_empty());
         assert!(!doc.subject_types_supported.is_empty());
         assert!(!doc.id_token_signing_alg_values_supported.is_empty());
+        assert!(doc.token_endpoint_auth_methods_supported.contains(&"none"));
         assert!(!doc.token_endpoint_auth_methods_supported.is_empty());
         assert!(!doc.code_challenge_methods_supported.is_empty());
     }
