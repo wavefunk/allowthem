@@ -62,8 +62,17 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
   const store: TokenStore =
     config.storage === "session" ? createSessionStore() : createMemoryStore();
 
-  // Reference for next steps so TS doesn't drop unused locals.
-  void skewSeconds;
+  // In-tab single-flight: concurrent getAccessToken calls during a refresh
+  // share one Promise so only one POST /oauth/token fires. Cross-tab
+  // coalescing lands in h6d.2.
+  let inFlight: Promise<TokenSetState> | null = null;
+
+  interface TokenSetState {
+    accessToken: string;
+    idToken: string;
+    refreshToken?: string;
+    expiresAt: number;
+  }
 
   async function loginWithRedirect(opts?: LoginOptions): Promise<never> {
     const codeVerifier = generateVerifier();
@@ -204,12 +213,72 @@ export function createAllowthemClient(config: ClientConfig): AllowthemClient {
     return (await resp.json()) as TokenResponse;
   }
 
+  function isAuthenticated(): boolean {
+    return store.get() !== null;
+  }
+
+  async function getAccessToken(): Promise<string> {
+    const tokens = store.get();
+    if (!tokens) {
+      throw new AuthError("login_required", "no active session");
+    }
+    const skewMs = skewSeconds * 1000;
+    if (Date.now() < tokens.expiresAt - skewMs) {
+      return tokens.accessToken;
+    }
+    if (!tokens.refreshToken) {
+      throw new AuthError(
+        "login_required",
+        "access token expired and no refresh_token",
+      );
+    }
+    const fresh = await refreshOnce();
+    return fresh.accessToken;
+  }
+
+  async function refreshOnce(): Promise<TokenSetState> {
+    if (inFlight) return inFlight;
+    inFlight = (async () => {
+      try {
+        const cur = store.get();
+        if (!cur?.refreshToken) {
+          throw new AuthError("login_required", "no refresh token");
+        }
+        const resp = await tokenExchange({
+          grantType: "refresh_token",
+          refreshToken: cur.refreshToken,
+        });
+        // No nonce on refresh-issued id_tokens (OIDC core: `nonce` is for
+        // identity-of-this-flow; refresh doesn't restart the flow).
+        validateIdToken(resp.id_token, {
+          issuer,
+          clientId: config.clientId,
+        });
+        const fresh: TokenSetState = {
+          accessToken: resp.access_token,
+          idToken: resp.id_token,
+          ...(resp.refresh_token !== undefined
+            ? { refreshToken: resp.refresh_token }
+            : cur.refreshToken !== undefined
+              ? { refreshToken: cur.refreshToken }
+              : {}),
+          expiresAt: Date.now() + resp.expires_in * 1000,
+        };
+        store.put(fresh);
+        return fresh;
+      } finally {
+        inFlight = null;
+      }
+    })();
+    return inFlight;
+  }
+
   return {
     loginWithRedirect,
     handleRedirectCallback,
-    isAuthenticated: stub("isAuthenticated"),
+    isAuthenticated,
     getUser: stub("getUser"),
-    getAccessToken: stub("getAccessToken"),
+    getAccessToken,
     logout: stub("logout"),
   };
 }
