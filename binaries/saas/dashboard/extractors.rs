@@ -135,12 +135,58 @@ async fn resolve_scope(
             return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response());
         }
     };
-    let role = state
+    let role_opt = state
         .control_db
         .member_role(&tenant_id, user.email.as_str())
         .await
-        .map_err(saas_error_500)?
-        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+        .map_err(saas_error_500)?;
+
+    // 4a. Super-admin fall-through (99c.6 §3.2). When the dashboard user is
+    //     not a `tenant_members` row but holds the `super_admin` role, we
+    //     synthesize an `Owner` scope so they can drill into any tenant.
+    //     Audit is **synchronous and fail-closed**: if the audit insert
+    //     fails, deny access. This is the consent substitute — never
+    //     best-effort.
+    let role = match role_opt {
+        Some(r) => r,
+        None => {
+            let role_name = allowthem_core::types::RoleName::new("super_admin");
+            let is_super = state
+                .ath
+                .db()
+                .has_role(&user.id, &role_name)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, "has_role failed in resolve_scope");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                })?;
+            if !is_super {
+                return Err(StatusCode::NOT_FOUND.into_response());
+            }
+            let ctx = serde_json::json!({
+                "path": parts.uri.path(),
+                "method": parts.method.as_str(),
+            });
+            state
+                .control_db
+                .log_control_audit(
+                    user.email.as_str(),
+                    "superadmin.tenant_accessed",
+                    Some(&tenant_id),
+                    &ctx,
+                )
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        error = %e,
+                        slug = %slug,
+                        "superadmin audit insert failed; denying cross-tenant access"
+                    );
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                })?;
+            TenantRole::Owner
+        }
+    };
 
     // 5. Tenant AllowThem via the handle cache. Re-uses the same
     //    `build_handle_with_path` the tenant-router middleware uses, so
@@ -231,6 +277,59 @@ fn forbidden(msg: &'static str) -> Response {
 fn saas_error_500(e: SaasError) -> Response {
     tracing::error!(error = %e, "control-plane query failed during scope resolution");
     StatusCode::INTERNAL_SERVER_ERROR.into_response()
+}
+
+// ---------------------------------------------------------------------------
+// RequireSuperAdmin (99c.6 §3.1)
+// ---------------------------------------------------------------------------
+
+/// The dashboard user verified to hold the `super_admin` role.
+#[allow(dead_code)] // consumed by 99c.6 admin handlers (Steps 7-12 of the impl plan).
+pub struct SuperAdminScope {
+    pub user: User,
+}
+
+/// Newtype extractor: gates the super-admin pages and the cross-tenant
+/// fall-through in `resolve_scope`. Rejects with 404 (not 403) when the
+/// caller is authenticated but lacks the role — preserving the same
+/// non-leak surface used elsewhere in the dashboard.
+#[allow(dead_code)] // consumed by 99c.6 admin handlers (Steps 7-12).
+pub struct RequireSuperAdmin(pub SuperAdminScope);
+
+impl FromRequestParts<DashboardRouterState> for RequireSuperAdmin {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &DashboardRouterState,
+    ) -> Result<Self, Self::Rejection> {
+        let user = match super::auth_helpers::current_dashboard_user(&state.ath, &parts.headers)
+            .await
+        {
+            Ok(Some(u)) => u,
+            Ok(None) => return Err(redirect_to_login(parts)),
+            Err(e) => {
+                tracing::error!(error = %e, "dashboard session lookup failed (super-admin)");
+                return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+            }
+        };
+
+        let role_name = allowthem_core::types::RoleName::new("super_admin");
+        let has = state
+            .ath
+            .db()
+            .has_role(&user.id, &role_name)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "has_role failed");
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            })?;
+        if !has {
+            // 404 (not 403) — don't leak that the surface exists.
+            return Err(StatusCode::NOT_FOUND.into_response());
+        }
+        Ok(RequireSuperAdmin(SuperAdminScope { user }))
+    }
 }
 
 fn render_suspended(state: &DashboardRouterState, tenant: &Tenant) -> Response {
