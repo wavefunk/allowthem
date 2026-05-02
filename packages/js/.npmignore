@@ -1,0 +1,12 @@
+src/
+server/
+test/
+node_modules/
+coverage/
+*.tsbuildinfo
+.vitest/
+scripts/
+tsconfig*.json
+tsup.config.ts
+vitest.config.ts
+RELEASE.md
