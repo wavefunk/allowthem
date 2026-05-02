@@ -7,7 +7,7 @@ use allowthem_core::error::AuthError;
 
 use crate::cache::TenantMeta;
 use crate::error::SaasError;
-use crate::tenants::{Tenant, TenantId, TenantStatus};
+use crate::tenants::{MemberId, Tenant, TenantId, TenantMember, TenantStatus};
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct TenantUsage {
@@ -220,6 +220,141 @@ impl ControlDb {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// tenant_members CRUD — read paths and simple writes (invite, accept).
+// Last-owner-invariant writes (update_member_role, remove_member) live in
+// the next impl block so the SQL there gets focused review.
+// ---------------------------------------------------------------------------
+
+impl ControlDb {
+    /// All members of a tenant. Pending invites (`accepted_at IS NULL`)
+    /// surface first, then accepted rows ordered by `invited_at`.
+    pub async fn list_tenant_members(
+        &self,
+        tenant_id: &TenantId,
+    ) -> Result<Vec<TenantMember>, SaasError> {
+        let rows = sqlx::query_as::<_, TenantMember>(
+            "SELECT id, tenant_id, email, role, invited_at, accepted_at, \
+                    invite_token_expires_at \
+             FROM tenant_members \
+             WHERE tenant_id = ?1 \
+             ORDER BY (accepted_at IS NULL) DESC, invited_at ASC",
+        )
+        .bind(tenant_id.as_bytes())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn get_tenant_member(
+        &self,
+        member_id: &MemberId,
+    ) -> Result<Option<TenantMember>, SaasError> {
+        let row = sqlx::query_as::<_, TenantMember>(
+            "SELECT id, tenant_id, email, role, invited_at, accepted_at, \
+                    invite_token_expires_at \
+             FROM tenant_members WHERE id = ?1",
+        )
+        .bind(member_id.as_bytes())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Insert a pending member row. Returns the new [`MemberId`]. The
+    /// `(tenant_id, email)` UNIQUE constraint maps to
+    /// [`SaasError::MemberAlreadyExists`] on collision.
+    pub async fn invite_member(
+        &self,
+        tenant_id: &TenantId,
+        email: &str,
+        role: TenantRole,
+        token_hash: &[u8],
+        expires_at: i64,
+    ) -> Result<MemberId, SaasError> {
+        let id = MemberId::new();
+        let result = sqlx::query(
+            "INSERT INTO tenant_members \
+                 (id, tenant_id, email, role, invite_token_hash, invite_token_expires_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )
+        .bind(id.as_bytes())
+        .bind(tenant_id.as_bytes())
+        .bind(email)
+        .bind(role.as_str())
+        .bind(token_hash)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await;
+        match result {
+            Ok(_) => Ok(id),
+            Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => {
+                Err(SaasError::MemberAlreadyExists)
+            }
+            Err(e) => Err(SaasError::Db(e)),
+        }
+    }
+
+    /// Look up a pending invite by `token_hash` (read-only — does not
+    /// consume the token). Used by the GET `/invite/{token}` page so the
+    /// invitee can preview the tenant + role before posting back.
+    pub async fn find_pending_invite_by_hash(
+        &self,
+        token_hash: &[u8],
+    ) -> Result<Option<TenantMember>, SaasError> {
+        let now_secs = chrono::Utc::now().timestamp();
+        let row = sqlx::query_as::<_, TenantMember>(
+            "SELECT id, tenant_id, email, role, invited_at, accepted_at, \
+                    invite_token_expires_at \
+             FROM tenant_members \
+             WHERE invite_token_hash = ?1 \
+               AND accepted_at IS NULL \
+               AND (invite_token_expires_at IS NULL OR invite_token_expires_at > ?2)",
+        )
+        .bind(token_hash)
+        .bind(now_secs)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Validate a pending invite by `token_hash`, mark it accepted, and
+    /// return the row as it was *before* the UPDATE so the caller has the
+    /// pre-clear `email` + `role`. Counterintuitive naming, but the
+    /// alternative (return the post-UPDATE row with NULL token columns)
+    /// is strictly worse for callers.
+    pub async fn accept_invite(&self, token_hash: &[u8]) -> Result<TenantMember, SaasError> {
+        let now_secs = chrono::Utc::now().timestamp();
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query_as::<_, TenantMember>(
+            "SELECT id, tenant_id, email, role, invited_at, accepted_at, \
+                    invite_token_expires_at \
+             FROM tenant_members \
+             WHERE invite_token_hash = ?1 \
+               AND accepted_at IS NULL \
+               AND (invite_token_expires_at IS NULL OR invite_token_expires_at > ?2)",
+        )
+        .bind(token_hash)
+        .bind(now_secs)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(SaasError::InviteNotFoundOrExpired)?;
+
+        sqlx::query(
+            "UPDATE tenant_members \
+             SET accepted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                 invite_token_hash = NULL, \
+                 invite_token_expires_at = NULL \
+             WHERE id = ?1",
+        )
+        .bind(&row.id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(row)
     }
 }
 
@@ -563,5 +698,128 @@ pub(crate) mod tests {
 
         let pairs = db.tenants_for_member("pending@x.com").await.unwrap();
         assert!(pairs.is_empty());
+    }
+
+    // ----- 99c.5 Step 3: tenant_members CRUD -----
+
+    fn token_hash(seed: u8) -> Vec<u8> {
+        vec![seed; 32]
+    }
+
+    fn future_ts() -> i64 {
+        chrono::Utc::now().timestamp() + 60 * 60 * 24
+    }
+
+    #[tokio::test]
+    async fn list_tenant_members_returns_pending_first() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "listtest").await;
+        insert_member(&db, &tid, "owner@x.com", "owner", true).await;
+        db.invite_member(
+            &tid,
+            "pending@x.com",
+            TenantRole::Admin,
+            &token_hash(1),
+            future_ts(),
+        )
+        .await
+        .unwrap();
+
+        let members = db.list_tenant_members(&tid).await.unwrap();
+        assert_eq!(members.len(), 2);
+        assert_eq!(members[0].email, "pending@x.com");
+        assert!(members[0].accepted_at.is_none());
+        assert_eq!(members[1].email, "owner@x.com");
+        assert!(members[1].accepted_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn invite_member_unique_collision_returns_error() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "collide").await;
+        db.invite_member(
+            &tid,
+            "dup@x.com",
+            TenantRole::Viewer,
+            &token_hash(2),
+            future_ts(),
+        )
+        .await
+        .unwrap();
+        let err = db
+            .invite_member(
+                &tid,
+                "dup@x.com",
+                TenantRole::Viewer,
+                &token_hash(3),
+                future_ts(),
+            )
+            .await
+            .expect_err("second invite must collide");
+        assert!(matches!(err, SaasError::MemberAlreadyExists));
+    }
+
+    #[tokio::test]
+    async fn accept_invite_happy_path_clears_token() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "happy").await;
+        let hash = token_hash(4);
+        db.invite_member(&tid, "joiner@x.com", TenantRole::Admin, &hash, future_ts())
+            .await
+            .unwrap();
+
+        let row = db.accept_invite(&hash).await.unwrap();
+        assert_eq!(row.email, "joiner@x.com");
+        assert!(
+            row.accepted_at.is_none(),
+            "pre-update row carries the prior NULL accepted_at"
+        );
+
+        let mid = row.id_as_member_id().unwrap();
+        let after = db.get_tenant_member(&mid).await.unwrap().unwrap();
+        assert!(after.accepted_at.is_some());
+        assert!(after.invite_token_expires_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn accept_invite_expired_returns_error() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "expired").await;
+        let hash = token_hash(5);
+        let past = chrono::Utc::now().timestamp() - 60;
+        db.invite_member(&tid, "stale@x.com", TenantRole::Viewer, &hash, past)
+            .await
+            .unwrap();
+        let err = db.accept_invite(&hash).await.expect_err("expired");
+        assert!(matches!(err, SaasError::InviteNotFoundOrExpired));
+    }
+
+    #[tokio::test]
+    async fn accept_invite_already_accepted_returns_error() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "twice").await;
+        let hash = token_hash(6);
+        db.invite_member(&tid, "once@x.com", TenantRole::Admin, &hash, future_ts())
+            .await
+            .unwrap();
+        db.accept_invite(&hash).await.unwrap();
+        let err = db.accept_invite(&hash).await.expect_err("re-accept");
+        assert!(matches!(err, SaasError::InviteNotFoundOrExpired));
+    }
+
+    #[tokio::test]
+    async fn find_pending_invite_skips_expired_and_accepted() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "find").await;
+        let live = token_hash(7);
+        db.invite_member(&tid, "live@x.com", TenantRole::Viewer, &live, future_ts())
+            .await
+            .unwrap();
+        let found = db.find_pending_invite_by_hash(&live).await.unwrap();
+        assert!(found.is_some());
+
+        db.accept_invite(&live).await.unwrap();
+        let after = db.find_pending_invite_by_hash(&live).await.unwrap();
+        assert!(after.is_none());
     }
 }
