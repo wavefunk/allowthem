@@ -1,0 +1,23 @@
+{
+  "name": "@allowthem/js",
+  "version": "0.0.0",
+  "description": "Browser SDK for allowthem auth (PKCE, OIDC).",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3",
+    "vitest": "1.6.0",
+    "jsdom": "24.1.0",
+    "@types/node": "20.14.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
