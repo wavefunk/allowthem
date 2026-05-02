@@ -362,6 +362,82 @@ describe("verify — rotation recovery", () => {
   });
 });
 
+describe("verify — concurrent verify under refresh (single-flight at verify level)", () => {
+  it("two concurrent verifies with unknown-kid trigger one combined refresh", async () => {
+    // Both calls miss on a kid that lands only after a refresh. The
+    // jwks.refresh() single-flight should coalesce the two concurrent
+    // forced refreshes into one network fetch.
+    let resolveFetch: (() => void) | null = null;
+    const fetchGate = new Promise<void>((res) => { resolveFetch = res; });
+    let calls = 0;
+    const inner = async (): Promise<Response> => {
+      calls += 1;
+      // Hold the first fetch open so the second verify gets to call refresh
+      // while the first is in flight.
+      if (calls === 1) await fetchGate;
+      return new Response(JSON.stringify(makeJwksResponse([kp])), { status: 200 });
+    };
+    const verifier = makeVerifier(inner as unknown as typeof fetch);
+
+    const t1 = await signTestToken({ kp, iss: ISSUER, aud: AUDIENCE });
+    const t2 = await signTestToken({ kp, iss: ISSUER, aud: AUDIENCE, sub: "user-2" });
+
+    const both = Promise.all([verifier.verify(t1), verifier.verify(t2)]);
+    // Allow microtasks to schedule both refresh calls behind the gate.
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(calls).toBe(1); // only one fetch in flight despite two verifies
+    resolveFetch!();
+    const [u1, u2] = await both;
+    expect(u1.sub).toBeDefined();
+    expect(u2.sub).toBe("user-2");
+    expect(calls).toBe(1); // single-flight ate the second refresh
+  });
+
+  it("forced refresh during signature-failure retry coalesces with concurrent verify", async () => {
+    // First verify hits a tampered token → JWSSignatureVerificationFailed
+    // → forces a refresh. A second verify arrives during that refresh and
+    // also passes the cache miss (because cache was already primed but the
+    // refresh resets `inFlight`). Should not double-fetch.
+    let calls = 0;
+    let releaseFirst: (() => void) | null = null;
+    const firstGate = new Promise<void>((res) => { releaseFirst = res; });
+    const inner = async (): Promise<Response> => {
+      calls += 1;
+      // Hold ONLY the second call (the forced refresh) so the third caller
+      // joins the in-flight refresh.
+      if (calls === 2) await firstGate;
+      return new Response(JSON.stringify(makeJwksResponse([kp])), { status: 200 });
+    };
+    const verifier = makeVerifier(inner as unknown as typeof fetch);
+
+    // Prime cache.
+    const goodToken = await signTestToken({ kp, iss: ISSUER, aud: AUDIENCE });
+    await verifier.verify(goodToken);
+    expect(calls).toBe(1);
+
+    // Tamper a token and kick off concurrent retries.
+    const t = await signTestToken({ kp, iss: ISSUER, aud: AUDIENCE });
+    const parts = t.split(".");
+    const tampered = `${parts[0]}.${parts[1]}.AAAA`;
+
+    const a = verifier.verify(tampered).catch((e) => e);
+    // The first verify enters the refresh-and-retry path; let it begin the
+    // refresh fetch (call #2).
+    await new Promise<void>((r) => setTimeout(r, 0));
+    // Concurrent: a fresh verify with another tampered copy. It will also
+    // hit a signature failure (cache key still resolves) and join the
+    // already-in-flight refresh.
+    const b = verifier.verify(tampered).catch((e) => e);
+    await new Promise<void>((r) => setTimeout(r, 0));
+    releaseFirst!();
+    const [errA, errB] = await Promise.all([a, b]);
+    expect(errA).toBeInstanceOf(AuthError);
+    expect(errB).toBeInstanceOf(AuthError);
+    // 1 cold + 1 forced refresh shared by both retries = 2 fetches.
+    expect(calls).toBe(2);
+  });
+});
+
 describe("verify — error class introspection (regression guards)", () => {
   it("joseErrors.JWSSignatureVerificationFailed export is present", () => {
     // If jose 6+ moves the class, the verifier's `instanceof` silently goes
