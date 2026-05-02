@@ -116,11 +116,16 @@ async fn main() -> Result<()> {
         60,
     );
 
+    // One `Arc<dyn EmailSender>` instance shared across the auth router,
+    // SignupState, and DashboardRouterState (via `from_signup`). Keeps log
+    // output and any future swap-in (SMTP, SES) consistent across surfaces.
+    let email_sender: Arc<dyn allowthem_core::EmailSender> = Arc::new(LogEmailSender);
+
     let auth_routes = AllRoutesBuilder::new()
         .templates(build_default_browser_env())
         .is_production(cfg.is_production)
         .base_url(format!("https://{}", cfg.base_domain))
-        .email_sender(Arc::new(LogEmailSender) as Arc<dyn allowthem_core::EmailSender>)
+        .email_sender(email_sender.clone())
         .mfa_issuer(&cfg.base_domain)
         .all_routes()
         .build_for_saas()
@@ -132,14 +137,9 @@ async fn main() -> Result<()> {
     ));
 
     // Dashboard onboarding (signup + quickstart) and other dashboard pages
-    // (99c.3..99c.6, currently empty placeholder). Both go through the same
-    // tenant_router_middleware so the dashboard handle lands in extensions
-    // on root-domain requests for the shared `csrf_middleware` + handlers.
-    // One `Arc<dyn EmailSender>` instance shared across SignupState +
-    // DashboardRouterState (via `from_signup`). Keeps log output and any
-    // future swap-in (SMTP, SES) consistent across surfaces.
-    let email_sender: Arc<dyn allowthem_core::EmailSender> = Arc::new(LogEmailSender);
-
+    // (99c.3..99c.6). Both go through the same tenant_router_middleware so
+    // the dashboard handle lands in extensions on root-domain requests for
+    // the shared `csrf_middleware` + handlers.
     let signup_state = SignupState {
         ath: dashboard_state.ath.clone(),
         control_db: control_db.clone(),
