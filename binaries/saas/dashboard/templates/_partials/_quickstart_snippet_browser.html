@@ -6,9 +6,9 @@
 import { createAllowthemClient } from '@allowthem/js';
 
 const auth = createAllowthemClient({
-  issuer: '{{ issuer }}',
+  domain: '{{ slug }}.{{ base_domain }}',
   clientId: '{{ client_id }}',
   redirectUri: window.location.origin + '/callback',
 });
 
-await auth.signinRedirect();</code></pre>
+await auth.loginWithRedirect();</code></pre>
