@@ -50,6 +50,11 @@ const USER_PERMISSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_p
 const USER_SESSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_sessions.html");
 const USER_AUDIT_PARTIAL: &str = include_str!("templates/_partials/_user_audit.html");
 
+// Invite accept flow (99c.5 Step 15).
+const INVITE_REGISTER_HTML: &str = include_str!("templates/invite/register.html");
+const INVITE_ACCEPT_HTML: &str = include_str!("templates/invite/accept.html");
+const INVITE_EXPIRED_HTML: &str = include_str!("templates/invite/expired.html");
+
 // Team members list (99c.5 Step 13).
 const SETTINGS_TEAM_LIST_HTML: &str = include_str!("templates/settings/team/list.html");
 
@@ -72,6 +77,13 @@ const ROLE_FORM_PARTIAL: &str = include_str!("templates/_partials/_role_form.htm
 const ROLES_LIST_HTML: &str = include_str!("templates/roles/list.html");
 const ROLES_NEW_HTML: &str = include_str!("templates/roles/new.html");
 const ROLES_DETAIL_HTML: &str = include_str!("templates/roles/detail.html");
+
+// Super-admin panel (99c.6).
+const ADMIN_OVERVIEW_HTML: &str = include_str!("templates/admin/overview.html");
+const ADMIN_TENANT_DETAIL_HTML: &str = include_str!("templates/admin/tenant_detail.html");
+const ADMIN_USAGE_HTML: &str = include_str!("templates/admin/usage.html");
+const ADMIN_REVENUE_HTML: &str = include_str!("templates/admin/revenue.html");
+const ADMIN_HEALTH_HTML: &str = include_str!("templates/admin/health.html");
 
 // Coming-soon stub pages (99c.5 Step 6).
 const COMING_SOON_PARTIAL: &str = include_str!("templates/_partials/_coming_soon.html");
@@ -174,6 +186,14 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     env.add_template_owned("_partials/_user_audit.html", USER_AUDIT_PARTIAL)
         .expect("_partials/_user_audit.html");
 
+    // Invite accept flow (99c.5 Step 15).
+    env.add_template_owned("invite/register.html", INVITE_REGISTER_HTML)
+        .expect("invite/register.html");
+    env.add_template_owned("invite/accept.html", INVITE_ACCEPT_HTML)
+        .expect("invite/accept.html");
+    env.add_template_owned("invite/expired.html", INVITE_EXPIRED_HTML)
+        .expect("invite/expired.html");
+
     // Team members list (99c.5 Step 13).
     env.add_template_owned("settings/team/list.html", SETTINGS_TEAM_LIST_HTML)
         .expect("settings/team/list.html");
@@ -217,6 +237,18 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
         .expect("settings/social.html");
     env.add_template_owned("settings/domain.html", SETTINGS_DOMAIN_HTML)
         .expect("settings/domain.html");
+
+    // Super-admin panel (99c.6).
+    env.add_template_owned("admin/overview.html", ADMIN_OVERVIEW_HTML)
+        .expect("admin/overview.html");
+    env.add_template_owned("admin/tenant_detail.html", ADMIN_TENANT_DETAIL_HTML)
+        .expect("admin/tenant_detail.html");
+    env.add_template_owned("admin/usage.html", ADMIN_USAGE_HTML)
+        .expect("admin/usage.html");
+    env.add_template_owned("admin/revenue.html", ADMIN_REVENUE_HTML)
+        .expect("admin/revenue.html");
+    env.add_template_owned("admin/health.html", ADMIN_HEALTH_HTML)
+        .expect("admin/health.html");
 
     Arc::new(env)
 }

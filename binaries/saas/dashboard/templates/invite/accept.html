@@ -1,0 +1,25 @@
+{# invite/accept.html — confirm acceptance for already-logged-in user.
+   Expected context:
+   - tenant.{name, slug}
+   - email: String
+   - role: "owner" | "admin" | "viewer"
+   - token: String
+#}
+{% extends "_partials/_auth_shell.html" %}
+
+{% block title %}Accept invite — {{ tenant.name }}{% endblock %}
+
+{% block content %}
+  <div class="wf-auth-wrap">
+    <h1 class="wf-auth-title">Join {{ tenant.name }}</h1>
+    <p class="wf-auth-sub">
+      Accept the invite to join as <strong>{{ role }}</strong>?
+    </p>
+    <form method="post" action="/invite/{{ token }}" class="wf-auth-form">
+      <button type="submit" class="wf-btn primary full">Accept invite</button>
+    </form>
+    <p class="wf-auth-sub">
+      <a href="/">Cancel</a>
+    </p>
+  </div>
+{% endblock %}

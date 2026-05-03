@@ -1,0 +1,45 @@
+{# invite/register.html — create account to accept an invite.
+   Expected context:
+   - tenant.{name, slug}
+   - email: String
+   - role: "owner" | "admin" | "viewer"
+   - token: String
+   - error: String
+#}
+{% extends "_partials/_auth_shell.html" %}
+
+{% block title %}Accept invite — {{ tenant.name }}{% endblock %}
+
+{% block content %}
+  <div class="wf-auth-wrap">
+    <h1 class="wf-auth-title">Join {{ tenant.name }}</h1>
+    <p class="wf-auth-sub">
+      You've been invited as <strong>{{ role }}</strong>.
+      Create a password to accept the invite.
+    </p>
+
+    {% if error %}
+      <div class="wf-alert err">
+        <span class="wf-bar"></span>
+        <div>{{ error }}</div>
+        <span></span>
+      </div>
+    {% endif %}
+
+    <form method="post" action="/invite/{{ token }}" class="wf-auth-form">
+      <label>
+        Email
+        <input type="email" name="email" value="{{ email }}" readonly />
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" required minlength="8"
+               autocomplete="new-password" />
+      </label>
+      <button type="submit" class="wf-btn primary full">Create account &amp; accept</button>
+    </form>
+    <p class="wf-auth-sub">Already have an account?
+      <a href="/login?next=/invite/{{ token }}">Sign in</a>
+    </p>
+  </div>
+{% endblock %}

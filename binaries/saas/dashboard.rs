@@ -13,6 +13,7 @@ pub mod applications;
 pub mod audit;
 pub mod auth_helpers;
 pub mod extractors;
+pub mod invite;
 pub mod nav;
 pub mod permissions;
 pub mod quickstart;
@@ -94,6 +95,7 @@ pub fn dashboard_pages_router(state: state::DashboardRouterState) -> Router {
         .merge(applications::application_routes())
         .merge(audit::audit_routes())
         .merge(users::user_routes())
+        .nest("/admin", admin::admin_routes())
         .layer(axum::middleware::from_fn(
             allowthem_server::csrf::csrf_middleware,
         ))
@@ -198,6 +200,16 @@ mod tests {
         "/t/test-slug/users/00000000-0000-0000-0000-000000000000/roles/00000000-0000-0000-0000-000000000001/remove",
         "/t/test-slug/users/00000000-0000-0000-0000-000000000000/permissions",
         "/t/test-slug/users/00000000-0000-0000-0000-000000000000/permissions/00000000-0000-0000-0000-000000000001/remove",
+        // 99c.6 super-admin panel.
+        "/admin",
+        "/admin/tenants/00000000-0000-0000-0000-000000000000",
+        "/admin/tenants/00000000-0000-0000-0000-000000000000/suspend",
+        "/admin/tenants/00000000-0000-0000-0000-000000000000/unsuspend",
+        "/admin/tenants/00000000-0000-0000-0000-000000000000/delete",
+        "/admin/tenants/00000000-0000-0000-0000-000000000000/change-plan",
+        "/admin/usage",
+        "/admin/revenue",
+        "/admin/health",
     ];
 
     #[tokio::test]
