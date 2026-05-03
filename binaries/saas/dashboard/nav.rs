@@ -83,6 +83,35 @@ pub fn tenant_nav_items(slug: &str, current_path: &str, role: TenantRole) -> Vec
     vec![tenant_section, settings_section]
 }
 
+/// Build the sidebar sections for the super-admin panel.
+///
+/// `current_path` is the path of the current page (e.g. `"/admin"`,
+/// `"/admin/usage"`). Used to set the `active` flag on the matching item.
+pub fn admin_nav_items(current_path: &str) -> Vec<NavSection> {
+    let active = |href: &str| current_path == href || current_path.starts_with(&format!("{href}/"));
+
+    let item =
+        |label: &'static str, href: &'static str| -> NavItem {
+            NavItem {
+                label,
+                href: href.to_string(),
+                active: active(href),
+                muted: false,
+                coming_soon: false,
+            }
+        };
+
+    vec![NavSection {
+        heading: "ADMIN",
+        items: vec![
+            item("Tenants", "/admin"),
+            item("Usage", "/admin/usage"),
+            item("Revenue", "/admin/revenue"),
+            item("Health", "/admin/health"),
+        ],
+    }]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

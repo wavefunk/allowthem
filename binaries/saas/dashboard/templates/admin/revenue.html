@@ -1,3 +1,62 @@
-{# admin/revenue.html — super-admin revenue summary page (Step 11 of 99c.6). #}
+{# admin/revenue.html — super-admin revenue summary page (Step 11 of 99c.6).
+
+   Expected context:
+   - nav_sections: Vec<NavSection>
+   - by_plan: Vec<(String, i64)> — (plan_name, tenant_count)
+   - plans: Vec<TenantPlan>
+   - mrr_cents: i64 — estimated MRR in cents
+#}
 {% extends "_partials/_dashboard_shell.html" %}
-{% block content %}{% endblock %}
+
+{% block title %}Admin — Revenue{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">ADMIN · REVENUE</div>
+{% endblock %}
+
+{% block dashboard_content %}
+  {# ---- MRR summary ---- #}
+  <div style="display:flex; gap:16px; flex-wrap:wrap; margin:16px 24px 0;">
+    <div class="wf-panel" style="flex:1; min-width:200px; padding:16px;">
+      <div class="wf-caption">Estimated MRR</div>
+      <div style="font-size:1.8rem; font-weight:700;">${{ mrr_cents // 100 }}</div>
+    </div>
+  </div>
+
+  {# ---- Plan distribution ---- #}
+  <div class="wf-panel" style="margin:16px 24px 0;">
+    <div class="wf-panel-head"><div class="wf-panel-title">Plan distribution</div></div>
+    {% if by_plan %}
+      <div class="wf-tablewrap">
+        <div class="wf-tablescroll">
+          <table class="wf-table">
+            <thead>
+              <tr>
+                <th>Plan</th>
+                <th>Tenants</th>
+                <th>Price/mo</th>
+                <th>Subtotal MRR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in by_plan %}
+                {% set plan_price = 0 %}
+                {% for p in plans %}
+                  {% if p.name == row.0 %}{% set plan_price = p.price_cents %}{% endif %}
+                {% endfor %}
+                <tr>
+                  <td>{{ row.0 }}</td>
+                  <td>{{ row.1 }}</td>
+                  <td>${{ plan_price // 100 }}</td>
+                  <td>${{ (plan_price * row.1) // 100 }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <p class="wf-empty" style="margin:12px 16px;">No plan data available.</p>
+    {% endif %}
+  </div>
+{% endblock %}

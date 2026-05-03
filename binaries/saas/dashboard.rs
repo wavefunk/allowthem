@@ -86,15 +86,39 @@ pub async fn open_dashboard_handle(
     Ok(ath)
 }
 
-/// Dashboard-only routes (application CRUD, user management, audit log).
+/// Dashboard-only routes (application CRUD, user management, settings, etc.).
 ///
 /// `csrf_middleware` is layered on the whole composed router so every POST
 /// handler is covered without per-sub-router wiring.
 pub fn dashboard_pages_router(state: state::DashboardRouterState) -> Router {
+    use axum::routing::{get, post};
+
     Router::new()
+        // 99c.3 application CRUD.
         .merge(applications::application_routes())
+        // 99c.5 audit log.
         .merge(audit::audit_routes())
+        // 99c.4 user management.
         .merge(users::user_routes())
+        // 99c.5 roles + permissions CRUD.
+        .merge(roles::role_routes())
+        .merge(permissions::permission_routes())
+        // 99c.5 settings.
+        .route(
+            "/t/{slug}/settings",
+            get(settings_general::show).post(settings_general::update),
+        )
+        .merge(settings_team::team_routes())
+        .merge(settings_api_keys::api_key_routes())
+        .merge(settings_billing::billing_routes())
+        // 99c.5 stub pages (coming-soon).
+        .route("/t/{slug}/settings/webhooks", get(stubs::webhooks))
+        .route("/t/{slug}/settings/email", get(stubs::email))
+        .route("/t/{slug}/settings/social", get(stubs::social))
+        .route("/t/{slug}/settings/domain", get(stubs::domain))
+        // 99c.5 invite accept flow (anonymous-allowed; outside /t/{slug}).
+        .merge(invite::invite_routes())
+        // 99c.6 super-admin panel.
         .nest("/admin", admin::admin_routes())
         .layer(axum::middleware::from_fn(
             allowthem_server::csrf::csrf_middleware,
