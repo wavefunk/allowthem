@@ -1408,3 +1408,378 @@ async fn connected_users_count_renders() {
     );
     assert!(body.contains('2'), "connected users count must be 2");
 }
+
+// ---------------------------------------------------------------------------
+// 99c.4.6 user management — missing integration tests
+// ---------------------------------------------------------------------------
+
+/// Verify that viewers are rejected on every POST user-mutation route and
+/// that admins are only rejected on the owner-only delete route.
+#[tokio::test]
+async fn user_role_rejection_matrix() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (admin_cookie, _) = signup_and_get_session(&fx, "admin@mgmt.com", "mgmt").await;
+    insert_tenant_member(&fx, "acme", "admin@mgmt.com", "admin").await;
+    let (viewer_cookie, _) = signup_and_get_session(&fx, "viewer@view.com", "view").await;
+    insert_tenant_member(&fx, "acme", "viewer@view.com", "viewer").await;
+
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+    let target = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("target@acme.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("target user");
+    let role = ath
+        .db()
+        .create_role(&allowthem_core::types::RoleName::new("matrix-role"), None)
+        .await
+        .expect("role");
+    let perm = ath
+        .db()
+        .create_permission(
+            &allowthem_core::types::PermissionName::new("matrix:perm"),
+            None,
+        )
+        .await
+        .expect("perm");
+
+    let user_base = format!("/t/acme/users/{}", target.id);
+    let role_id_str = role.id.to_string();
+    let perm_id_str = perm.id.to_string();
+
+    // Viewer CSRF comes from their own workspace where they are owner.
+    let viewer_csrf =
+        fetch_csrf_for_authed_form(&fx, "/t/view/applications/new", &viewer_cookie).await;
+    // Admin CSRF comes from the user detail page (admin can access it).
+    let admin_csrf = fetch_csrf_for_authed_form(&fx, &user_base, &admin_cookie).await;
+
+    // (path, is_owner_only): all nine POST mutation routes.
+    let routes: Vec<(String, bool)> = vec![
+        (format!("{user_base}/block"), false),
+        (format!("{user_base}/unblock"), false),
+        (format!("{user_base}/force-password-reset"), false),
+        (format!("{user_base}/revoke-sessions"), false),
+        (format!("{user_base}/delete"), true),
+        (format!("{user_base}/roles"), false),
+        (format!("{user_base}/roles/{role_id_str}/remove"), false),
+        (format!("{user_base}/permissions"), false),
+        (format!("{user_base}/permissions/{perm_id_str}/remove"), false),
+    ];
+
+    // Viewer must be rejected (403) on every route — extractor fires before handler.
+    for (path, _) in &routes {
+        let resp = fx
+            .post_form(
+                path,
+                &[
+                    ("csrf_token", viewer_csrf.as_str()),
+                    ("role_id", role_id_str.as_str()),
+                    ("permission_id", perm_id_str.as_str()),
+                    ("confirm", "DELETE"),
+                ],
+                Some(&viewer_cookie),
+            )
+            .await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "viewer must be rejected on {path}"
+        );
+    }
+
+    // Admin must be rejected (403) only on the owner-only delete route.
+    for (path, is_owner_only) in &routes {
+        let resp = fx
+            .post_form(
+                path,
+                &[
+                    ("csrf_token", admin_csrf.as_str()),
+                    ("role_id", role_id_str.as_str()),
+                    ("permission_id", perm_id_str.as_str()),
+                    ("confirm", "DELETE"),
+                ],
+                Some(&admin_cookie),
+            )
+            .await;
+        if *is_owner_only {
+            assert_eq!(
+                resp.status(),
+                StatusCode::FORBIDDEN,
+                "admin must be rejected on owner-only route {path}"
+            );
+        } else {
+            assert_ne!(
+                resp.status(),
+                StatusCode::FORBIDDEN,
+                "admin must not be rejected on non-owner-only route {path}"
+            );
+        }
+    }
+}
+
+/// Verify that force-password-reset sets password_hash to NULL and
+/// deletes all active sessions for the target user.
+#[tokio::test]
+async fn force_password_reset_clears_hash_and_sessions() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    let user = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("frank@acme.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("user");
+
+    // Seed one session directly so we can verify it gets deleted.
+    sqlx::query(
+        "INSERT INTO allowthem_sessions (id, token_hash, user_id, expires_at) \
+         VALUES (?, ?, ?, datetime('now', '+1 day'))",
+    )
+    .bind(allowthem_core::types::SessionId::new())
+    .bind("aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000")
+    .bind(user.id)
+    .execute(ath.db().pool())
+    .await
+    .expect("seed session");
+
+    let detail_path = format!("/t/acme/users/{}", user.id);
+    let csrf = fetch_csrf_for_authed_form(&fx, &detail_path, &session_cookie).await;
+
+    let resp = fx
+        .post_form(
+            &format!("{detail_path}/force-password-reset"),
+            &[("csrf_token", csrf.as_str())],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER, "force reset must redirect");
+
+    // Password hash must be NULL in the tenant DB.
+    let (hash,): (Option<String>,) =
+        sqlx::query_as("SELECT password_hash FROM allowthem_users WHERE id = ?")
+            .bind(user.id)
+            .fetch_one(ath.db().pool())
+            .await
+            .expect("query password_hash");
+    assert!(
+        hash.is_none(),
+        "password_hash must be NULL after force reset"
+    );
+
+    // All sessions for this user must be gone.
+    let session_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_sessions WHERE user_id = ?")
+            .bind(user.id)
+            .fetch_one(ath.db().pool())
+            .await
+            .expect("count sessions");
+    assert_eq!(
+        session_count, 0,
+        "sessions must be deleted after force reset"
+    );
+}
+
+/// Verify that assign_role adds the role and unassign_role removes it.
+#[tokio::test]
+async fn assign_and_unassign_role_round_trip() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    let user = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("greta@acme.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("user");
+    let role = ath
+        .db()
+        .create_role(&allowthem_core::types::RoleName::new("editor"), None)
+        .await
+        .expect("role");
+
+    let detail_path = format!("/t/acme/users/{}", user.id);
+    let csrf = fetch_csrf_for_authed_form(&fx, &detail_path, &session_cookie).await;
+
+    // Assign.
+    let assign_resp = fx
+        .post_form(
+            &format!("{detail_path}/roles"),
+            &[
+                ("csrf_token", csrf.as_str()),
+                ("role_id", role.id.to_string().as_str()),
+            ],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(assign_resp.status(), StatusCode::SEE_OTHER, "assign must redirect");
+
+    let roles_after_assign = ath
+        .db()
+        .get_user_roles(&user.id)
+        .await
+        .expect("get_user_roles after assign");
+    assert!(
+        roles_after_assign.iter().any(|r| r.id == role.id),
+        "role must be assigned after POST /roles"
+    );
+
+    // Unassign — CSRF goes in body even though the handler only reads path params.
+    let unassign_resp = fx
+        .post_form(
+            &format!("{detail_path}/roles/{}/remove", role.id),
+            &[("csrf_token", csrf.as_str())],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(unassign_resp.status(), StatusCode::SEE_OTHER, "unassign must redirect");
+
+    let roles_after_unassign = ath
+        .db()
+        .get_user_roles(&user.id)
+        .await
+        .expect("get_user_roles after unassign");
+    assert!(
+        roles_after_unassign.iter().all(|r| r.id != role.id),
+        "role must be removed after POST /roles/{{id}}/remove"
+    );
+}
+
+/// Verify that grant_permission adds the permission and revoke_permission removes it.
+#[tokio::test]
+async fn grant_and_revoke_permission_round_trip() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    let user = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("harriet@acme.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("user");
+    let perm = ath
+        .db()
+        .create_permission(
+            &allowthem_core::types::PermissionName::new("reports:read"),
+            None,
+        )
+        .await
+        .expect("perm");
+
+    let detail_path = format!("/t/acme/users/{}", user.id);
+    let csrf = fetch_csrf_for_authed_form(&fx, &detail_path, &session_cookie).await;
+
+    // Grant.
+    let grant_resp = fx
+        .post_form(
+            &format!("{detail_path}/permissions"),
+            &[
+                ("csrf_token", csrf.as_str()),
+                ("permission_id", perm.id.to_string().as_str()),
+            ],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(grant_resp.status(), StatusCode::SEE_OTHER, "grant must redirect");
+
+    let perms_after_grant = ath
+        .db()
+        .get_user_permissions(&user.id)
+        .await
+        .expect("get_user_permissions after grant");
+    assert!(
+        perms_after_grant.iter().any(|p| p.id == perm.id),
+        "permission must be present after POST /permissions"
+    );
+
+    // Revoke — CSRF goes in body even though the handler only reads path params.
+    let revoke_resp = fx
+        .post_form(
+            &format!("{detail_path}/permissions/{}/remove", perm.id),
+            &[("csrf_token", csrf.as_str())],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(revoke_resp.status(), StatusCode::SEE_OTHER, "revoke must redirect");
+
+    let perms_after_revoke = ath
+        .db()
+        .get_user_permissions(&user.id)
+        .await
+        .expect("get_user_permissions after revoke");
+    assert!(
+        perms_after_revoke.iter().all(|p| p.id != perm.id),
+        "permission must be absent after POST /permissions/{{id}}/remove"
+    );
+}
+
+/// Verify that posting to delete without `confirm=DELETE` redirects back
+/// to the user detail page with `?error=confirm_required` and the user
+/// record remains intact.
+#[tokio::test]
+async fn delete_user_missing_confirm_redirects() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    let user = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("igor@acme.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("user");
+
+    let detail_path = format!("/t/acme/users/{}", user.id);
+    let csrf = fetch_csrf_for_authed_form(&fx, &detail_path, &session_cookie).await;
+
+    // POST without confirm=DELETE (or with a wrong value).
+    let resp = fx
+        .post_form(
+            &format!("{detail_path}/delete"),
+            &[("csrf_token", csrf.as_str()), ("confirm", "wrong")],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER, "missing confirm must redirect");
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        loc.contains("error=confirm_required"),
+        "redirect must carry error=confirm_required, got: {loc}"
+    );
+
+    // User must still exist.
+    let still_there = ath.db().get_user(user.id).await;
+    assert!(
+        still_there.is_ok(),
+        "user must still exist after rejected delete"
+    );
+}
