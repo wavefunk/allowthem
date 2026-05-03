@@ -1635,4 +1635,157 @@ mod tests {
             other => panic!("expected MfaRecovery template, got {other:?}"),
         }
     }
+
+    // ---- EventSink integration tests ----
+
+    /// A test-only sink that captures every event emitted to it.
+    struct CapturingSink(std::sync::Arc<std::sync::Mutex<Vec<crate::event_sink::AuthEvent>>>);
+
+    impl crate::event_sink::EventSink for CapturingSink {
+        fn emit<'a>(
+            &'a self,
+            event: &'a crate::event_sink::AuthEvent,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+            self.0.lock().unwrap().push(event.clone());
+            Box::pin(std::future::ready(()))
+        }
+    }
+
+    fn capturing_sink() -> (
+        Box<dyn crate::event_sink::EventSink>,
+        std::sync::Arc<std::sync::Mutex<Vec<crate::event_sink::AuthEvent>>>,
+    ) {
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = CapturingSink(captured.clone());
+        (Box::new(sink), captured)
+    }
+
+    async fn ath_with_sink() -> (
+        AllowThem,
+        std::sync::Arc<std::sync::Mutex<Vec<crate::event_sink::AuthEvent>>>,
+    ) {
+        let (sink_box, captured) = capturing_sink();
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .event_sink(sink_box)
+            .build()
+            .await
+            .unwrap();
+        (ath, captured)
+    }
+
+    #[tokio::test]
+    async fn create_user_emits_user_created() {
+        let (ath, captured) = ath_with_sink().await;
+        let email = crate::types::Email::new("ev@example.com".into()).unwrap();
+        ath.create_user(email, "pass1234", None, None).await.unwrap();
+
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "user.created");
+        assert!(events[0].user_id.is_some());
+    }
+
+    #[tokio::test]
+    async fn login_emits_session_created() {
+        let (ath, captured) = ath_with_sink().await;
+        let email = crate::types::Email::new("ev@example.com".into()).unwrap();
+        ath.create_user(email.clone(), "pass1234", None, None)
+            .await
+            .unwrap();
+        captured.lock().unwrap().clear(); // discard user.created
+
+        ath.login("ev@example.com", "pass1234").await.unwrap();
+
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "session.created");
+    }
+
+    #[tokio::test]
+    async fn delete_session_emits_session_destroyed() {
+        let (ath, captured) = ath_with_sink().await;
+        let email = crate::types::Email::new("ev@example.com".into()).unwrap();
+        ath.create_user(email.clone(), "pass1234", None, None)
+            .await
+            .unwrap();
+        let token = ath
+            .login("ev@example.com", "pass1234")
+            .await
+            .unwrap()
+            .token;
+        captured.lock().unwrap().clear();
+
+        ath.delete_session(&token).await.unwrap();
+
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "session.destroyed");
+    }
+
+    #[tokio::test]
+    async fn update_user_email_emits_user_updated() {
+        let (ath, captured) = ath_with_sink().await;
+        let email = crate::types::Email::new("ev@example.com".into()).unwrap();
+        let user = ath
+            .create_user(email, "pass1234", None, None)
+            .await
+            .unwrap();
+        captured.lock().unwrap().clear();
+
+        let new_email = crate::types::Email::new("new@example.com".into()).unwrap();
+        ath.update_user_email(user.id, new_email).await.unwrap();
+
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "user.updated");
+        assert_eq!(events[0].data["field"], "email");
+    }
+
+    #[tokio::test]
+    async fn update_user_active_false_emits_user_blocked() {
+        let (ath, captured) = ath_with_sink().await;
+        let email = crate::types::Email::new("ev@example.com".into()).unwrap();
+        let user = ath
+            .create_user(email, "pass1234", None, None)
+            .await
+            .unwrap();
+        captured.lock().unwrap().clear();
+
+        ath.update_user_active(user.id, false).await.unwrap();
+
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "user.blocked");
+    }
+
+    #[tokio::test]
+    async fn delete_user_emits_user_deleted() {
+        let (ath, captured) = ath_with_sink().await;
+        let email = crate::types::Email::new("ev@example.com".into()).unwrap();
+        let user = ath
+            .create_user(email, "pass1234", None, None)
+            .await
+            .unwrap();
+        captured.lock().unwrap().clear();
+
+        ath.delete_user(user.id).await.unwrap();
+
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "user.deleted");
+    }
+
+    #[tokio::test]
+    async fn noop_sink_is_default_and_no_events_captured() {
+        // No event_sink set → defaults to NoopEventSink; no events stored.
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .build()
+            .await
+            .unwrap();
+        let email = crate::types::Email::new("ev@example.com".into()).unwrap();
+        // Just confirm this doesn't panic.
+        ath.create_user(email, "pass1234", None, None).await.unwrap();
+    }
 }
