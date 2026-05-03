@@ -24,11 +24,7 @@ pub struct AuthEvent {
 
 impl AuthEvent {
     /// Construct an `AuthEvent`, stamping `timestamp` with `Utc::now()`.
-    pub fn new(
-        event_type: impl Into<String>,
-        user_id: Option<UserId>,
-        data: Value,
-    ) -> Self {
+    pub fn new(event_type: impl Into<String>, user_id: Option<UserId>, data: Value) -> Self {
         Self {
             event_type: event_type.into(),
             user_id,
@@ -55,10 +51,7 @@ impl AuthEvent {
 /// - **Must be fast.** No outbound HTTP. The SaaS sink writes one row;
 ///   delivery happens out-of-band.
 pub trait EventSink: Send + Sync {
-    fn emit<'a>(
-        &'a self,
-        event: &'a AuthEvent,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+    fn emit<'a>(&'a self, event: &'a AuthEvent) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 }
 
 /// Silent default event sink.
@@ -68,10 +61,7 @@ pub trait EventSink: Send + Sync {
 pub struct NoopEventSink;
 
 impl EventSink for NoopEventSink {
-    fn emit<'a>(
-        &'a self,
-        _event: &'a AuthEvent,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+    fn emit<'a>(&'a self, _event: &'a AuthEvent) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(std::future::ready(()))
     }
 }
@@ -83,10 +73,7 @@ impl EventSink for NoopEventSink {
 pub struct LoggingEventSink;
 
 impl EventSink for LoggingEventSink {
-    fn emit<'a>(
-        &'a self,
-        event: &'a AuthEvent,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+    fn emit<'a>(&'a self, event: &'a AuthEvent) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         tracing::debug!(
             event_type = %event.event_type,
             user_id = ?event.user_id,
@@ -99,10 +86,7 @@ impl EventSink for LoggingEventSink {
 
 /// Allow any `Arc<T>` where `T: EventSink` to be used as an `EventSink`.
 impl<T: EventSink + ?Sized> EventSink for std::sync::Arc<T> {
-    fn emit<'a>(
-        &'a self,
-        event: &'a AuthEvent,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+    fn emit<'a>(&'a self, event: &'a AuthEvent) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         (**self).emit(event)
     }
 }

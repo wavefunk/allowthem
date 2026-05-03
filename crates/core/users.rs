@@ -579,7 +579,10 @@ impl AllowThem {
         username: Option<Username>,
         custom_data: Option<&Value>,
     ) -> Result<User, AuthError> {
-        let user = self.db().create_user(email, password, username, custom_data).await?;
+        let user = self
+            .db()
+            .create_user(email, password, username, custom_data)
+            .await?;
         self.emit_event(AuthEvent::new(
             "user.created",
             Some(user.id),
@@ -594,11 +597,7 @@ impl AllowThem {
     }
 
     /// Update a user's email address and emit a `user.updated` event on success.
-    pub async fn update_user_email(
-        &self,
-        id: UserId,
-        email: Email,
-    ) -> Result<(), AuthError> {
+    pub async fn update_user_email(&self, id: UserId, email: Email) -> Result<(), AuthError> {
         self.db().update_user_email(id, email).await?;
         self.emit_event(AuthEvent::new(
             "user.updated",
@@ -654,13 +653,13 @@ impl AllowThem {
     }
 
     /// Set a user's active status and emit `user.blocked` or `user.unblocked`.
-    pub async fn update_user_active(
-        &self,
-        id: UserId,
-        is_active: bool,
-    ) -> Result<(), AuthError> {
+    pub async fn update_user_active(&self, id: UserId, is_active: bool) -> Result<(), AuthError> {
         self.db().update_user_active(id, is_active).await?;
-        let event_type = if is_active { "user.unblocked" } else { "user.blocked" };
+        let event_type = if is_active {
+            "user.unblocked"
+        } else {
+            "user.blocked"
+        };
         self.emit_event(AuthEvent::new(
             event_type,
             Some(id),

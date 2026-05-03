@@ -14,7 +14,7 @@ use serde_json::json;
 use allowthem_core::oauth::{generate_pkce_verifier, pkce_challenge};
 use allowthem_core::types::Email;
 use allowthem_core::{
-    AllowThem, AuthError, LifecycleEvent, LifecycleEventSender, EventContext, OAuthAccountInfo,
+    AllowThem, AuthError, EventContext, LifecycleEvent, LifecycleEventSender, OAuthAccountInfo,
     OAuthProvider, RegisteredEvent, RegistrationSource,
 };
 use allowthem_core::{generate_token, hash_token, parse_session_cookie};

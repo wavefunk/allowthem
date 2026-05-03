@@ -216,11 +216,7 @@ impl AllowThem {
         Ok(())
     }
 
-    pub async fn unassign_role(
-        &self,
-        user_id: &UserId,
-        role_id: &RoleId,
-    ) -> Result<(), AuthError> {
+    pub async fn unassign_role(&self, user_id: &UserId, role_id: &RoleId) -> Result<(), AuthError> {
         self.db().unassign_role(user_id, role_id).await?;
         self.emit_event(AuthEvent::new(
             "role.unassigned",

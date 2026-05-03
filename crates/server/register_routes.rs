@@ -16,7 +16,7 @@ use serde::Deserialize;
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::types::ClientId;
 use allowthem_core::{
-    AllowThem, AuditEvent, AuthError, LifecycleEvent, LifecycleEventSender, Email, EventContext,
+    AllowThem, AuditEvent, AuthError, Email, EventContext, LifecycleEvent, LifecycleEventSender,
     RegisteredEvent, RegistrationSource, Username, generate_token, hash_token,
 };
 
@@ -490,8 +490,8 @@ mod tests {
     use allowthem_core::applications::CreateApplicationParams;
     use allowthem_core::types::ClientType;
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuditEvent, LifecycleEvent, Email, RegistrationSource, Username,
-        parse_session_cookie,
+        AllowThem, AllowThemBuilder, AuditEvent, Email, LifecycleEvent, RegistrationSource,
+        Username, parse_session_cookie,
     };
 
     use crate::custom_fields::{CustomSchemaConfig, extract_field_descriptors};

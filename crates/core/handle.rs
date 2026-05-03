@@ -5,8 +5,8 @@ use sqlx::SqlitePool;
 
 use crate::db::Db;
 use crate::email::{EmailMessage, EmailSender, EmailTemplate, NoopEmailSender, fallback_username};
-use crate::event_sink::{AuthEvent, EventSink, NoopEventSink};
 use crate::error::AuthError;
+use crate::event_sink::{AuthEvent, EventSink, NoopEventSink};
 use crate::sessions::{self, SessionConfig};
 use crate::types::{Email, SessionToken, User, UserId};
 
@@ -243,9 +243,7 @@ impl AllowThemBuilder {
             Box::new(NoopEmailSender)
         });
 
-        let event_sink = self
-            .event_sink
-            .unwrap_or_else(|| Box::new(NoopEventSink));
+        let event_sink = self.event_sink.unwrap_or_else(|| Box::new(NoopEventSink));
 
         Ok(AllowThem {
             inner: Arc::new(Inner {
