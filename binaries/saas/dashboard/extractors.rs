@@ -303,16 +303,15 @@ impl FromRequestParts<DashboardRouterState> for RequireSuperAdmin {
         parts: &mut Parts,
         state: &DashboardRouterState,
     ) -> Result<Self, Self::Rejection> {
-        let user = match super::auth_helpers::current_dashboard_user(&state.ath, &parts.headers)
-            .await
-        {
-            Ok(Some(u)) => u,
-            Ok(None) => return Err(redirect_to_login(parts)),
-            Err(e) => {
-                tracing::error!(error = %e, "dashboard session lookup failed (super-admin)");
-                return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response());
-            }
-        };
+        let user =
+            match super::auth_helpers::current_dashboard_user(&state.ath, &parts.headers).await {
+                Ok(Some(u)) => u,
+                Ok(None) => return Err(redirect_to_login(parts)),
+                Err(e) => {
+                    tracing::error!(error = %e, "dashboard session lookup failed (super-admin)");
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+                }
+            };
 
         let role_name = allowthem_core::types::RoleName::new("super_admin");
         let has = state

@@ -44,17 +44,16 @@ pub fn tenant_nav_items(slug: &str, current_path: &str, role: TenantRole) -> Vec
     let writer = matches!(role, TenantRole::Admin | TenantRole::Owner);
     let owner = matches!(role, TenantRole::Owner);
 
-    let item =
-        |label: &'static str, href: String, muted: bool, coming_soon: bool| -> NavItem {
-            let act = active(&href);
-            NavItem {
-                label,
-                href,
-                active: act,
-                muted,
-                coming_soon,
-            }
-        };
+    let item = |label: &'static str, href: String, muted: bool, coming_soon: bool| -> NavItem {
+        let act = active(&href);
+        NavItem {
+            label,
+            href,
+            active: act,
+            muted,
+            coming_soon,
+        }
+    };
 
     let tenant_section = NavSection {
         heading: "TENANT",
@@ -76,12 +75,7 @@ pub fn tenant_nav_items(slug: &str, current_path: &str, role: TenantRole) -> Vec
             item("Billing", p("/settings/billing"), !owner, false),
             item("Webhooks", p("/settings/webhooks"), !writer, true),
             item("Email", p("/settings/email"), !writer, true),
-            item(
-                "Social providers",
-                p("/settings/social"),
-                !writer,
-                true,
-            ),
+            item("Social providers", p("/settings/social"), !writer, true),
             item("Custom domain", p("/settings/domain"), !writer, true),
         ],
     };
@@ -103,12 +97,18 @@ mod tests {
             .expect("Audit item present");
         assert!(item.active);
         // Other items in the same section are not active.
-        assert!(!sections[0].items.iter().any(|i| i.label == "Users" && i.active));
+        assert!(
+            !sections[0]
+                .items
+                .iter()
+                .any(|i| i.label == "Users" && i.active)
+        );
     }
 
     #[test]
     fn settings_team_active_for_subroute() {
-        let sections = tenant_nav_items("acme", "/t/acme/settings/team/abc/role", TenantRole::Owner);
+        let sections =
+            tenant_nav_items("acme", "/t/acme/settings/team/abc/role", TenantRole::Owner);
         let item = sections[1]
             .items
             .iter()

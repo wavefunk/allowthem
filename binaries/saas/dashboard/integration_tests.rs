@@ -102,11 +102,10 @@ impl Fixture {
             tenant_router_middleware,
         ));
 
-        let dashboard_router_state =
-            crate::dashboard::state::DashboardRouterState::from_signup(
-                signup_state.clone(),
-                slug_cache.clone(),
-            );
+        let dashboard_router_state = crate::dashboard::state::DashboardRouterState::from_signup(
+            signup_state.clone(),
+            slug_cache.clone(),
+        );
         let dashboard_pages =
             crate::dashboard::dashboard_pages_router(dashboard_router_state).layer(
                 axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),
@@ -933,10 +932,7 @@ async fn create_application_without_csrf_is_rejected() {
 // ---------------------------------------------------------------------------
 
 /// Resolve the tenant AllowThem handle for `slug` via the handle cache.
-async fn tenant_ath_for_slug(
-    fx: &Fixture,
-    slug: &str,
-) -> allowthem_core::AllowThem {
+async fn tenant_ath_for_slug(fx: &Fixture, slug: &str) -> allowthem_core::AllowThem {
     let tenant = fx
         .state
         .control_db
@@ -1003,17 +999,15 @@ async fn user_detail_renders_panels() {
         .await
         .expect("create tenant user");
 
-    let resp = get_authed(
-        &fx,
-        &format!("/t/acme/users/{}", user.id),
-        &session_cookie,
-    )
-    .await;
+    let resp = get_authed(&fx, &format!("/t/acme/users/{}", user.id), &session_cookie).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(body.contains(user.email.as_str()), "email in detail page");
     assert!(body.contains("Roles"), "roles panel present");
-    assert!(body.contains("Direct permissions"), "permissions panel present");
+    assert!(
+        body.contains("Direct permissions"),
+        "permissions panel present"
+    );
     assert!(body.contains("Active sessions"), "sessions panel present");
     assert!(body.contains("Recent activity"), "audit panel present");
 }

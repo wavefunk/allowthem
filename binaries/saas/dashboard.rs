@@ -11,8 +11,8 @@
 pub mod applications;
 pub mod audit;
 pub mod auth_helpers;
-pub mod nav;
 pub mod extractors;
+pub mod nav;
 pub mod quickstart;
 pub mod quickstart_cache;
 pub mod signup;

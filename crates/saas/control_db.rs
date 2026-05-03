@@ -18,9 +18,7 @@ pub struct TenantUsage {
 }
 
 /// Role of a dashboard user inside a tenant. Mirrors `tenant_members.role`.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize, sqlx::Type,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum TenantRole {
@@ -388,12 +386,11 @@ impl ControlDb {
         new_role: TenantRole,
     ) -> Result<(), SaasError> {
         let mut tx = self.pool.begin().await?;
-        let target: Option<(Vec<u8>, String, Option<DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT tenant_id, role, accepted_at FROM tenant_members WHERE id = ?1",
-        )
-        .bind(member_id.as_bytes())
-        .fetch_optional(&mut *tx)
-        .await?;
+        let target: Option<(Vec<u8>, String, Option<DateTime<Utc>>)> =
+            sqlx::query_as("SELECT tenant_id, role, accepted_at FROM tenant_members WHERE id = ?1")
+                .bind(member_id.as_bytes())
+                .fetch_optional(&mut *tx)
+                .await?;
         let (tenant_blob, current_role, accepted_at) = target.ok_or(SaasError::MemberNotFound)?;
 
         let demoting_owner = current_role == "owner" && !matches!(new_role, TenantRole::Owner);
@@ -423,12 +420,11 @@ impl ControlDb {
     /// if removing this row would leave the tenant with zero accepted owners.
     pub async fn remove_member(&self, member_id: &MemberId) -> Result<(), SaasError> {
         let mut tx = self.pool.begin().await?;
-        let target: Option<(Vec<u8>, String, Option<DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT tenant_id, role, accepted_at FROM tenant_members WHERE id = ?1",
-        )
-        .bind(member_id.as_bytes())
-        .fetch_optional(&mut *tx)
-        .await?;
+        let target: Option<(Vec<u8>, String, Option<DateTime<Utc>>)> =
+            sqlx::query_as("SELECT tenant_id, role, accepted_at FROM tenant_members WHERE id = ?1")
+                .bind(member_id.as_bytes())
+                .fetch_optional(&mut *tx)
+                .await?;
         let (tenant_blob, role, accepted_at) = target.ok_or(SaasError::MemberNotFound)?;
 
         if role == "owner" && accepted_at.is_some() {
@@ -950,9 +946,15 @@ pub(crate) mod tests {
         insert_member_typed(&db, &tid, "owner@x.com", "owner").await;
         insert_member_typed(&db, &tid, "admin@x.com", "admin").await;
         // Pending owner — must NOT count.
-        db.invite_member(&tid, "pending@x.com", TenantRole::Owner, &token_hash(8), future_ts())
-            .await
-            .unwrap();
+        db.invite_member(
+            &tid,
+            "pending@x.com",
+            TenantRole::Owner,
+            &token_hash(8),
+            future_ts(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(db.count_owners(&tid).await.unwrap(), 1);
     }
@@ -981,7 +983,9 @@ pub(crate) mod tests {
         let first = insert_member_typed(&db, &tid, "a@x.com", "owner").await;
         insert_member_typed(&db, &tid, "b@x.com", "owner").await;
 
-        db.update_member_role(&first, TenantRole::Admin).await.unwrap();
+        db.update_member_role(&first, TenantRole::Admin)
+            .await
+            .unwrap();
         let after = db.get_tenant_member(&first).await.unwrap().unwrap();
         assert_eq!(after.role, TenantRole::Admin);
     }

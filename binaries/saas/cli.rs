@@ -424,10 +424,7 @@ mod tests {
             Err(e) => e,
         };
         let msg = err.to_string();
-        assert!(
-            msg.contains("not a TTY"),
-            "unexpected error message: {msg}"
-        );
+        assert!(msg.contains("not a TTY"), "unexpected error message: {msg}");
     }
 
     #[tokio::test]

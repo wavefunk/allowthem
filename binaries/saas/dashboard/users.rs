@@ -219,9 +219,7 @@ async fn detail(
     let user_id = match raw_id.parse::<UserId>() {
         Ok(id) => id,
         Err(_) => {
-            return Ok(
-                Redirect::to(&format!("/t/{}/users", scope.tenant.slug)).into_response(),
-            );
+            return Ok(Redirect::to(&format!("/t/{}/users", scope.tenant.slug)).into_response());
         }
     };
 
@@ -385,12 +383,10 @@ async fn revoke_sessions(
     )
     .await;
     let flash = format!("Revoked {n} session(s).");
-    Ok(redirect_with_flash(
-        &format!("/t/{slug}/users/{user_id}"),
-        Some(&flash),
-        None,
+    Ok(
+        redirect_with_flash(&format!("/t/{slug}/users/{user_id}"), Some(&flash), None)
+            .into_response(),
     )
-    .into_response())
 }
 
 // ---------- Step 8: Delete user (owner-only, double-confirm) ----------
@@ -412,10 +408,10 @@ async fn delete_user(
     };
 
     if form.confirm != "DELETE" {
-        return Ok(Redirect::to(&format!(
-            "/t/{slug}/users/{user_id}?error=confirm_required"
-        ))
-        .into_response());
+        return Ok(
+            Redirect::to(&format!("/t/{slug}/users/{user_id}?error=confirm_required"))
+                .into_response(),
+        );
     }
 
     // Audit before delete — audit_log.user_id has no FK so the row
@@ -592,7 +588,14 @@ async fn log_admin_action(
     if let Err(e) = scope
         .ath
         .db()
-        .log_audit(event, Some(&target_user_id), None, None, None, Some(&detail))
+        .log_audit(
+            event,
+            Some(&target_user_id),
+            None,
+            None,
+            None,
+            Some(&detail),
+        )
         .await
     {
         tracing::error!(error = %e, event = ?event_for_log, %target_user_id, "audit log write failed");

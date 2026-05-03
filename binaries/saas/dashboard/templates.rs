@@ -137,11 +137,8 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
         .expect("_partials/_user_actions.html");
     env.add_template_owned("_partials/_user_roles.html", USER_ROLES_PARTIAL)
         .expect("_partials/_user_roles.html");
-    env.add_template_owned(
-        "_partials/_user_permissions.html",
-        USER_PERMISSIONS_PARTIAL,
-    )
-    .expect("_partials/_user_permissions.html");
+    env.add_template_owned("_partials/_user_permissions.html", USER_PERMISSIONS_PARTIAL)
+        .expect("_partials/_user_permissions.html");
     env.add_template_owned("_partials/_user_sessions.html", USER_SESSIONS_PARTIAL)
         .expect("_partials/_user_sessions.html");
     env.add_template_owned("_partials/_user_audit.html", USER_AUDIT_PARTIAL)

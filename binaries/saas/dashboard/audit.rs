@@ -17,9 +17,9 @@ use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use minijinja::context;
 use serde::{Deserialize, Serialize};
 
+use allowthem_core::Email;
 use allowthem_core::audit::{AuditEvent, AuditListEntry, SearchAuditParams};
 use allowthem_core::types::UserId;
-use allowthem_core::Email;
 use allowthem_server::browser_error::BrowserError;
 
 use super::extractors::{RequireTenantMember, TenantScope};
@@ -185,10 +185,7 @@ fn to_entry_displays(entries: &[AuditListEntry]) -> Vec<EntryDisplay> {
             ip_address: e.ip_address.clone(),
             detail: e.detail.clone(),
             created_at: e.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-            created_at_iso: e
-                .created_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string(),
+            created_at_iso: e.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
         })
         .collect()
 }
@@ -202,8 +199,12 @@ async fn resolve_user_filter(
     scope: &TenantScope,
     email_str: Option<&str>,
 ) -> Result<Option<UserId>, ()> {
-    let Some(raw) = email_str else { return Ok(None) };
-    let Ok(email) = Email::new(raw.to_owned()) else { return Err(()) };
+    let Some(raw) = email_str else {
+        return Ok(None);
+    };
+    let Ok(email) = Email::new(raw.to_owned()) else {
+        return Err(());
+    };
     match scope.ath.db().get_user_by_email(&email).await {
         Ok(u) => Ok(Some(u.id)),
         Err(allowthem_core::error::AuthError::NotFound) => Err(()),
@@ -229,27 +230,26 @@ async fn list(
     let to = parse_date_end(&query.to);
     let page = query.page.unwrap_or(1).max(1);
 
-    let (entries, total, no_user) = match resolve_user_filter(&scope, nonempty(&query.user_email))
-        .await
-    {
-        Ok(uid) => {
-            let result = scope
-                .ath
-                .db()
-                .search_audit_log(SearchAuditParams {
-                    user_id: uid,
-                    event_type: event.as_ref(),
-                    is_success: outcome,
-                    from,
-                    to,
-                    limit: PAGE_SIZE,
-                    offset: (page - 1) * PAGE_SIZE,
-                })
-                .await?;
-            (result.entries, result.total, false)
-        }
-        Err(()) => (Vec::new(), 0, true),
-    };
+    let (entries, total, no_user) =
+        match resolve_user_filter(&scope, nonempty(&query.user_email)).await {
+            Ok(uid) => {
+                let result = scope
+                    .ath
+                    .db()
+                    .search_audit_log(SearchAuditParams {
+                        user_id: uid,
+                        event_type: event.as_ref(),
+                        is_success: outcome,
+                        from,
+                        to,
+                        limit: PAGE_SIZE,
+                        offset: (page - 1) * PAGE_SIZE,
+                    })
+                    .await?;
+                (result.entries, result.total, false)
+            }
+            Err(()) => (Vec::new(), 0, true),
+        };
 
     let entries_view = to_entry_displays(&entries);
     let total_pages = total.div_ceil(PAGE_SIZE).max(1);
@@ -413,10 +413,7 @@ mod tests {
 
     #[test]
     fn parse_event_handles_known_and_unknown() {
-        assert_eq!(
-            parse_event(&Some("login".into())),
-            Some(AuditEvent::Login)
-        );
+        assert_eq!(parse_event(&Some("login".into())), Some(AuditEvent::Login));
         assert_eq!(parse_event(&Some("not-a-real-event".into())), None);
         assert_eq!(parse_event(&Some(String::new())), None);
         assert_eq!(parse_event(&None), None);
@@ -432,14 +429,20 @@ mod tests {
     #[test]
     fn parse_date_start_round_trip() {
         let dt = parse_date_start(&Some("2026-04-01".into())).unwrap();
-        assert_eq!(dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(), "2026-04-01T00:00:00.000Z");
+        assert_eq!(
+            dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            "2026-04-01T00:00:00.000Z"
+        );
         assert!(parse_date_start(&Some("not-a-date".into())).is_none());
     }
 
     #[test]
     fn parse_date_end_advances_one_day() {
         let dt = parse_date_end(&Some("2026-04-01".into())).unwrap();
-        assert_eq!(dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(), "2026-04-02T00:00:00.000Z");
+        assert_eq!(
+            dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            "2026-04-02T00:00:00.000Z"
+        );
     }
 
     #[test]
