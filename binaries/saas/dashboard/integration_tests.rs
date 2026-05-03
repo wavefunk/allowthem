@@ -927,3 +927,260 @@ async fn create_application_without_csrf_is_rejected() {
     // csrf_middleware rejects: derived token from session ≠ "fake".
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
+
+// ---------------------------------------------------------------------------
+// 99c.4 user management — integration tests
+// ---------------------------------------------------------------------------
+
+/// Resolve the tenant AllowThem handle for `slug` via the handle cache.
+async fn tenant_ath_for_slug(
+    fx: &Fixture,
+    slug: &str,
+) -> allowthem_core::AllowThem {
+    let tenant = fx
+        .state
+        .control_db
+        .tenant_by_slug(slug)
+        .await
+        .unwrap()
+        .expect("tenant exists");
+    let tenant_id = allowthem_saas::TenantId::from(tenant.id_as_uuid().unwrap());
+    fx.state
+        .handle_cache
+        .get_or_init(tenant_id, async {
+            allowthem_saas::build_handle_with_path(
+                &tenant.db_path,
+                &fx.state.tenant_data_dir,
+                &fx.state.tenant_config,
+                slug,
+            )
+            .await
+        })
+        .await
+        .expect("tenant handle")
+}
+
+#[tokio::test]
+async fn user_list_renders_seeded_user() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    let user = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("alice@example.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("create tenant user");
+
+    let resp = get_authed(&fx, "/t/acme/users", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains(user.email.as_str()),
+        "user list must contain the seeded user email"
+    );
+}
+
+#[tokio::test]
+async fn user_detail_renders_panels() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    let user = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("bob@example.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("create tenant user");
+
+    let resp = get_authed(
+        &fx,
+        &format!("/t/acme/users/{}", user.id),
+        &session_cookie,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains(user.email.as_str()), "email in detail page");
+    assert!(body.contains("Roles"), "roles panel present");
+    assert!(body.contains("Direct permissions"), "permissions panel present");
+    assert!(body.contains("Active sessions"), "sessions panel present");
+    assert!(body.contains("Recent activity"), "audit panel present");
+}
+
+#[tokio::test]
+async fn block_and_unblock_user_round_trip() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    let user = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("carl@example.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("create tenant user");
+    let detail_path = format!("/t/acme/users/{}", user.id);
+
+    // Fetch CSRF from the detail page.
+    let csrf = fetch_csrf_for_authed_form(&fx, &detail_path, &session_cookie).await;
+
+    // Block.
+    let block_resp = fx
+        .post_form(
+            &format!("{detail_path}/block"),
+            &[("csrf_token", csrf.as_str())],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(block_resp.status(), StatusCode::SEE_OTHER);
+
+    // Verify blocked in DB.
+    let blocked = ath.db().get_user(user.id).await.unwrap();
+    assert!(!blocked.is_active, "user must be inactive after block");
+
+    // Re-fetch CSRF (same session, token is stable but let's be safe).
+    let csrf2 = fetch_csrf_for_authed_form(&fx, &detail_path, &session_cookie).await;
+
+    // Unblock.
+    let unblock_resp = fx
+        .post_form(
+            &format!("{detail_path}/unblock"),
+            &[("csrf_token", csrf2.as_str())],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(unblock_resp.status(), StatusCode::SEE_OTHER);
+
+    let active = ath.db().get_user(user.id).await.unwrap();
+    assert!(active.is_active, "user must be active after unblock");
+}
+
+#[tokio::test]
+async fn revoke_sessions_writes_audit_row() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    let user = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("dora@example.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("create tenant user");
+    let detail_path = format!("/t/acme/users/{}", user.id);
+    let csrf = fetch_csrf_for_authed_form(&fx, &detail_path, &session_cookie).await;
+
+    let resp = fx
+        .post_form(
+            &format!("{detail_path}/revoke-sessions"),
+            &[("csrf_token", csrf.as_str())],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+    // Audit row written (Logout event with detail containing "revoked").
+    let audit = ath
+        .db()
+        .search_audit_log(allowthem_core::audit::SearchAuditParams {
+            user_id: Some(user.id),
+            event_type: None,
+            is_success: None,
+            from: None,
+            to: None,
+            limit: 10,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+    assert!(
+        audit.entries.iter().any(|e| {
+            matches!(e.event_type, allowthem_core::audit::AuditEvent::Logout)
+                && e.detail
+                    .as_deref()
+                    .map(|d| d.contains("revoked"))
+                    .unwrap_or(false)
+        }),
+        "audit log must have a Logout/revoked row"
+    );
+}
+
+#[tokio::test]
+async fn delete_user_owner_only_flow() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    let user = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("eve@example.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("create tenant user");
+    let detail_path = format!("/t/acme/users/{}", user.id);
+    let csrf = fetch_csrf_for_authed_form(&fx, &detail_path, &session_cookie).await;
+
+    // POST delete with confirm=DELETE.
+    let resp = fx
+        .post_form(
+            &format!("{detail_path}/delete"),
+            &[("csrf_token", csrf.as_str()), ("confirm", "DELETE")],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(loc, "/t/acme/users", "redirect to user list after delete");
+
+    // User is gone from the tenant DB.
+    let res = ath.db().get_user(user.id).await;
+    assert!(
+        matches!(res, Err(allowthem_core::error::AuthError::NotFound)),
+        "user must be absent from DB after delete"
+    );
+}
+
+#[tokio::test]
+async fn user_list_unauthenticated_redirects_to_login() {
+    let fx = Fixture::new().await;
+    let (_session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = fx.get("/t/acme/users").await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        loc.starts_with("/login?next="),
+        "unauthenticated users list must redirect to login: {loc}"
+    );
+}
