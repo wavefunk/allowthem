@@ -352,8 +352,7 @@ async fn post_reset_password(
     }
 
     let reset_result = match ath
-        .db()
-        .execute_reset(&form.token, &form.new_password)
+        .consume_password_reset(&form.token, &form.new_password)
         .await
     {
         Ok(v) => v,

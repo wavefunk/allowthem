@@ -153,6 +153,33 @@ impl Db {
     }
 }
 
+use crate::event_sink::AuthEvent;
+use crate::handle::AllowThem;
+
+impl AllowThem {
+    /// Validate and consume a password-reset token, setting a new password.
+    ///
+    /// Emits `password.reset` on success. Returns `Ok(true)` if the token was
+    /// valid and the password was updated, `Ok(false)` if the token was
+    /// invalid or already used.
+    pub async fn consume_password_reset(
+        &self,
+        raw_token: &str,
+        new_password: &str,
+    ) -> Result<bool, AuthError> {
+        let ok = self.db().execute_reset(raw_token, new_password).await?;
+        if ok {
+            self.emit_event(AuthEvent::new(
+                "password.reset",
+                None,
+                serde_json::json!({}),
+            ))
+            .await;
+        }
+        Ok(ok)
+    }
+}
+
 /// Expiry timestamp for a reset token, given a reference time.
 ///
 /// Used in tests to avoid hardcoding durations.
