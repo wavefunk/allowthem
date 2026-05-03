@@ -218,13 +218,35 @@ pub struct RegisterForInviteResult {
 /// The invite acceptance itself (clearing `invite_token_hash`) is handled
 /// separately by [`ControlDb::accept_invite`] after this call succeeds.
 ///
-/// Body filled in by Step 13.
+/// No compensation needed: the only side effect is dashboard user creation
+/// (a leaf op). If accept_invite fails after this succeeds, the caller is
+/// responsible for calling `state.ath.db().delete_user(user.id)`.
 pub async fn dashboard_register_for_invite(
-    _state: &DashboardState,
-    _email: String,
-    _password: String,
+    state: &DashboardState,
+    email: String,
+    password: String,
 ) -> Result<RegisterForInviteResult, DashboardSignupError> {
-    todo!("filled in by Step 13")
+    let email_obj = Email::new(email).map_err(|_| DashboardSignupError::InvalidEmail)?;
+    let user = state
+        .ath
+        .db()
+        .create_user(email_obj, &password, None, None)
+        .await
+        .map_err(|e| match e {
+            AuthError::Conflict(ref msg) if msg.contains("email") => {
+                DashboardSignupError::EmailTaken
+            }
+            other => DashboardSignupError::Auth(other),
+        })?;
+    let outcome = state
+        .ath
+        .create_session_cookie(user.id)
+        .await
+        .map_err(DashboardSignupError::Auth)?;
+    Ok(RegisterForInviteResult {
+        user: outcome.user,
+        set_cookie: outcome.set_cookie,
+    })
 }
 
 #[cfg(test)]

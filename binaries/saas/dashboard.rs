@@ -21,6 +21,7 @@ pub mod roles;
 pub mod settings_api_keys;
 pub mod settings_billing;
 pub mod settings_general;
+pub mod settings_team;
 pub mod signup;
 pub mod state;
 pub mod stubs;

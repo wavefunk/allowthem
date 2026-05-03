@@ -50,6 +50,9 @@ const USER_PERMISSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_p
 const USER_SESSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_sessions.html");
 const USER_AUDIT_PARTIAL: &str = include_str!("templates/_partials/_user_audit.html");
 
+// Team members list (99c.5 Step 13).
+const SETTINGS_TEAM_LIST_HTML: &str = include_str!("templates/settings/team/list.html");
+
 // Plan & billing page (99c.5 Step 12).
 const SETTINGS_BILLING_HTML: &str = include_str!("templates/settings/billing.html");
 
@@ -170,6 +173,10 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
         .expect("_partials/_user_sessions.html");
     env.add_template_owned("_partials/_user_audit.html", USER_AUDIT_PARTIAL)
         .expect("_partials/_user_audit.html");
+
+    // Team members list (99c.5 Step 13).
+    env.add_template_owned("settings/team/list.html", SETTINGS_TEAM_LIST_HTML)
+        .expect("settings/team/list.html");
 
     // Plan & billing page (99c.5 Step 12).
     env.add_template_owned("settings/billing.html", SETTINGS_BILLING_HTML)

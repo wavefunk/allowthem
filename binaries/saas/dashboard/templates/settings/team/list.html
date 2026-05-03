@@ -1,0 +1,97 @@
+{# settings/team/list.html — team members list.
+   Expected context:
+   - tenant.{name, slug}
+   - role: "owner" | "admin" | "viewer"  (actor's role)
+   - nav_sections
+   - csrf_token: String
+   - members: Vec<{id, email, role, status, invited_at, accepted_at?}>
+   - can_manage: bool
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}Team — {{ tenant.name }}{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">{{ tenant.name }} · SETTINGS · TEAM</div>
+{% endblock %}
+
+{% block dashboard_content %}
+  <div class="wf-panel" style="margin:16px 24px 0">
+    <div class="wf-panel-head">
+      <div class="wf-panel-title">Team Members</div>
+      {% if can_manage %}
+        <a href="/t/{{ tenant.slug }}/settings/team/invite" class="wf-btn primary sm">
+          Invite member
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if members %}
+    <div class="wf-tablewrap">
+      <div class="wf-tablescroll">
+        <table class="wf-table sticky">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Invited</th>
+              <th>Accepted</th>
+              {% if can_manage %}
+                <th>Actions</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for m in members %}
+              <tr>
+                <td>{{ m.email }}</td>
+                <td>
+                  <span class="wf-tag {% if m.role == 'owner' %}ok{% elif m.role == 'admin' %}warn{% else %}muted{% endif %}">
+                    {{ m.role }}
+                  </span>
+                </td>
+                <td>
+                  <span class="wf-tag {% if m.status == 'accepted' %}ok{% else %}muted{% endif %}">
+                    {{ m.status }}
+                  </span>
+                </td>
+                <td>{{ m.invited_at }}</td>
+                <td>{{ m.accepted_at or "—" }}</td>
+                {% if can_manage %}
+                  <td style="display:flex; gap:8px; align-items:center;">
+                    {% if role == "owner" %}
+                      <form method="post"
+                            action="/t/{{ tenant.slug }}/settings/team/{{ m.id }}/role"
+                            style="display:inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                        <select name="role" onchange="this.form.submit()"
+                                {% if m.role == "owner" and loop.length == 1 %}disabled{% endif %}>
+                          <option value="owner" {% if m.role == "owner" %}selected{% endif %}>owner</option>
+                          <option value="admin" {% if m.role == "admin" %}selected{% endif %}>admin</option>
+                          <option value="viewer" {% if m.role == "viewer" %}selected{% endif %}>viewer</option>
+                        </select>
+                      </form>
+                    {% endif %}
+                    {% if m.role != "owner" or role == "owner" %}
+                      <form method="post"
+                            action="/t/{{ tenant.slug }}/settings/team/{{ m.id }}/remove"
+                            style="display:inline"
+                            onsubmit="return confirm('Remove {{ m.email }} from this workspace?')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                        <button type="submit" class="wf-btn sm err">Remove</button>
+                      </form>
+                    {% endif %}
+                  </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <p class="wf-empty" style="margin:12px 24px;">No team members found.</p>
+  {% endif %}
+{% endblock %}
