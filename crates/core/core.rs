@@ -40,7 +40,7 @@ pub use events::{
     AuthEvent, AuthEventReceiver, AuthEventSender, EventContext, RegisteredEvent,
     RegistrationSource,
 };
-pub use handle::{AllowThem, AllowThemBuilder, BuildError, LoginOutcome};
+pub use handle::{AllowThem, AllowThemBuilder, BuildError, LoginOutcome, OnUserActive};
 pub use invitations::Invitation;
 pub use jwt::{Claims, JwtConfig, generate_token as generate_jwt, validate_token};
 pub use oauth::{OAuthAccountInfo, OAuthProvider, OAuthStateInfo, OAuthUserInfo};

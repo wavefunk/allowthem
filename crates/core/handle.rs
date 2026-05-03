@@ -1,12 +1,22 @@
 use std::sync::Arc;
 
-use chrono::Duration;
+use chrono::{DateTime, Duration, Utc};
 use sqlx::SqlitePool;
 
 use crate::db::Db;
 use crate::error::AuthError;
 use crate::sessions::{self, SessionConfig};
-use crate::types::{SessionToken, User};
+use crate::types::{SessionToken, User, UserId};
+
+/// Callback type for active authentication events.
+///
+/// Invoked after every active auth event (successful login, OAuth callback
+/// completion, MFA/TOTP completion, OIDC access token issuance). Passive
+/// events (session validation, token refresh) do **not** fire this.
+///
+/// The callback must not block. Use a channel-send if heavy work is needed.
+/// Panics are caught and logged; they never propagate to the caller.
+pub type OnUserActive = Arc<dyn Fn(UserId, DateTime<Utc>) + Send + Sync>;
 
 /// Outcome of a successful login or session creation.
 pub struct LoginOutcome {
@@ -45,6 +55,7 @@ pub struct AllowThemBuilder {
     signing_key: Option<[u8; 32]>,
     csrf_key: Option<[u8; 32]>,
     base_url: Option<String>,
+    on_user_active: Option<OnUserActive>,
 }
 
 impl AllowThemBuilder {
@@ -63,6 +74,7 @@ impl AllowThemBuilder {
             signing_key: None,
             csrf_key: None,
             base_url: None,
+            on_user_active: None,
         }
     }
 
@@ -81,6 +93,7 @@ impl AllowThemBuilder {
             signing_key: None,
             csrf_key: None,
             base_url: None,
+            on_user_active: None,
         }
     }
 
@@ -151,6 +164,23 @@ impl AllowThemBuilder {
         self
     }
 
+    /// Register a callback invoked after every active authentication event.
+    ///
+    /// "Active" means: successful password login, OAuth callback completion,
+    /// MFA/TOTP completion, and OIDC access token issuance (authorization code
+    /// exchange). Session validation, token refresh, and API token checks do
+    /// **not** fire the callback.
+    ///
+    /// The callback must not block. Use a channel-send if heavy work is needed.
+    /// Panics inside the callback are caught, logged via `tracing::error!`, and
+    /// never propagated to the caller.
+    ///
+    /// Primarily used by the SaaS binary to record MAU into the control plane.
+    pub fn on_user_active(mut self, callback: OnUserActive) -> Self {
+        self.on_user_active = Some(callback);
+        self
+    }
+
     /// Construct the [`AllowThem`] handle.
     ///
     /// Connects to (or wraps) the database, runs migrations, and assembles
@@ -177,6 +207,7 @@ impl AllowThemBuilder {
                 signing_key: self.signing_key,
                 csrf_key: self.csrf_key,
                 base_url: self.base_url,
+                on_user_active: self.on_user_active,
             }),
         })
     }
@@ -190,6 +221,7 @@ struct Inner {
     signing_key: Option<[u8; 32]>,
     csrf_key: Option<[u8; 32]>,
     base_url: Option<String>,
+    on_user_active: Option<OnUserActive>,
 }
 
 /// Configured allowthem handle.
@@ -253,6 +285,33 @@ impl AllowThem {
             .csrf_key
             .as_ref()
             .ok_or(AuthError::CsrfKeyNotConfigured)
+    }
+
+    /// Return a reference to the `on_user_active` callback, if configured.
+    ///
+    /// Used to pass the callback into free functions (e.g.
+    /// `exchange_authorization_code`) that do not receive the full `AllowThem`
+    /// handle.
+    pub fn on_user_active(&self) -> Option<&OnUserActive> {
+        self.inner.on_user_active.as_ref()
+    }
+
+    /// Fire the `on_user_active` callback, if configured.
+    ///
+    /// Call this immediately after a session row or access token is durably
+    /// written, for active auth events only. Panics from the callback are
+    /// caught and logged; they never propagate to the caller.
+    pub fn notify_user_active(&self, user_id: UserId) {
+        let Some(cb) = self.inner.on_user_active.as_ref() else {
+            return;
+        };
+        let now = Utc::now();
+        let cb = cb.clone();
+        if let Err(_payload) = std::panic::catch_unwind(
+            std::panic::AssertUnwindSafe(move || cb(user_id, now)),
+        ) {
+            tracing::error!(user_id = %user_id, "on_user_active callback panicked");
+        }
     }
 
     /// Fetch the active signing key and decrypt its private key PEM.
