@@ -210,4 +210,22 @@ impl Db {
         .await
         .map_err(AuthError::Database)
     }
+
+    /// List all permissions assigned to a role, ordered by name.
+    pub async fn list_role_permissions(
+        &self,
+        role_id: &RoleId,
+    ) -> Result<Vec<Permission>, AuthError> {
+        sqlx::query_as::<_, Permission>(
+            "SELECT p.id, p.name, p.description, p.created_at \
+             FROM allowthem_permissions p \
+             JOIN allowthem_role_permissions rp ON rp.permission_id = p.id \
+             WHERE rp.role_id = ? \
+             ORDER BY p.name",
+        )
+        .bind(*role_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(AuthError::Database)
+    }
 }

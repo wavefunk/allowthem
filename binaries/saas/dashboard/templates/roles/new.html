@@ -1,0 +1,38 @@
+{# roles/new.html — create role form.
+   Expected context:
+   - tenant.{name, slug}
+   - role: "owner" | "admin" | "viewer"
+   - nav_sections
+   - csrf_token: String
+   - error: String
+   - name: String
+   - description: String
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}New Role — {{ tenant.name }}{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">
+    <a class="wf-link" href="/t/{{ tenant.slug }}/roles">Roles</a>
+    · New
+  </div>
+{% endblock %}
+
+{% block dashboard_content %}
+  <div class="wf-panel" style="margin:16px 24px 0">
+    <div class="wf-panel-head">
+      <div class="wf-panel-title">New Role</div>
+    </div>
+    <div class="wf-panel-body">
+      <form method="post" action="/t/{{ tenant.slug }}/roles" style="max-width:480px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        {% include "_partials/_role_form.html" %}
+        <div style="display:flex; gap:8px; margin-top:16px;">
+          <button type="submit" class="wf-btn primary">Create role</button>
+          <a class="wf-btn" href="/t/{{ tenant.slug }}/roles">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

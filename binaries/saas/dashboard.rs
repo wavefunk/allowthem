@@ -15,6 +15,7 @@ pub mod extractors;
 pub mod nav;
 pub mod quickstart;
 pub mod quickstart_cache;
+pub mod roles;
 pub mod signup;
 pub mod state;
 pub mod stubs;

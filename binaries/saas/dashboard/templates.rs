@@ -50,6 +50,12 @@ const USER_PERMISSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_p
 const USER_SESSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_sessions.html");
 const USER_AUDIT_PARTIAL: &str = include_str!("templates/_partials/_user_audit.html");
 
+// Roles CRUD pages (99c.5 Step 8).
+const ROLE_FORM_PARTIAL: &str = include_str!("templates/_partials/_role_form.html");
+const ROLES_LIST_HTML: &str = include_str!("templates/roles/list.html");
+const ROLES_NEW_HTML: &str = include_str!("templates/roles/new.html");
+const ROLES_DETAIL_HTML: &str = include_str!("templates/roles/detail.html");
+
 // Coming-soon stub pages (99c.5 Step 6).
 const COMING_SOON_PARTIAL: &str = include_str!("templates/_partials/_coming_soon.html");
 const SETTINGS_WEBHOOKS_HTML: &str = include_str!("templates/settings/webhooks.html");
@@ -150,6 +156,16 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
         .expect("_partials/_user_sessions.html");
     env.add_template_owned("_partials/_user_audit.html", USER_AUDIT_PARTIAL)
         .expect("_partials/_user_audit.html");
+
+    // Roles CRUD pages (99c.5 Step 8).
+    env.add_template_owned("_partials/_role_form.html", ROLE_FORM_PARTIAL)
+        .expect("_partials/_role_form.html");
+    env.add_template_owned("roles/list.html", ROLES_LIST_HTML)
+        .expect("roles/list.html");
+    env.add_template_owned("roles/new.html", ROLES_NEW_HTML)
+        .expect("roles/new.html");
+    env.add_template_owned("roles/detail.html", ROLES_DETAIL_HTML)
+        .expect("roles/detail.html");
 
     // Coming-soon stub pages (99c.5 Step 6).
     env.add_template_owned("_partials/_coming_soon.html", COMING_SOON_PARTIAL)
