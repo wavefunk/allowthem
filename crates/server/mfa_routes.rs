@@ -297,6 +297,12 @@ async fn verify_mfa(
     }
 
     ath.notify_user_active(user_id);
+    ath.emit_event(allowthem_core::AuthEvent::new(
+        "session.created",
+        Some(user_id),
+        serde_json::json!({ "user_id": user_id }),
+    ))
+    .await;
 
     let cookie_value = ath.session_cookie(&token);
 
@@ -385,6 +391,12 @@ async fn recover(Extension(ath): Extension<AllowThem>, Json(body): Json<RecoverB
     }
 
     ath.notify_user_active(user_id);
+    ath.emit_event(allowthem_core::AuthEvent::new(
+        "session.created",
+        Some(user_id),
+        serde_json::json!({ "user_id": user_id }),
+    ))
+    .await;
 
     let cookie_value = ath.session_cookie(&token);
     let remaining = ath

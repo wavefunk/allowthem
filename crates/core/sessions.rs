@@ -8,6 +8,8 @@ use serde::Serialize;
 
 use crate::db::Db;
 use crate::error::AuthError;
+use crate::event_sink::AuthEvent;
+use crate::handle::AllowThem;
 use crate::types::{Email, Session, SessionId, SessionToken, TokenHash, UserId};
 
 /// Configuration for session lifecycle and cookie generation.
@@ -294,6 +296,58 @@ impl Db {
             .await
             .map_err(AuthError::Database)?;
         Ok(result.rows_affected() > 0)
+    }
+}
+
+// ─── AllowThem wrappers ───────────────────────────────────────────────────────
+
+impl AllowThem {
+    /// Delete a session by token and emit `session.destroyed` (scope=single).
+    ///
+    /// Returns `Ok(true)` if a session was found and deleted, `Ok(false)` if
+    /// not. The event is only emitted on `Ok(true)`.
+    pub async fn delete_session(&self, token: &SessionToken) -> Result<bool, AuthError> {
+        let deleted = self.db().delete_session(token).await?;
+        if deleted {
+            self.emit_event(AuthEvent::new(
+                "session.destroyed",
+                None,
+                serde_json::json!({ "scope": "single" }),
+            ))
+            .await;
+        }
+        Ok(deleted)
+    }
+
+    /// Delete a session by ID and emit `session.destroyed` (scope=single).
+    ///
+    /// Returns `Ok(true)` if a session was found and deleted, `Ok(false)` if
+    /// not. The event is only emitted on `Ok(true)`.
+    pub async fn delete_session_by_id(&self, id: SessionId) -> Result<bool, AuthError> {
+        let deleted = self.db().delete_session_by_id(id).await?;
+        if deleted {
+            self.emit_event(AuthEvent::new(
+                "session.destroyed",
+                None,
+                serde_json::json!({ "scope": "single" }),
+            ))
+            .await;
+        }
+        Ok(deleted)
+    }
+
+    /// Delete all sessions for a user and emit one `session.destroyed` event.
+    ///
+    /// The event carries `{ user_id, count, scope: "all" }`. Returns the count.
+    pub async fn delete_user_sessions(&self, user_id: &UserId) -> Result<u64, AuthError> {
+        let count = self.db().delete_user_sessions(user_id).await?;
+        self.emit_event(AuthEvent::new(
+            "session.destroyed",
+            Some(*user_id),
+            serde_json::json!({ "user_id": user_id, "count": count, "scope": "all" }),
+        ))
+        .await;
+        Ok(count)
     }
 }
 

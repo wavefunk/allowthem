@@ -66,7 +66,6 @@ pub(crate) async fn revoke(
 ) -> Result<StatusCode, ManageError> {
     let sid = parse_session_id(&session_id)?;
     let deleted = ath
-        .db()
         .delete_session_by_id(sid)
         .await
         .map_err(map_auth_error)?;

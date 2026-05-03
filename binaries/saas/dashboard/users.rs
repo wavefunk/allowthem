@@ -303,7 +303,7 @@ async fn block(
         return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
     };
     scope.ath.update_user_active(user_id, false).await?;
-    scope.ath.db().delete_user_sessions(&user_id).await?;
+    scope.ath.delete_user_sessions(&user_id).await?;
     log_admin_action(&scope, AuditEvent::UserUpdated, user_id, "blocked").await;
     Ok(Redirect::to(&format!("/t/{slug}/users/{user_id}")).into_response())
 }
@@ -332,7 +332,7 @@ async fn force_password_reset(
     let user = scope.ath.db().get_user(user_id).await?;
 
     scope.ath.db().clear_password_hash(user_id).await?;
-    scope.ath.db().delete_user_sessions(&user_id).await?;
+    scope.ath.delete_user_sessions(&user_id).await?;
 
     let send_result = scope.ath.send_password_reset_email(&user.email).await;
 
@@ -368,7 +368,7 @@ async fn revoke_sessions(
     let Ok(user_id) = raw_id.parse::<UserId>() else {
         return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
     };
-    let n = scope.ath.db().delete_user_sessions(&user_id).await?;
+    let n = scope.ath.delete_user_sessions(&user_id).await?;
     log_admin_action(
         &scope,
         AuditEvent::Logout,

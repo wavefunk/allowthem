@@ -623,6 +623,12 @@ impl AllowThem {
             .await;
 
         self.notify_user_active(user.id);
+        self.emit_event(AuthEvent::new(
+            "session.created",
+            Some(user.id),
+            serde_json::json!({ "user_id": user.id }),
+        ))
+        .await;
 
         let set_cookie = self.session_cookie(&token);
         Ok(LoginOutcome {
@@ -647,6 +653,12 @@ impl AllowThem {
             .await?;
 
         self.notify_user_active(user_id);
+        self.emit_event(AuthEvent::new(
+            "session.created",
+            Some(user_id),
+            serde_json::json!({ "user_id": user_id }),
+        ))
+        .await;
 
         let set_cookie = self.session_cookie(&token);
         Ok(LoginOutcome {

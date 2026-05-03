@@ -417,7 +417,7 @@ async fn post_change_password(
         .await?;
 
     // 5. Invalidate all sessions + create fresh one
-    ath.db().delete_user_sessions(&user.id).await?;
+    ath.delete_user_sessions(&user.id).await?;
 
     let token = allowthem_core::generate_token();
     let token_hash = allowthem_core::hash_token(&token);

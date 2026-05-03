@@ -643,6 +643,12 @@ async fn post_mfa_challenge(
         .await?;
 
     ath.notify_user_active(user_id);
+    ath.emit_event(allowthem_core::AuthEvent::new(
+        "session.created",
+        Some(user_id),
+        serde_json::json!({ "user_id": user_id }),
+    ))
+    .await;
 
     let cookie = ath.session_cookie(&token);
 

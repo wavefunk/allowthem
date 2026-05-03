@@ -405,6 +405,12 @@ async fn callback(
     }
 
     ath.notify_user_active(user.id);
+    ath.emit_event(allowthem_core::AuthEvent::new(
+        "session.created",
+        Some(user.id),
+        serde_json::json!({ "user_id": user.id }),
+    ))
+    .await;
 
     let cookie = ath.session_cookie(&token);
     let redirect_to = state_info.post_login_redirect.as_deref().unwrap_or("/");
