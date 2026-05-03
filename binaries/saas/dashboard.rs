@@ -19,6 +19,7 @@ pub mod quickstart;
 pub mod quickstart_cache;
 pub mod roles;
 pub mod settings_api_keys;
+pub mod settings_billing;
 pub mod settings_general;
 pub mod signup;
 pub mod state;
