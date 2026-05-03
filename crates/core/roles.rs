@@ -1,5 +1,7 @@
 use crate::db::Db;
 use crate::error::AuthError;
+use crate::event_sink::AuthEvent;
+use crate::handle::AllowThem;
 use crate::types::{Role, RoleId, RoleName, UserId};
 
 /// Map a SQLite UNIQUE constraint violation on `allowthem_roles.name` to
@@ -199,6 +201,34 @@ impl Db {
             }
         }
         Ok(None)
+    }
+}
+
+impl AllowThem {
+    pub async fn assign_role(&self, user_id: &UserId, role_id: &RoleId) -> Result<(), AuthError> {
+        self.db().assign_role(user_id, role_id).await?;
+        self.emit_event(AuthEvent::new(
+            "role.assigned",
+            Some(*user_id),
+            serde_json::json!({ "user_id": user_id, "role_id": role_id }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    pub async fn unassign_role(
+        &self,
+        user_id: &UserId,
+        role_id: &RoleId,
+    ) -> Result<(), AuthError> {
+        self.db().unassign_role(user_id, role_id).await?;
+        self.emit_event(AuthEvent::new(
+            "role.unassigned",
+            Some(*user_id),
+            serde_json::json!({ "user_id": user_id, "role_id": role_id }),
+        ))
+        .await;
+        Ok(())
     }
 }
 

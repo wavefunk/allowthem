@@ -188,7 +188,7 @@ async fn seed_admin(
                 .await?
         }
     };
-    ath.db().assign_role(&user.id, &role.id).await?;
+    ath.assign_role(&user.id, &role.id).await?;
 
     println!("super_admin granted to {email}");
     Ok(())

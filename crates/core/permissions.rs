@@ -1,5 +1,7 @@
 use crate::db::Db;
 use crate::error::AuthError;
+use crate::event_sink::AuthEvent;
+use crate::handle::AllowThem;
 use crate::types::{Permission, PermissionId, PermissionName, RoleId, UserId};
 
 /// Map a SQLite UNIQUE constraint violation on `allowthem_permissions.name` to
@@ -227,5 +229,41 @@ impl Db {
         .fetch_all(self.pool())
         .await
         .map_err(AuthError::Database)
+    }
+}
+
+impl AllowThem {
+    pub async fn assign_permission_to_user(
+        &self,
+        user_id: &UserId,
+        permission_id: &PermissionId,
+    ) -> Result<(), AuthError> {
+        self.db()
+            .assign_permission_to_user(user_id, permission_id)
+            .await?;
+        self.emit_event(AuthEvent::new(
+            "permission.assigned",
+            Some(*user_id),
+            serde_json::json!({ "user_id": user_id, "permission_id": permission_id }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    pub async fn unassign_permission_from_user(
+        &self,
+        user_id: &UserId,
+        permission_id: &PermissionId,
+    ) -> Result<(), AuthError> {
+        self.db()
+            .unassign_permission_from_user(user_id, permission_id)
+            .await?;
+        self.emit_event(AuthEvent::new(
+            "permission.unassigned",
+            Some(*user_id),
+            serde_json::json!({ "user_id": user_id, "permission_id": permission_id }),
+        ))
+        .await;
+        Ok(())
     }
 }

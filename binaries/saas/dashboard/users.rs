@@ -433,7 +433,7 @@ async fn assign_role(
     let Ok(user_id) = raw_id.parse::<UserId>() else {
         return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
     };
-    scope.ath.db().assign_role(&user_id, &form.role_id).await?;
+    scope.ath.assign_role(&user_id, &form.role_id).await?;
     log_admin_action(
         &scope,
         AuditEvent::RoleAssigned,
@@ -451,7 +451,7 @@ async fn unassign_role(
     let Ok(user_id) = raw_id.parse::<UserId>() else {
         return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
     };
-    scope.ath.db().unassign_role(&user_id, &role_id).await?;
+    scope.ath.unassign_role(&user_id, &role_id).await?;
     log_admin_action(
         &scope,
         AuditEvent::RoleUnassigned,
@@ -481,7 +481,6 @@ async fn grant_permission(
     };
     scope
         .ath
-        .db()
         .assign_permission_to_user(&user_id, &form.permission_id)
         .await?;
     log_admin_action(
@@ -507,7 +506,6 @@ async fn revoke_permission(
     };
     scope
         .ath
-        .db()
         .unassign_permission_from_user(&user_id, &permission_id)
         .await?;
     log_admin_action(
