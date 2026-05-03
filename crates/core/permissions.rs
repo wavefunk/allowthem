@@ -259,7 +259,7 @@ impl AllowThem {
             .unassign_permission_from_user(user_id, permission_id)
             .await?;
         self.emit_event(AuthEvent::new(
-            "permission.unassigned",
+            "permission.revoked",
             Some(*user_id),
             serde_json::json!({ "user_id": user_id, "permission_id": permission_id }),
         ))

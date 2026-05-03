@@ -219,7 +219,7 @@ impl AllowThem {
     pub async fn unassign_role(&self, user_id: &UserId, role_id: &RoleId) -> Result<(), AuthError> {
         self.db().unassign_role(user_id, role_id).await?;
         self.emit_event(AuthEvent::new(
-            "role.unassigned",
+            "role.revoked",
             Some(*user_id),
             serde_json::json!({ "user_id": user_id, "role_id": role_id }),
         ))

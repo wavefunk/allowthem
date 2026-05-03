@@ -1678,7 +1678,9 @@ mod tests {
     async fn create_user_emits_user_created() {
         let (ath, captured) = ath_with_sink().await;
         let email = crate::types::Email::new("ev@example.com".into()).unwrap();
-        ath.create_user(email, "pass1234", None, None).await.unwrap();
+        ath.create_user(email, "pass1234", None, None)
+            .await
+            .unwrap();
 
         let events = captured.lock().unwrap();
         assert_eq!(events.len(), 1);
@@ -1709,11 +1711,7 @@ mod tests {
         ath.create_user(email.clone(), "pass1234", None, None)
             .await
             .unwrap();
-        let token = ath
-            .login("ev@example.com", "pass1234")
-            .await
-            .unwrap()
-            .token;
+        let token = ath.login("ev@example.com", "pass1234").await.unwrap().token;
         captured.lock().unwrap().clear();
 
         ath.delete_session(&token).await.unwrap();
@@ -1786,6 +1784,8 @@ mod tests {
             .unwrap();
         let email = crate::types::Email::new("ev@example.com".into()).unwrap();
         // Just confirm this doesn't panic.
-        ath.create_user(email, "pass1234", None, None).await.unwrap();
+        ath.create_user(email, "pass1234", None, None)
+            .await
+            .unwrap();
     }
 }
