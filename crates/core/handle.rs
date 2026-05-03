@@ -5,6 +5,7 @@ use sqlx::SqlitePool;
 
 use crate::db::Db;
 use crate::email::{EmailMessage, EmailSender, EmailTemplate, NoopEmailSender, fallback_username};
+use crate::event_sink::{AuthEvent, EventSink, NoopEventSink};
 use crate::error::AuthError;
 use crate::sessions::{self, SessionConfig};
 use crate::types::{Email, SessionToken, User, UserId};
@@ -58,6 +59,7 @@ pub struct AllowThemBuilder {
     base_url: Option<String>,
     on_user_active: Option<OnUserActive>,
     email_sender: Option<Box<dyn EmailSender>>,
+    event_sink: Option<Box<dyn EventSink>>,
 }
 
 impl AllowThemBuilder {
@@ -78,6 +80,7 @@ impl AllowThemBuilder {
             base_url: None,
             on_user_active: None,
             email_sender: None,
+            event_sink: None,
         }
     }
 
@@ -98,6 +101,7 @@ impl AllowThemBuilder {
             base_url: None,
             on_user_active: None,
             email_sender: None,
+            event_sink: None,
         }
     }
 
@@ -201,6 +205,18 @@ impl AllowThemBuilder {
         self
     }
 
+    /// Register the event sink that fires for every state-changing auth
+    /// operation.
+    ///
+    /// Default is [`NoopEventSink`] (silent). The SaaS binary will register a
+    /// sink that writes rows to `webhook_deliveries` for outbound HTTP delivery
+    /// (epic 7xw.2). Embedded integrators that do not need webhook delivery can
+    /// leave this unset.
+    pub fn event_sink(mut self, sink: Box<dyn EventSink>) -> Self {
+        self.event_sink = Some(sink);
+        self
+    }
+
     /// Construct the [`AllowThem`] handle.
     ///
     /// Connects to (or wraps) the database, runs migrations, and assembles
@@ -227,6 +243,10 @@ impl AllowThemBuilder {
             Box::new(NoopEmailSender)
         });
 
+        let event_sink = self
+            .event_sink
+            .unwrap_or_else(|| Box::new(NoopEventSink));
+
         Ok(AllowThem {
             inner: Arc::new(Inner {
                 db,
@@ -238,6 +258,7 @@ impl AllowThemBuilder {
                 base_url: self.base_url,
                 on_user_active: self.on_user_active,
                 email_sender,
+                event_sink,
             }),
         })
     }
@@ -253,6 +274,7 @@ struct Inner {
     base_url: Option<String>,
     on_user_active: Option<OnUserActive>,
     email_sender: Box<dyn EmailSender>,
+    event_sink: Box<dyn EventSink>,
 }
 
 /// Configured allowthem handle.
@@ -333,6 +355,23 @@ impl AllowThem {
     /// [`AllowThemBuilder::email_sender`].
     pub fn email_sender(&self) -> &dyn EmailSender {
         &*self.inner.email_sender
+    }
+
+    /// Borrow the configured event sink.
+    ///
+    /// Defaults to [`NoopEventSink`] unless overridden via
+    /// [`AllowThemBuilder::event_sink`].
+    pub fn event_sink(&self) -> &dyn EventSink {
+        &*self.inner.event_sink
+    }
+
+    /// Emit an event to the configured sink.
+    ///
+    /// Awaits the sink's `emit` future. Returns when the sink finishes
+    /// (typically a single local DB write or a noop). The sink contract
+    /// forbids panics and errors; this method is unconditionally infallible.
+    pub async fn emit_event(&self, event: AuthEvent) {
+        self.event_sink().emit(&event).await;
     }
 
     // -------------------------------------------------------------------------
