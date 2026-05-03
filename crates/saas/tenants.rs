@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
@@ -6,7 +7,7 @@ use uuid::Uuid;
 
 use allowthem_core::applications::CreateApplicationParams;
 use allowthem_core::types::ClientType;
-use allowthem_core::{AllowThem, ClientSecret};
+use allowthem_core::{AllowThem, ClientSecret, EmailSender};
 
 use crate::control_db::ControlDb;
 use crate::error::{SaasError, map_slug_conflict};
@@ -203,6 +204,11 @@ pub struct TenantBuilderConfig {
     /// `__Host-` requires Secure → requires HTTPS, so dev (HTTP localhost)
     /// uses the plain name and `Secure=false`.
     pub is_production: bool,
+    /// Optional email sender shared across all tenant handles built from this
+    /// config. When `None` the handle falls back to `NoopEmailSender` with a
+    /// startup warning. Set to `Some` in production and in any integration test
+    /// that exercises email flows.
+    pub email_sender: Option<Arc<dyn EmailSender>>,
 }
 
 /// Cookie name for tenant sessions.
@@ -700,6 +706,7 @@ mod tests {
             csrf_key: [3u8; 32],
             base_domain: "test.local".into(),
             is_production: false,
+            email_sender: None,
         }
     }
 

@@ -103,6 +103,20 @@ impl EmailSender for NoopEmailSender {
     }
 }
 
+/// Allow any `Arc<T>` where `T: EmailSender` to be used as an `EmailSender`.
+///
+/// This enables sharing a single sender instance (e.g. `Arc<dyn EmailSender>`)
+/// across multiple owners (e.g. tenant handles and route state) without copying
+/// the underlying implementation.
+impl<T: EmailSender + ?Sized> EmailSender for std::sync::Arc<T> {
+    fn send<'a>(
+        &'a self,
+        message: &'a EmailMessage,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AuthError>> + Send + 'a>> {
+        (**self).send(message)
+    }
+}
+
 /// Derive a display username from a user record.
 ///
 /// Returns `user.username` if set, otherwise falls back to the local part of

@@ -233,8 +233,8 @@ mod tests {
                 signing_key: [0u8; 32],
                 csrf_key: [0u8; 32],
                 base_domain: "test.example.com".into(),
-
                 is_production: false,
+                email_sender: None,
             }),
             1000,
         )

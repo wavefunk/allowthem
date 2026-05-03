@@ -129,15 +129,16 @@ pub(crate) mod tests {
                 .expect("control pool");
             let control_db = Arc::new(ControlDb::new(control_pool).await.expect("ControlDb::new"));
 
+            let email_sender: Arc<dyn EmailSender> = Arc::new(LogEmailSender);
+
             let tenant_config = Arc::new(TenantBuilderConfig {
                 mfa_key: [1u8; 32],
                 signing_key: [2u8; 32],
                 csrf_key: [3u8; 32],
                 base_domain: BASE_DOMAIN.into(),
                 is_production: false,
+                email_sender: Some(email_sender.clone()),
             });
-
-            let email_sender: Arc<dyn EmailSender> = Arc::new(LogEmailSender);
             let signup_state = SignupState {
                 ath: dashboard_ath,
                 control_db: control_db.clone(),

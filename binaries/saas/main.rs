@@ -63,12 +63,18 @@ async fn main() -> Result<()> {
     let slug_cache = SlugCache::new(cfg.cache_max_size, 300);
     let tenant_data_dir = PathBuf::from(&cfg.tenant_data_dir);
 
+    // One `Arc<dyn EmailSender>` instance shared across tenant handles,
+    // SignupState, and DashboardRouterState (via `from_signup`). Keeps log
+    // output and any future swap-in (SMTP, SES) consistent across surfaces.
+    let email_sender: Arc<dyn allowthem_core::EmailSender> = Arc::new(LogEmailSender);
+
     let tenant_config = Arc::new(TenantBuilderConfig {
         mfa_key,
         signing_key,
         csrf_key,
         base_domain: cfg.base_domain.clone(),
         is_production: cfg.is_production,
+        email_sender: Some(email_sender.clone()),
     });
 
     // CLI subcommands handle their own dashboard.db open path. Run them before
@@ -116,16 +122,10 @@ async fn main() -> Result<()> {
         60,
     );
 
-    // One `Arc<dyn EmailSender>` instance shared across the auth router,
-    // SignupState, and DashboardRouterState (via `from_signup`). Keeps log
-    // output and any future swap-in (SMTP, SES) consistent across surfaces.
-    let email_sender: Arc<dyn allowthem_core::EmailSender> = Arc::new(LogEmailSender);
-
     let auth_routes = AllRoutesBuilder::new()
         .templates(build_default_browser_env())
         .is_production(cfg.is_production)
         .base_url(format!("https://{}", cfg.base_domain))
-        .email_sender(email_sender.clone())
         .mfa_issuer(&cfg.base_domain)
         .all_routes()
         .build_for_saas()

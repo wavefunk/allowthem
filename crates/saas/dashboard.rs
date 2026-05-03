@@ -283,6 +283,7 @@ mod tests {
                 csrf_key: [3u8; 32],
                 base_domain: "example.com".into(),
                 is_production: false,
+                email_sender: None,
             }),
             handle_cache: HandleCache::new(10),
             is_production: false,

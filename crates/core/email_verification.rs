@@ -5,9 +5,8 @@ use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 use crate::db::Db;
-use crate::email::{EmailMessage, EmailSender, EmailTemplate, fallback_username};
 use crate::error::AuthError;
-use crate::types::{Email, UserId, VerificationTokenId};
+use crate::types::{UserId, VerificationTokenId};
 
 const VERIFICATION_TTL_HOURS: i64 = 24;
 
@@ -86,42 +85,6 @@ impl Db {
         tx.commit().await.map_err(AuthError::Database)?;
 
         Ok(true)
-    }
-
-    pub async fn send_verification_email(
-        &self,
-        user_id: UserId,
-        email: &Email,
-        base_url: &str,
-        sender: &dyn EmailSender,
-    ) -> Result<(), AuthError> {
-        let raw_token = self.create_email_verification(user_id).await?;
-
-        // Username is best-effort; fall back to email local-part on lookup failure.
-        let username = match self.get_user(user_id).await {
-            Ok(user) => fallback_username(&user),
-            Err(_) => email
-                .as_str()
-                .split('@')
-                .next()
-                .unwrap_or("there")
-                .to_owned(),
-        };
-
-        let verify_url = format!("{}/auth/verify-email?token={}", base_url, raw_token);
-        let message = EmailMessage {
-            to: email.as_str().to_owned(),
-            subject: "Verify your email address".to_owned(),
-            template: EmailTemplate::EmailVerification {
-                url: verify_url,
-                username,
-            },
-        };
-
-        sender
-            .send(&message)
-            .await
-            .map_err(|e| AuthError::Email(e.to_string()))
     }
 }
 

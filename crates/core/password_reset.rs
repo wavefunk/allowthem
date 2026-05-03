@@ -5,7 +5,6 @@ use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 use crate::db::Db;
-use crate::email::{EmailMessage, EmailSender, EmailTemplate, fallback_username};
 use crate::error::AuthError;
 use crate::password::hash_password;
 use crate::types::{Email, ResetTokenId, UserId};
@@ -151,49 +150,6 @@ impl Db {
         tx.commit().await.map_err(AuthError::Database)?;
 
         Ok(true)
-    }
-
-    /// Send a password reset email for the given address.
-    ///
-    /// Calls `create_password_reset` to generate a token. If the email exists,
-    /// constructs a reset URL using `base_url` and delivers it via `sender`.
-    /// If the email does not exist, returns `Ok(())` silently (no enumeration).
-    pub async fn send_password_reset(
-        &self,
-        email: &Email,
-        base_url: &str,
-        sender: &dyn EmailSender,
-    ) -> Result<(), AuthError> {
-        let raw_token = match self.create_password_reset(email).await? {
-            None => return Ok(()),
-            Some(t) => t,
-        };
-
-        // Username is best-effort; fall back to email local-part on lookup failure.
-        let username = match self.get_user_by_email(email).await {
-            Ok(user) => fallback_username(&user),
-            Err(_) => email
-                .as_str()
-                .split('@')
-                .next()
-                .unwrap_or("there")
-                .to_owned(),
-        };
-
-        let reset_url = format!("{}/auth/reset-password?token={}", base_url, raw_token);
-        let message = EmailMessage {
-            to: email.as_str().to_owned(),
-            subject: "Reset your password".to_owned(),
-            template: EmailTemplate::PasswordReset {
-                url: reset_url,
-                username,
-            },
-        };
-
-        sender
-            .send(&message)
-            .await
-            .map_err(|e| AuthError::Email(e.to_string()))
     }
 }
 

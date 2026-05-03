@@ -325,7 +325,6 @@ async fn unblock(
 async fn force_password_reset(
     RequireTenantAdmin(scope): RequireTenantAdmin,
     Path((slug, raw_id)): Path<(String, String)>,
-    State(state): State<DashboardRouterState>,
 ) -> Result<Response, BrowserError> {
     let Ok(user_id) = raw_id.parse::<UserId>() else {
         return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
@@ -335,12 +334,7 @@ async fn force_password_reset(
     scope.ath.db().clear_password_hash(user_id).await?;
     scope.ath.db().delete_user_sessions(&user_id).await?;
 
-    let tenant_base_url = format!("https://{}.{}", scope.tenant.slug, state.base_domain);
-    let send_result = scope
-        .ath
-        .db()
-        .send_password_reset(&user.email, &tenant_base_url, &*state.email_sender)
-        .await;
+    let send_result = scope.ath.send_password_reset_email(&user.email).await;
 
     let note = if send_result.is_ok() {
         "forced password reset (email sent)"

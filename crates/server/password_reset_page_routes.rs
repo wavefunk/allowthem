@@ -13,7 +13,7 @@ use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
-use allowthem_core::{AllowThem, Email, EmailSender};
+use allowthem_core::{AllowThem, Email};
 
 use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
@@ -25,8 +25,6 @@ const MIN_PASSWORD_LEN: usize = 8;
 struct PasswordResetPageConfig {
     templates: Arc<Environment<'static>>,
     is_production: bool,
-    email_sender: Arc<dyn EmailSender>,
-    base_url: String,
 }
 
 #[derive(Deserialize)]
@@ -178,12 +176,7 @@ async fn post_forgot_password(
         }
     };
 
-    let sender: &dyn EmailSender = &*config.email_sender;
-    if let Err(err) = ath
-        .db()
-        .send_password_reset(&email, &config.base_url, sender)
-        .await
-    {
+    if let Err(err) = ath.send_password_reset_email(&email).await {
         tracing::error!("password reset email error: {err}");
     }
 
@@ -425,14 +418,10 @@ async fn is_authenticated(ath: &AllowThem, headers: &HeaderMap) -> bool {
 pub fn password_reset_page_routes(
     templates: Arc<Environment<'static>>,
     is_production: bool,
-    email_sender: Arc<dyn EmailSender>,
-    base_url: String,
 ) -> Router<()> {
     let cfg = PasswordResetPageConfig {
         templates,
         is_production,
-        email_sender,
-        base_url,
     };
     Router::new()
         .route(
@@ -448,8 +437,6 @@ pub fn password_reset_page_routes(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
@@ -466,6 +453,8 @@ mod tests {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .csrf_key(*b"test-csrf-key-for-binary-tests!!")
+            .base_url("http://localhost:3000")
+            .email_sender(Box::new(LogEmailSender))
             .build()
             .await
             .unwrap();
@@ -473,24 +462,17 @@ mod tests {
         let config = PasswordResetPageConfig {
             templates,
             is_production: false,
-            email_sender: Arc::new(LogEmailSender),
-            base_url: "http://localhost:3000".into(),
         };
         (ath, config)
     }
 
     fn test_app(ath: AllowThem, config: PasswordResetPageConfig) -> Router {
-        password_reset_page_routes(
-            config.templates.clone(),
-            config.is_production,
-            config.email_sender.clone(),
-            config.base_url.clone(),
-        )
-        .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
-        .layer(axum::middleware::from_fn_with_state(
-            ath.clone(),
-            crate::cors::inject_ath_into_extensions,
-        ))
+        password_reset_page_routes(config.templates.clone(), config.is_production)
+            .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(
+                ath.clone(),
+                crate::cors::inject_ath_into_extensions,
+            ))
     }
 
     async fn get_csrf_token(app: &Router, path: &str) -> String {
