@@ -69,6 +69,7 @@ impl Fixture {
             base_domain: BASE_DOMAIN.into(),
             is_production: false,
             email_sender: Some(email_sender.clone()),
+            event_sink: None,
         });
 
         let handle_cache = HandleCache::new(10);

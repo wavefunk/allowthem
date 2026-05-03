@@ -222,6 +222,10 @@ pub async fn build_handle_with_path(
         builder = builder.email_sender(Box::new(sender.clone()));
     }
 
+    if let Some(sink) = &config.event_sink {
+        builder = builder.event_sink(Box::new(sink.clone()));
+    }
+
     builder
         .build()
         .await
@@ -441,6 +445,7 @@ mod tests {
                 base_domain: "example.com".into(),
                 is_production: false,
                 email_sender: None,
+                event_sink: None,
             }),
             seen_times: Arc::new(DashMap::new()),
             dashboard_handle: None,

@@ -138,6 +138,7 @@ pub(crate) mod tests {
                 base_domain: BASE_DOMAIN.into(),
                 is_production: false,
                 email_sender: Some(email_sender.clone()),
+                event_sink: None,
             });
             let signup_state = SignupState {
                 ath: dashboard_ath,

@@ -17,7 +17,7 @@ use eyre::Result;
 use serde::Deserialize;
 use tracing_subscriber::EnvFilter;
 
-use allowthem_core::LogEmailSender;
+use allowthem_core::{LogEmailSender, LoggingEventSink};
 use allowthem_saas::control_db::ControlDb;
 use allowthem_saas::{
     DashboardState, HandleCache, ManageState, SlugCache, TenantBuilderConfig, TenantRouterState,
@@ -75,6 +75,7 @@ async fn main() -> Result<()> {
         base_domain: cfg.base_domain.clone(),
         is_production: cfg.is_production,
         email_sender: Some(email_sender.clone()),
+        event_sink: Some(Arc::new(LoggingEventSink)),
     });
 
     // CLI subcommands handle their own dashboard.db open path. Run them before

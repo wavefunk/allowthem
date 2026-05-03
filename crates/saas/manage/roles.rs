@@ -175,6 +175,7 @@ mod tests {
                 base_domain: "test.example.com".into(),
                 is_production: false,
                 email_sender: None,
+                event_sink: None,
             }),
             1000,
         )

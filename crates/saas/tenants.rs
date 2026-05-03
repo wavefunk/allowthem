@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use allowthem_core::applications::CreateApplicationParams;
 use allowthem_core::types::ClientType;
-use allowthem_core::{AllowThem, ClientSecret, EmailSender};
+use allowthem_core::{AllowThem, ClientSecret, EmailSender, EventSink};
 
 use crate::control_db::ControlDb;
 use crate::error::{SaasError, map_slug_conflict};
@@ -209,6 +209,9 @@ pub struct TenantBuilderConfig {
     /// startup warning. Set to `Some` in production and in any integration test
     /// that exercises email flows.
     pub email_sender: Option<Arc<dyn EmailSender>>,
+    /// Optional event sink. When `None` the handle uses `NoopEventSink` (silent).
+    /// Set to `Some(Arc::new(LoggingEventSink))` in dev, or a real sink in production.
+    pub event_sink: Option<Arc<dyn EventSink>>,
 }
 
 /// Cookie name for tenant sessions.
@@ -707,6 +710,7 @@ mod tests {
             base_domain: "test.local".into(),
             is_production: false,
             email_sender: None,
+            event_sink: None,
         }
     }
 
