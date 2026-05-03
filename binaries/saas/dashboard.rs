@@ -17,6 +17,7 @@ pub mod quickstart;
 pub mod quickstart_cache;
 pub mod signup;
 pub mod state;
+pub mod stubs;
 pub mod templates;
 pub mod users;
 

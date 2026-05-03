@@ -203,6 +203,30 @@ pub async fn provision_tenant_for_user(
     Ok(result)
 }
 
+/// Result returned by [`dashboard_register_for_invite`].
+pub struct RegisterForInviteResult {
+    /// The newly-created dashboard user.
+    pub user: allowthem_core::User,
+    /// `Set-Cookie` header value for the new dashboard session.
+    pub set_cookie: String,
+}
+
+/// Create a dashboard user from an accepted invite token.
+///
+/// Like [`dashboard_signup`] but without tenant provisioning — the tenant
+/// already exists and the caller has already validated the invite token.
+/// The invite acceptance itself (clearing `invite_token_hash`) is handled
+/// separately by [`ControlDb::accept_invite`] after this call succeeds.
+///
+/// Body filled in by Step 13.
+pub async fn dashboard_register_for_invite(
+    _state: &DashboardState,
+    _email: String,
+    _password: String,
+) -> Result<RegisterForInviteResult, DashboardSignupError> {
+    todo!("filled in by Step 13")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

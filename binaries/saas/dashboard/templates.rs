@@ -50,6 +50,13 @@ const USER_PERMISSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_p
 const USER_SESSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_sessions.html");
 const USER_AUDIT_PARTIAL: &str = include_str!("templates/_partials/_user_audit.html");
 
+// Coming-soon stub pages (99c.5 Step 6).
+const COMING_SOON_PARTIAL: &str = include_str!("templates/_partials/_coming_soon.html");
+const SETTINGS_WEBHOOKS_HTML: &str = include_str!("templates/settings/webhooks.html");
+const SETTINGS_EMAIL_HTML: &str = include_str!("templates/settings/email.html");
+const SETTINGS_SOCIAL_HTML: &str = include_str!("templates/settings/social.html");
+const SETTINGS_DOMAIN_HTML: &str = include_str!("templates/settings/domain.html");
+
 pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     let mut env = Environment::new();
 
@@ -143,6 +150,18 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
         .expect("_partials/_user_sessions.html");
     env.add_template_owned("_partials/_user_audit.html", USER_AUDIT_PARTIAL)
         .expect("_partials/_user_audit.html");
+
+    // Coming-soon stub pages (99c.5 Step 6).
+    env.add_template_owned("_partials/_coming_soon.html", COMING_SOON_PARTIAL)
+        .expect("_partials/_coming_soon.html");
+    env.add_template_owned("settings/webhooks.html", SETTINGS_WEBHOOKS_HTML)
+        .expect("settings/webhooks.html");
+    env.add_template_owned("settings/email.html", SETTINGS_EMAIL_HTML)
+        .expect("settings/email.html");
+    env.add_template_owned("settings/social.html", SETTINGS_SOCIAL_HTML)
+        .expect("settings/social.html");
+    env.add_template_owned("settings/domain.html", SETTINGS_DOMAIN_HTML)
+        .expect("settings/domain.html");
 
     Arc::new(env)
 }
