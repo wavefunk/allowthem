@@ -4,18 +4,20 @@
    - email: String
    - role: "owner" | "admin" | "viewer"
    - token: String
+   - csrf_token: String
 #}
 {% extends "_partials/_auth_shell.html" %}
 
 {% block title %}Accept invite — {{ tenant.name }}{% endblock %}
 
-{% block content %}
+{% block auth_main %}
   <div class="wf-auth-wrap">
     <h1 class="wf-auth-title">Join {{ tenant.name }}</h1>
     <p class="wf-auth-sub">
       Accept the invite to join as <strong>{{ role }}</strong>?
     </p>
     <form method="post" action="/invite/{{ token }}" class="wf-auth-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <button type="submit" class="wf-btn primary full">Accept invite</button>
     </form>
     <p class="wf-auth-sub">

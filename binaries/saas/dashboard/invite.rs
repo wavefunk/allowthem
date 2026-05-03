@@ -9,15 +9,18 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::http::header::{LOCATION, SET_COOKIE};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::get;
 use minijinja::context;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use allowthem_core::Email;
-use allowthem_saas::dashboard::{DashboardSignupError, RegisterForInviteResult, dashboard_register_for_invite};
+use allowthem_saas::dashboard::{
+    DashboardSignupError, RegisterForInviteResult, dashboard_register_for_invite,
+};
 use allowthem_saas::{DashboardState, SaasError};
 use allowthem_server::browser_error::BrowserError;
+use allowthem_server::csrf::CsrfToken;
 
 use super::auth_helpers::current_dashboard_user;
 use super::state::DashboardRouterState;
@@ -27,8 +30,7 @@ use super::state::DashboardRouterState;
 // ---------------------------------------------------------------------------
 
 pub fn invite_routes() -> Router<DashboardRouterState> {
-    Router::new()
-        .route("/invite/{token}", get(show).post(accept))
+    Router::new().route("/invite/{token}", get(show).post(accept))
 }
 
 // ---------------------------------------------------------------------------
@@ -39,8 +41,6 @@ pub fn invite_routes() -> Router<DashboardRouterState> {
 pub struct InviteAcceptForm {
     #[serde(default)]
     pub password: String,
-    #[serde(default)]
-    pub email: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -92,18 +92,15 @@ pub async fn show(
     State(state): State<DashboardRouterState>,
     Path(token): Path<String>,
     headers: axum::http::HeaderMap,
+    csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
     let hash = hash_token(&token);
 
     let member = match state.control_db.find_pending_invite_by_hash(&hash).await {
         Ok(Some(m)) => m,
         _ => {
-            return render(
-                &state,
-                "invite/expired.html",
-                context! {},
-            )
-            .map(IntoResponse::into_response);
+            return render(&state, "invite/expired.html", context! {})
+                .map(IntoResponse::into_response);
         }
     };
 
@@ -118,7 +115,9 @@ pub async fn show(
     let tenant = match state.control_db.tenant_by_id(&tenant_id).await {
         Ok(Some(t)) => t,
         _ => {
-            return Err(BrowserError::from(allowthem_core::error::AuthError::NotFound));
+            return Err(BrowserError::from(
+                allowthem_core::error::AuthError::NotFound,
+            ));
         }
     };
 
@@ -138,6 +137,7 @@ pub async fn show(
                     email => member.email.clone(),
                     role => member.role.as_str(),
                     token => token,
+                    csrf_token => csrf.as_str(),
                 },
             )
             .map(IntoResponse::into_response);
@@ -184,6 +184,7 @@ pub async fn show(
             role => member.role.as_str(),
             token => token,
             error => "",
+            csrf_token => csrf.as_str(),
         },
     )
     .map(IntoResponse::into_response)
@@ -193,6 +194,7 @@ pub async fn accept(
     State(state): State<DashboardRouterState>,
     Path(token): Path<String>,
     headers: axum::http::HeaderMap,
+    csrf: CsrfToken,
     axum::Form(form): axum::Form<InviteAcceptForm>,
 ) -> Result<Response, BrowserError> {
     let hash = hash_token(&token);
@@ -202,12 +204,8 @@ pub async fn accept(
         let pending = match state.control_db.find_pending_invite_by_hash(&hash).await {
             Ok(Some(m)) => m,
             _ => {
-                return render(
-                    &state,
-                    "invite/expired.html",
-                    context! {},
-                )
-                .map(IntoResponse::into_response);
+                return render(&state, "invite/expired.html", context! {})
+                    .map(IntoResponse::into_response);
             }
         };
 
@@ -221,7 +219,9 @@ pub async fn accept(
         let tenant = match state.control_db.tenant_by_id(&tenant_id).await {
             Ok(Some(t)) => t,
             _ => {
-                return Err(BrowserError::from(allowthem_core::error::AuthError::NotFound));
+                return Err(BrowserError::from(
+                    allowthem_core::error::AuthError::NotFound,
+                ));
             }
         };
 
@@ -250,6 +250,7 @@ pub async fn accept(
                             role => pending.role.as_str(),
                             token => token,
                             error => "Invalid email address.",
+                            csrf_token => csrf.as_str(),
                         },
                     )
                     .map(IntoResponse::into_response);
@@ -265,6 +266,7 @@ pub async fn accept(
                             role => pending.role.as_str(),
                             token => token,
                             error => "Account creation failed. Please try again.",
+                            csrf_token => csrf.as_str(),
                         },
                     )
                     .map(IntoResponse::into_response);
@@ -291,10 +293,7 @@ pub async fn accept(
         let location = format!("/t/{}", tenant.slug);
         return Ok((
             StatusCode::SEE_OTHER,
-            [
-                (SET_COOKIE, registered.set_cookie),
-                (LOCATION, location),
-            ],
+            [(SET_COOKIE, registered.set_cookie), (LOCATION, location)],
         )
             .into_response());
     }
@@ -326,11 +325,18 @@ pub async fn accept(
 
     let tenant_id = match pending.tenant_id_as_tenant_id() {
         Some(tid) => tid,
-        None => return render(&state, "invite/expired.html", context! {}).map(IntoResponse::into_response),
+        None => {
+            return render(&state, "invite/expired.html", context! {})
+                .map(IntoResponse::into_response);
+        }
     };
     let tenant = match state.control_db.tenant_by_id(&tenant_id).await {
         Ok(Some(t)) => t,
-        _ => return Err(BrowserError::from(allowthem_core::error::AuthError::NotFound)),
+        _ => {
+            return Err(BrowserError::from(
+                allowthem_core::error::AuthError::NotFound,
+            ));
+        }
     };
 
     match state.control_db.accept_invite(&hash).await {

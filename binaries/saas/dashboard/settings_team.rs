@@ -22,7 +22,9 @@ use allowthem_saas::{MemberId, SaasError, TenantId, TenantRole};
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, RequireTenantOwner, TenantScope};
+use super::extractors::{
+    HtmlForm, RequireTenantAdmin, RequireTenantMember, RequireTenantOwner, TenantScope,
+};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -38,10 +40,7 @@ pub fn team_routes() -> Router<DashboardRouterState> {
             "/t/{slug}/settings/team/{member_id}/role",
             post(update_role),
         )
-        .route(
-            "/t/{slug}/settings/team/{member_id}/remove",
-            post(remove),
-        )
+        .route("/t/{slug}/settings/team/{member_id}/remove", post(remove))
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +154,7 @@ async fn log_team_audit(
 
 /// Parse a member UUID string from a path segment, returning a redirect to the
 /// team list if unparseable.
+#[allow(clippy::result_large_err)]
 fn parse_member_id(raw: &str, slug: &str) -> Result<MemberId, Response> {
     Uuid::parse_str(raw)
         .map(MemberId::from)
@@ -222,7 +222,9 @@ pub async fn invite(
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).timestamp();
 
     let Some(uuid) = scope.tenant.id_as_uuid() else {
-        return Err(BrowserError::from(allowthem_core::error::AuthError::NotFound));
+        return Err(BrowserError::from(
+            allowthem_core::error::AuthError::NotFound,
+        ));
     };
     let tenant_id = TenantId::from(uuid);
 
@@ -249,12 +251,17 @@ pub async fn invite(
         }
         Err(e) => {
             tracing::error!(error = %e, "invite_member failed");
-            return render_invite_error(&state, &scope, csrf.as_str(), "Invite failed. Try again.").await;
+            return render_invite_error(&state, &scope, csrf.as_str(), "Invite failed. Try again.")
+                .await;
         }
     }
 
     // Send invite email — fire-and-forget; failure logs but does not block.
-    let invite_url = format!("https://{}/invite/{}", state.base_domain, raw_token.as_str());
+    let invite_url = format!(
+        "https://{}/invite/{}",
+        state.base_domain,
+        raw_token.as_str()
+    );
     let subject = format!("You've been invited to {}", scope.tenant.name);
     let text_body = format!(
         "You've been invited to {}. Accept here: {}\n(This invite expires in 7 days.)",
@@ -305,7 +312,11 @@ pub async fn update_role(
         ))
     })?;
 
-    match state.control_db.update_member_role(&member_id, new_role).await {
+    match state
+        .control_db
+        .update_member_role(&member_id, new_role)
+        .await
+    {
         Ok(()) => {}
         Err(SaasError::CannotDemoteLastOwner) => {
             // Re-render list with a flash error.
@@ -363,12 +374,13 @@ pub async fn remove(
         .await
         .unwrap_or(None);
 
-    if let Some(ref t) = target {
-        if matches!(t.role, TenantRole::Owner) && !matches!(scope.role, TenantRole::Owner) {
-            return Err(BrowserError::Auth(allowthem_core::AuthError::Forbidden(
-                "Admins cannot remove owners. Ask an owner to do it.".into(),
-            )));
-        }
+    if let Some(ref t) = target
+        && matches!(t.role, TenantRole::Owner)
+        && !matches!(scope.role, TenantRole::Owner)
+    {
+        return Err(BrowserError::Auth(allowthem_core::AuthError::Forbidden(
+            "Admins cannot remove owners. Ask an owner to do it.".into(),
+        )));
     }
 
     let email_for_audit = target.as_ref().map(|t| t.email.clone()).unwrap_or_default();
