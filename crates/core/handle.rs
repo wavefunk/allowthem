@@ -4,6 +4,7 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx::SqlitePool;
 
 use crate::db::Db;
+use crate::email::{EmailSender, NoopEmailSender};
 use crate::error::AuthError;
 use crate::sessions::{self, SessionConfig};
 use crate::types::{SessionToken, User, UserId};
@@ -56,6 +57,7 @@ pub struct AllowThemBuilder {
     csrf_key: Option<[u8; 32]>,
     base_url: Option<String>,
     on_user_active: Option<OnUserActive>,
+    email_sender: Option<Box<dyn EmailSender>>,
 }
 
 impl AllowThemBuilder {
@@ -75,6 +77,7 @@ impl AllowThemBuilder {
             csrf_key: None,
             base_url: None,
             on_user_active: None,
+            email_sender: None,
         }
     }
 
@@ -94,6 +97,7 @@ impl AllowThemBuilder {
             csrf_key: None,
             base_url: None,
             on_user_active: None,
+            email_sender: None,
         }
     }
 
@@ -181,6 +185,22 @@ impl AllowThemBuilder {
         self
     }
 
+    /// Register the email sender used by every email-bearing flow
+    /// (password reset, email verification, invitations, MFA recovery).
+    ///
+    /// Default is [`NoopEmailSender`], which silently drops messages — call
+    /// this method for any production deployment. A `tracing::warn!` is
+    /// emitted at build time if the default is left in place.
+    ///
+    /// Email flows that compose URLs (`send_password_reset_email`,
+    /// `send_verification_email`) also require [`base_url`] to be set.
+    ///
+    /// [`base_url`]: AllowThemBuilder::base_url
+    pub fn email_sender(mut self, sender: Box<dyn EmailSender>) -> Self {
+        self.email_sender = Some(sender);
+        self
+    }
+
     /// Construct the [`AllowThem`] handle.
     ///
     /// Connects to (or wraps) the database, runs migrations, and assembles
@@ -198,6 +218,15 @@ impl AllowThemBuilder {
             secure: self.cookie_secure.unwrap_or(defaults.secure),
         };
 
+        let email_sender = self.email_sender.unwrap_or_else(|| {
+            tracing::warn!(
+                "no email_sender configured; defaulting to NoopEmailSender — \
+                 outgoing emails (password reset, verification, invitation, \
+                 MFA recovery) will be silently dropped",
+            );
+            Box::new(NoopEmailSender)
+        });
+
         Ok(AllowThem {
             inner: Arc::new(Inner {
                 db,
@@ -208,6 +237,7 @@ impl AllowThemBuilder {
                 csrf_key: self.csrf_key,
                 base_url: self.base_url,
                 on_user_active: self.on_user_active,
+                email_sender,
             }),
         })
     }
@@ -222,6 +252,7 @@ struct Inner {
     csrf_key: Option<[u8; 32]>,
     base_url: Option<String>,
     on_user_active: Option<OnUserActive>,
+    email_sender: Box<dyn EmailSender>,
 }
 
 /// Configured allowthem handle.
@@ -294,6 +325,14 @@ impl AllowThem {
     /// handle.
     pub fn on_user_active(&self) -> Option<&OnUserActive> {
         self.inner.on_user_active.as_ref()
+    }
+
+    /// Borrow the configured email sender.
+    ///
+    /// Defaults to [`NoopEmailSender`] unless overridden via
+    /// [`AllowThemBuilder::email_sender`].
+    pub fn email_sender(&self) -> &dyn EmailSender {
+        &*self.inner.email_sender
     }
 
     /// Fire the `on_user_active` callback, if configured.
