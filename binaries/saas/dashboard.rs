@@ -77,15 +77,15 @@ pub async fn open_dashboard_handle(
     Ok(ath)
 }
 
-/// Dashboard-only routes (application CRUD; users + settings land in
-/// 99c.4 / 99c.5 / 99c.6).
+/// Dashboard-only routes (application CRUD, user management, audit log).
 ///
-/// `csrf_middleware` is layered on the whole router; only POST handlers
-/// are gated by it but layering once keeps the wiring single-line.
+/// `csrf_middleware` is layered on the whole composed router so every POST
+/// handler is covered without per-sub-router wiring.
 pub fn dashboard_pages_router(state: state::DashboardRouterState) -> Router {
     Router::new()
         .merge(applications::application_routes())
         .merge(audit::audit_routes())
+        .merge(users::user_routes())
         .layer(axum::middleware::from_fn(
             allowthem_server::csrf::csrf_middleware,
         ))
@@ -178,6 +178,18 @@ mod tests {
         // 99c.5 audit log.
         "/t/test-slug/audit",
         "/t/test-slug/audit/export.csv",
+        // 99c.4 user management.
+        "/t/test-slug/users",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000/block",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000/unblock",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000/force-password-reset",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000/revoke-sessions",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000/delete",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000/roles",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000/roles/00000000-0000-0000-0000-000000000001/remove",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000/permissions",
+        "/t/test-slug/users/00000000-0000-0000-0000-000000000000/permissions/00000000-0000-0000-0000-000000000001/remove",
     ];
 
     #[tokio::test]
