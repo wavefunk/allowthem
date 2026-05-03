@@ -1327,6 +1327,55 @@ mod tests {
         assert_eq!(count, 0, "no consents for unknown application");
     }
 
+    // count_applications tests (99c.6 Step 2)
+
+    async fn make_app(db: &crate::db::Db) -> Application {
+        let (app, _) = db
+            .create_application(CreateApplicationParams {
+                name: "Test App".into(),
+                client_type: crate::types::ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
+            .await
+            .expect("create_application");
+        app
+    }
+
+    #[tokio::test]
+    async fn count_applications_zero_on_empty_db() {
+        let db = crate::db::Db::connect("sqlite::memory:")
+            .await
+            .expect("in-memory db");
+        let n = db.count_applications().await.expect("count_applications");
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn count_applications_after_create() {
+        let db = crate::db::Db::connect("sqlite::memory:")
+            .await
+            .expect("in-memory db");
+        make_app(&db).await;
+        make_app(&db).await;
+        make_app(&db).await;
+        let n = db.count_applications().await.expect("count_applications");
+        assert_eq!(n, 3);
+    }
+
     #[cfg(test)]
     mod branding_config_builder_tests {
         use super::*;

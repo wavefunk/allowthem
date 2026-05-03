@@ -712,4 +712,24 @@ mod tests {
         assert_eq!(result.total, 2);
         assert_eq!(result.users.len(), 2);
     }
+
+    // count_users tests (99c.6 Step 2)
+
+    #[tokio::test]
+    async fn count_users_zero_on_empty_db() {
+        let ath = setup().await;
+        let n = ath.db().count_users().await.expect("count_users");
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn count_users_after_create() {
+        let ath = setup().await;
+        let db = ath.db();
+        make_user(db, 1).await;
+        make_user(db, 2).await;
+        make_user(db, 3).await;
+        let n = db.count_users().await.expect("count_users");
+        assert_eq!(n, 3);
+    }
 }
