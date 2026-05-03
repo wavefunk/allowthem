@@ -1,0 +1,52 @@
+{# _user_actions.html — block/unblock, force-reset, revoke sessions, delete.
+   Rendered only for admin and owner roles (parent template guards this).
+   Context: tenant, user, actor_role, csrf_token.
+#}
+<div class="wf-panel" style="margin:16px 24px 0">
+  <div class="wf-panel-head">
+    <div class="wf-panel-title">Actions</div>
+  </div>
+  <div class="wf-panel-body" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start;">
+
+    {% if user.is_active %}
+      <form method="POST"
+            action="/t/{{ tenant.slug }}/users/{{ user.id }}/block"
+            onsubmit="return confirm('Block {{ user.email }}? Their sessions will be terminated.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button class="wf-btn danger sm" type="submit">Block</button>
+      </form>
+    {% else %}
+      <form method="POST"
+            action="/t/{{ tenant.slug }}/users/{{ user.id }}/unblock"
+            onsubmit="return confirm('Unblock {{ user.email }}?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button class="wf-btn primary sm" type="submit">Unblock</button>
+      </form>
+    {% endif %}
+
+    <form method="POST"
+          action="/t/{{ tenant.slug }}/users/{{ user.id }}/force-password-reset"
+          onsubmit="return confirm('Force a password reset for {{ user.email }}? Their sessions will be terminated and a reset email will be sent.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button class="wf-btn sm" type="submit">Force password reset</button>
+    </form>
+
+    <form method="POST"
+          action="/t/{{ tenant.slug }}/users/{{ user.id }}/revoke-sessions"
+          onsubmit="return confirm('Revoke all sessions for {{ user.email }}?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button class="wf-btn sm" type="submit">Revoke all sessions</button>
+    </form>
+
+    {% if actor_role == "owner" %}
+      <form method="POST"
+            action="/t/{{ tenant.slug }}/users/{{ user.id }}/delete"
+            onsubmit="return confirm('Permanently delete {{ user.email }}? This cannot be undone.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <input type="hidden" name="confirm" value="DELETE" />
+        <button class="wf-btn danger sm" type="submit">Delete user</button>
+      </form>
+    {% endif %}
+
+  </div>
+</div>

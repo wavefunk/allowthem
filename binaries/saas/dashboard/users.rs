@@ -20,18 +20,22 @@
 //! `allowthem_audit_log` with the actor's email in the detail string.
 
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use minijinja::context;
 use serde::Deserialize;
 
-use allowthem_core::audit::AuditEvent;
+use allowthem_core::audit::{AuditEvent, SearchAuditParams};
+use allowthem_core::sessions::ListSessionsParams;
 use allowthem_core::types::UserId;
 use allowthem_core::users::SearchUsersParams;
 use allowthem_server::browser_error::BrowserError;
+use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{RequireTenantMember, TenantScope};
+use super::extractors::{
+    HtmlForm, RequireTenantAdmin, RequireTenantMember, RequireTenantOwner, TenantScope,
+};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -39,9 +43,8 @@ use super::state::DashboardRouterState;
 // Router
 // ---------------------------------------------------------------------------
 
-/// All `/t/{slug}/users…` routes for the dashboard. Step 11 mounts this
-/// inside `dashboard_pages_router` so the CSRF middleware covers POSTs.
-#[allow(dead_code)] // Step 11 wires this into dashboard_pages_router.
+/// All `/t/{slug}/users…` routes for the dashboard, mounted into
+/// `dashboard_pages_router` so the CSRF middleware covers POSTs.
 pub fn user_routes() -> Router<DashboardRouterState> {
     Router::new()
         .route("/t/{slug}/users", get(list))
@@ -112,14 +115,11 @@ fn parse_yes_no(s: &Option<String>) -> Option<bool> {
     }
 }
 
-// Audit-log fetch cap on the detail page.
-#[allow(dead_code)] // Step 4 wires this into the detail handler.
+/// Number of most-recent audit entries to display on the detail page.
 const RECENT_AUDIT_LIMIT: u32 = 10;
 
 // ---------------------------------------------------------------------------
-// Stubs — bodies land in Steps 3..10. The router isn't mounted in
-// `dashboard_pages_router` until Step 11, so these `unimplemented!()`
-// markers are unreachable from HTTP traffic until the wiring step lands.
+// Handlers
 // ---------------------------------------------------------------------------
 
 async fn list(
@@ -197,54 +197,337 @@ fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
     }
 }
 
-#[allow(dead_code)]
-async fn detail() -> axum::response::Response {
-    unimplemented!("users::detail lands in 99c.4 Step 4")
+// ---------- Step 4: Detail ----------
+
+/// Query-string parameters read by the detail page for flash messages
+/// posted back from action handlers (Steps 6, 7, 8).
+#[derive(Debug, Deserialize, Default)]
+struct DetailQuery {
+    #[serde(default)]
+    info: String,
+    #[serde(default)]
+    error: String,
 }
 
-#[allow(dead_code)]
-async fn block() -> Redirect {
-    unimplemented!("users::block lands in 99c.4 Step 5")
+async fn detail(
+    RequireTenantMember(scope): RequireTenantMember,
+    Path((_slug, raw_id)): Path<(String, String)>,
+    Query(q): Query<DetailQuery>,
+    csrf: CsrfToken,
+    State(state): State<DashboardRouterState>,
+) -> Result<Response, BrowserError> {
+    let user_id = match raw_id.parse::<UserId>() {
+        Ok(id) => id,
+        Err(_) => {
+            return Ok(
+                Redirect::to(&format!("/t/{}/users", scope.tenant.slug)).into_response(),
+            );
+        }
+    };
+
+    let user = scope.ath.db().get_user(user_id).await?;
+    let roles = scope.ath.db().get_user_roles(&user_id).await?;
+    let direct_permissions = scope.ath.db().get_user_permissions(&user_id).await?;
+    let mfa_enabled = scope.ath.db().has_mfa_enabled(user_id).await?;
+    let sessions = scope
+        .ath
+        .db()
+        .list_all_sessions(ListSessionsParams {
+            user_id: Some(user_id),
+            limit: 50,
+            offset: 0,
+        })
+        .await?;
+    let audit = scope
+        .ath
+        .db()
+        .search_audit_log(SearchAuditParams {
+            user_id: Some(user_id),
+            event_type: None,
+            is_success: None,
+            from: None,
+            to: None,
+            limit: RECENT_AUDIT_LIMIT,
+            offset: 0,
+        })
+        .await?;
+    // search_audit_log orders by created_at DESC; the first Login entry is
+    // the most recent successful login.
+    let last_login = audit
+        .entries
+        .iter()
+        .find(|e| matches!(e.event_type, AuditEvent::Login))
+        .map(|e| e.created_at.to_rfc3339());
+
+    let all_roles = scope.ath.db().list_roles().await?;
+    let all_permissions = scope.ath.db().list_permissions().await?;
+
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/users", scope.tenant.slug),
+        scope.role,
+    );
+
+    let tmpl = state
+        .templates
+        .get_template("users/detail.html")
+        .map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! {
+            tenant => tenant_ctx(&scope.tenant),
+            role => role_str(&scope),
+            nav_sections => nav,
+            user => &user,
+            roles => roles,
+            direct_permissions => direct_permissions,
+            mfa_enabled => mfa_enabled,
+            sessions => &sessions.sessions,
+            last_login => last_login,
+            audit_entries => &audit.entries,
+            all_roles => all_roles,
+            all_permissions => all_permissions,
+            actor_role => role_str(&scope),
+            csrf_token => csrf.as_str(),
+            flash_info => &q.info,
+            flash_error => &q.error,
+        })
+        .map_err(BrowserError::from)?;
+    Ok(axum::response::Html(body).into_response())
 }
 
-#[allow(dead_code)]
-async fn unblock() -> Redirect {
-    unimplemented!("users::unblock lands in 99c.4 Step 5")
+// ---------- Step 5: Block / Unblock ----------
+
+async fn block(
+    RequireTenantAdmin(scope): RequireTenantAdmin,
+    Path((slug, raw_id)): Path<(String, String)>,
+) -> Result<Response, BrowserError> {
+    let Ok(user_id) = raw_id.parse::<UserId>() else {
+        return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
+    };
+    scope.ath.db().update_user_active(user_id, false).await?;
+    scope.ath.db().delete_user_sessions(&user_id).await?;
+    log_admin_action(&scope, AuditEvent::UserUpdated, user_id, "blocked").await;
+    Ok(Redirect::to(&format!("/t/{slug}/users/{user_id}")).into_response())
 }
 
-#[allow(dead_code)]
-async fn force_password_reset() -> axum::response::Response {
-    unimplemented!("users::force_password_reset lands in 99c.4 Step 6")
+async fn unblock(
+    RequireTenantAdmin(scope): RequireTenantAdmin,
+    Path((slug, raw_id)): Path<(String, String)>,
+) -> Result<Response, BrowserError> {
+    let Ok(user_id) = raw_id.parse::<UserId>() else {
+        return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
+    };
+    scope.ath.db().update_user_active(user_id, true).await?;
+    log_admin_action(&scope, AuditEvent::UserUpdated, user_id, "unblocked").await;
+    Ok(Redirect::to(&format!("/t/{slug}/users/{user_id}")).into_response())
 }
 
-#[allow(dead_code)]
-async fn revoke_sessions() -> axum::response::Response {
-    unimplemented!("users::revoke_sessions lands in 99c.4 Step 7")
+// ---------- Step 6: Force password reset ----------
+
+async fn force_password_reset(
+    RequireTenantAdmin(scope): RequireTenantAdmin,
+    Path((slug, raw_id)): Path<(String, String)>,
+    State(state): State<DashboardRouterState>,
+) -> Result<Response, BrowserError> {
+    let Ok(user_id) = raw_id.parse::<UserId>() else {
+        return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
+    };
+    let user = scope.ath.db().get_user(user_id).await?;
+
+    scope.ath.db().clear_password_hash(user_id).await?;
+    scope.ath.db().delete_user_sessions(&user_id).await?;
+
+    let tenant_base_url = format!("https://{}.{}", scope.tenant.slug, state.base_domain);
+    let send_result = scope
+        .ath
+        .db()
+        .send_password_reset(&user.email, &tenant_base_url, &*state.email_sender)
+        .await;
+
+    let note = if send_result.is_ok() {
+        "forced password reset (email sent)"
+    } else {
+        "forced password reset (email failed)"
+    };
+    log_admin_action(&scope, AuditEvent::PasswordReset, user_id, note).await;
+
+    let target = format!("/t/{slug}/users/{user_id}");
+    let redirect = if send_result.is_ok() {
+        redirect_with_flash(&target, Some("Password cleared. Reset email sent."), None)
+    } else {
+        redirect_with_flash(
+            &target,
+            None,
+            Some(
+                "Password cleared, but the reset email could not be sent. \
+                 Ask the user to use 'Forgot password' on the login page.",
+            ),
+        )
+    };
+    Ok(redirect.into_response())
 }
 
-#[allow(dead_code)]
-async fn delete_user() -> Redirect {
-    unimplemented!("users::delete_user lands in 99c.4 Step 8")
+// ---------- Step 7: Revoke all sessions ----------
+
+async fn revoke_sessions(
+    RequireTenantAdmin(scope): RequireTenantAdmin,
+    Path((slug, raw_id)): Path<(String, String)>,
+) -> Result<Response, BrowserError> {
+    let Ok(user_id) = raw_id.parse::<UserId>() else {
+        return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
+    };
+    let n = scope.ath.db().delete_user_sessions(&user_id).await?;
+    log_admin_action(
+        &scope,
+        AuditEvent::Logout,
+        user_id,
+        &format!("revoked {n} sessions"),
+    )
+    .await;
+    let flash = format!("Revoked {n} session(s).");
+    Ok(redirect_with_flash(
+        &format!("/t/{slug}/users/{user_id}"),
+        Some(&flash),
+        None,
+    )
+    .into_response())
 }
 
-#[allow(dead_code)]
-async fn assign_role() -> Redirect {
-    unimplemented!("users::assign_role lands in 99c.4 Step 9")
+// ---------- Step 8: Delete user (owner-only, double-confirm) ----------
+
+#[derive(Deserialize)]
+struct DeleteForm {
+    confirm: String,
+    #[allow(dead_code)]
+    csrf_token: String,
 }
 
-#[allow(dead_code)]
-async fn unassign_role() -> Redirect {
-    unimplemented!("users::unassign_role lands in 99c.4 Step 9")
+async fn delete_user(
+    RequireTenantOwner(scope): RequireTenantOwner,
+    Path((slug, raw_id)): Path<(String, String)>,
+    HtmlForm(form): HtmlForm<DeleteForm>,
+) -> Result<Response, BrowserError> {
+    let Ok(user_id) = raw_id.parse::<UserId>() else {
+        return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
+    };
+
+    if form.confirm != "DELETE" {
+        return Ok(Redirect::to(&format!(
+            "/t/{slug}/users/{user_id}?error=confirm_required"
+        ))
+        .into_response());
+    }
+
+    // Audit before delete — audit_log.user_id has no FK so the row
+    // persists even after the user record is removed.
+    log_admin_action(&scope, AuditEvent::UserDeleted, user_id, "deleted").await;
+
+    scope.ath.db().delete_user(user_id).await?;
+    Ok(Redirect::to(&format!("/t/{slug}/users")).into_response())
 }
 
-#[allow(dead_code)]
-async fn grant_permission() -> Redirect {
-    unimplemented!("users::grant_permission lands in 99c.4 Step 10")
+// ---------- Step 9: Role assign / unassign ----------
+
+#[derive(Deserialize)]
+struct AssignRoleForm {
+    role_id: allowthem_core::types::RoleId,
+    #[allow(dead_code)]
+    csrf_token: String,
 }
 
-#[allow(dead_code)]
-async fn revoke_permission() -> Redirect {
-    unimplemented!("users::revoke_permission lands in 99c.4 Step 10")
+async fn assign_role(
+    RequireTenantAdmin(scope): RequireTenantAdmin,
+    Path((slug, raw_id)): Path<(String, String)>,
+    HtmlForm(form): HtmlForm<AssignRoleForm>,
+) -> Result<Response, BrowserError> {
+    let Ok(user_id) = raw_id.parse::<UserId>() else {
+        return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
+    };
+    scope.ath.db().assign_role(&user_id, &form.role_id).await?;
+    log_admin_action(
+        &scope,
+        AuditEvent::RoleAssigned,
+        user_id,
+        &format!("role={}", form.role_id),
+    )
+    .await;
+    Ok(Redirect::to(&format!("/t/{slug}/users/{user_id}")).into_response())
+}
+
+async fn unassign_role(
+    RequireTenantAdmin(scope): RequireTenantAdmin,
+    Path((slug, raw_id, role_id)): Path<(String, String, allowthem_core::types::RoleId)>,
+) -> Result<Response, BrowserError> {
+    let Ok(user_id) = raw_id.parse::<UserId>() else {
+        return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
+    };
+    scope.ath.db().unassign_role(&user_id, &role_id).await?;
+    log_admin_action(
+        &scope,
+        AuditEvent::RoleUnassigned,
+        user_id,
+        &format!("role={role_id}"),
+    )
+    .await;
+    Ok(Redirect::to(&format!("/t/{slug}/users/{user_id}")).into_response())
+}
+
+// ---------- Step 10: Permission grant / revoke ----------
+
+#[derive(Deserialize)]
+struct GrantPermissionForm {
+    permission_id: allowthem_core::types::PermissionId,
+    #[allow(dead_code)]
+    csrf_token: String,
+}
+
+async fn grant_permission(
+    RequireTenantAdmin(scope): RequireTenantAdmin,
+    Path((slug, raw_id)): Path<(String, String)>,
+    HtmlForm(form): HtmlForm<GrantPermissionForm>,
+) -> Result<Response, BrowserError> {
+    let Ok(user_id) = raw_id.parse::<UserId>() else {
+        return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
+    };
+    scope
+        .ath
+        .db()
+        .assign_permission_to_user(&user_id, &form.permission_id)
+        .await?;
+    log_admin_action(
+        &scope,
+        AuditEvent::PermissionAssigned,
+        user_id,
+        &format!("perm={}", form.permission_id),
+    )
+    .await;
+    Ok(Redirect::to(&format!("/t/{slug}/users/{user_id}")).into_response())
+}
+
+async fn revoke_permission(
+    RequireTenantAdmin(scope): RequireTenantAdmin,
+    Path((slug, raw_id, permission_id)): Path<(
+        String,
+        String,
+        allowthem_core::types::PermissionId,
+    )>,
+) -> Result<Response, BrowserError> {
+    let Ok(user_id) = raw_id.parse::<UserId>() else {
+        return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
+    };
+    scope
+        .ath
+        .db()
+        .unassign_permission_from_user(&user_id, &permission_id)
+        .await?;
+    log_admin_action(
+        &scope,
+        AuditEvent::PermissionUnassigned,
+        user_id,
+        &format!("perm={permission_id}"),
+    )
+    .await;
+    Ok(Redirect::to(&format!("/t/{slug}/users/{user_id}")).into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -252,13 +535,10 @@ async fn revoke_permission() -> Redirect {
 // ---------------------------------------------------------------------------
 
 /// Render a redirect response with optional `info` / `error` flash params.
-/// The detail handler (Step 4) reads `Query<DetailQuery>` and threads these
-/// into the template render context where `_partials/_flash.html` renders
-/// them. Query-string-based to avoid adding a session-flash dependency.
+/// The detail handler reads `Query<DetailQuery>` and threads these into the
+/// template render context. Query-string-based to avoid a session-flash dep.
 /// Flash strings are server-authored, so a minimal `qs_encode` covers the
-/// chars that would corrupt query parsing — full RFC 3986 encoding would
-/// just add a workspace dep we don't carry today.
-#[allow(dead_code)] // Steps 6, 7, 8 use this for flash redirects.
+/// chars that would corrupt query parsing.
 fn redirect_with_flash(target: &str, info: Option<&str>, error: Option<&str>) -> Redirect {
     let mut url = target.to_string();
     let mut sep = if target.contains('?') { '&' } else { '?' };
@@ -279,7 +559,6 @@ fn redirect_with_flash(target: &str, info: Option<&str>, error: Option<&str>) ->
 /// Minimal query-string encoder. Replaces `&`, `=`, `#`, `?`, `+`, `%`,
 /// space; non-ASCII bytes get percent-encoded byte-by-byte. Sufficient for
 /// the server-authored flash strings used here.
-#[allow(dead_code)]
 fn qs_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -299,22 +578,9 @@ fn qs_encode(s: &str) -> String {
     out
 }
 
-/// Parse a path-bound user id, redirecting to the tenant's user list on
-/// malformed input (matches `binaries/standalone/admin_users.rs` shape).
-/// `Box`es the `Response` to keep the `Result` size small (clippy lint).
-#[allow(dead_code)] // Steps 5..10 use this for path-id parsing.
-fn parse_user_id(
-    raw: &str,
-    slug: &str,
-) -> Result<UserId, Box<axum::response::Response>> {
-    raw.parse::<UserId>()
-        .map_err(|_| Box::new(Redirect::to(&format!("/t/{slug}/users")).into_response()))
-}
-
 /// Write one audit-log row tagging the actor. The detail string carries
 /// the actor's email so the row is queryable / human-readable even after
 /// the target user is deleted (`allowthem_audit_log.user_id` has no FK).
-#[allow(dead_code)] // Steps 5..10 invoke this on every successful action.
 async fn log_admin_action(
     scope: &TenantScope,
     event: AuditEvent,

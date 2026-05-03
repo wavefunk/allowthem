@@ -43,6 +43,12 @@ const APPLICATIONS_DETAIL_HTML: &str = include_str!("templates/applications/deta
 const APPLICATIONS_EDIT_HTML: &str = include_str!("templates/applications/edit.html");
 const AUDIT_LIST_HTML: &str = include_str!("templates/audit/list.html");
 const USERS_LIST_HTML: &str = include_str!("templates/users/list.html");
+const USERS_DETAIL_HTML: &str = include_str!("templates/users/detail.html");
+const USER_ACTIONS_PARTIAL: &str = include_str!("templates/_partials/_user_actions.html");
+const USER_ROLES_PARTIAL: &str = include_str!("templates/_partials/_user_roles.html");
+const USER_PERMISSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_permissions.html");
+const USER_SESSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_sessions.html");
+const USER_AUDIT_PARTIAL: &str = include_str!("templates/_partials/_user_audit.html");
 
 pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     let mut env = Environment::new();
@@ -122,9 +128,24 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     env.add_template_owned("audit/list.html", AUDIT_LIST_HTML)
         .expect("audit/list.html");
 
-    // User management list (99c.4).
+    // User management (99c.4).
     env.add_template_owned("users/list.html", USERS_LIST_HTML)
         .expect("users/list.html");
+    env.add_template_owned("users/detail.html", USERS_DETAIL_HTML)
+        .expect("users/detail.html");
+    env.add_template_owned("_partials/_user_actions.html", USER_ACTIONS_PARTIAL)
+        .expect("_partials/_user_actions.html");
+    env.add_template_owned("_partials/_user_roles.html", USER_ROLES_PARTIAL)
+        .expect("_partials/_user_roles.html");
+    env.add_template_owned(
+        "_partials/_user_permissions.html",
+        USER_PERMISSIONS_PARTIAL,
+    )
+    .expect("_partials/_user_permissions.html");
+    env.add_template_owned("_partials/_user_sessions.html", USER_SESSIONS_PARTIAL)
+        .expect("_partials/_user_sessions.html");
+    env.add_template_owned("_partials/_user_audit.html", USER_AUDIT_PARTIAL)
+        .expect("_partials/_user_audit.html");
 
     Arc::new(env)
 }

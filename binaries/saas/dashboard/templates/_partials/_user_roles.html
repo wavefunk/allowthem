@@ -1,0 +1,49 @@
+{# _user_roles.html — current roles + assign/unassign for admin/owner.
+   Context: tenant, user, roles (Vec<Role>), all_roles (Vec<Role>),
+            actor_role, csrf_token.
+#}
+<div class="wf-panel" style="margin:16px 24px 0">
+  <div class="wf-panel-head">
+    <div class="wf-panel-title">Roles</div>
+  </div>
+  <div class="wf-panel-body">
+    {% if roles %}
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">
+        {% for role in roles %}
+          <span class="wf-tag accent">
+            {{ role.name }}
+            {% if actor_role == "owner" or actor_role == "admin" %}
+              <form method="POST"
+                    action="/t/{{ tenant.slug }}/users/{{ user.id }}/roles/{{ role.id }}/remove"
+                    style="display:inline; margin-left:4px;"
+                    onsubmit="return confirm('Remove role {{ role.name }}?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                <button type="submit" class="wf-tag-remove" title="Remove">×</button>
+              </form>
+            {% endif %}
+          </span>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="wf-empty">No roles assigned.</p>
+    {% endif %}
+
+    {% if actor_role == "owner" or actor_role == "admin" %}
+      {% if all_roles %}
+        <form method="POST"
+              action="/t/{{ tenant.slug }}/users/{{ user.id }}/roles"
+              style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <select name="role_id">
+            {% for r in all_roles %}
+              <option value="{{ r.id }}">{{ r.name }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="wf-btn sm primary">Assign role</button>
+        </form>
+      {% else %}
+        <p class="wf-empty" style="font-size:0.85em;">No roles defined yet.</p>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>

@@ -1,0 +1,49 @@
+{# _user_permissions.html — direct permissions + grant/revoke for admin/owner.
+   Context: tenant, user, direct_permissions (Vec<Permission>),
+            all_permissions (Vec<Permission>), actor_role, csrf_token.
+#}
+<div class="wf-panel" style="margin:16px 24px 0">
+  <div class="wf-panel-head">
+    <div class="wf-panel-title">Direct permissions</div>
+  </div>
+  <div class="wf-panel-body">
+    {% if direct_permissions %}
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">
+        {% for perm in direct_permissions %}
+          <span class="wf-tag">
+            {{ perm.name }}
+            {% if actor_role == "owner" or actor_role == "admin" %}
+              <form method="POST"
+                    action="/t/{{ tenant.slug }}/users/{{ user.id }}/permissions/{{ perm.id }}/remove"
+                    style="display:inline; margin-left:4px;"
+                    onsubmit="return confirm('Revoke permission {{ perm.name }}?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                <button type="submit" class="wf-tag-remove" title="Remove">×</button>
+              </form>
+            {% endif %}
+          </span>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="wf-empty">No direct permissions assigned.</p>
+    {% endif %}
+
+    {% if actor_role == "owner" or actor_role == "admin" %}
+      {% if all_permissions %}
+        <form method="POST"
+              action="/t/{{ tenant.slug }}/users/{{ user.id }}/permissions"
+              style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <select name="permission_id">
+            {% for p in all_permissions %}
+              <option value="{{ p.id }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="wf-btn sm primary">Grant permission</button>
+        </form>
+      {% else %}
+        <p class="wf-empty" style="font-size:0.85em;">No permissions defined yet.</p>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
