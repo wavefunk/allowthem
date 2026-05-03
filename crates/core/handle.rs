@@ -307,9 +307,9 @@ impl AllowThem {
         };
         let now = Utc::now();
         let cb = cb.clone();
-        if let Err(_payload) = std::panic::catch_unwind(
-            std::panic::AssertUnwindSafe(move || cb(user_id, now)),
-        ) {
+        if let Err(_payload) =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || cb(user_id, now)))
+        {
             tracing::error!(user_id = %user_id, "on_user_active callback panicked");
         }
     }
@@ -405,10 +405,7 @@ impl AllowThem {
     /// Does not verify credentials. Intended for use after OAuth, TOTP, or
     /// other non-password authentication flows. The calling flow is responsible
     /// for audit logging.
-    pub async fn create_session_cookie(
-        &self,
-        user_id: UserId,
-    ) -> Result<LoginOutcome, AuthError> {
+    pub async fn create_session_cookie(&self, user_id: UserId) -> Result<LoginOutcome, AuthError> {
         let user = self.db().get_user(user_id).await?;
         let token = sessions::generate_token();
         let token_hash = sessions::hash_token(&token);

@@ -12,6 +12,7 @@ use crate::applications::CreateApplicationParams;
 use crate::authorization::hash_authorization_code;
 use crate::db::Db;
 use crate::error::AuthError;
+use crate::handle::OnUserActive;
 use crate::signing_keys::SigningKey;
 #[cfg(test)]
 use crate::types::ClientType;
@@ -356,6 +357,7 @@ pub async fn exchange_authorization_code(
     issuer: &str,
     signing_key: &SigningKey,
     private_key_pem: &str,
+    on_user_active: Option<&OnUserActive>,
 ) -> Result<TokenResponse, TokenError> {
     // 1. Hash the presented code and look it up
     let code_hash = hash_authorization_code(code);
@@ -477,6 +479,18 @@ pub async fn exchange_authorization_code(
     )
     .await
     .map_err(|e| TokenError::ServerError(e.to_string()))?;
+
+    // 13. Fire active-user callback (MAU tracking). Errors/panics are swallowed.
+    if let Some(cb) = on_user_active {
+        let now = Utc::now();
+        let user_id = auth_code.user_id;
+        let cb = cb.clone();
+        if let Err(_payload) =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || cb(user_id, now)))
+        {
+            tracing::error!(user_id = %user_id, "on_user_active callback panicked");
+        }
+    }
 
     Ok(TokenResponse {
         access_token,
@@ -912,6 +926,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -945,6 +960,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -959,6 +975,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -979,6 +996,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -999,6 +1017,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -1019,6 +1038,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -1098,6 +1118,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -1146,6 +1167,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -1220,6 +1242,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1246,6 +1269,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1276,6 +1300,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1308,6 +1333,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1336,6 +1362,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1363,6 +1390,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1399,6 +1427,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1433,6 +1462,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1464,6 +1494,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1498,6 +1529,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1560,6 +1592,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1597,6 +1630,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1629,6 +1663,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1658,6 +1693,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1690,6 +1726,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1734,6 +1771,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
