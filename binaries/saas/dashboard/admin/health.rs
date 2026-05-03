@@ -27,7 +27,7 @@ fn compute_fs_stats(dir: &std::path::Path) -> FsStats {
             return FsStats {
                 total_bytes: 0,
                 top: Vec::new(),
-            }
+            };
         }
     };
 
@@ -36,17 +36,17 @@ fn compute_fs_stats(dir: &std::path::Path) -> FsStats {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_file() {
-            if let Ok(meta) = std::fs::metadata(&path) {
-                let size = meta.len();
-                total_bytes += size;
-                let name = path
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned();
-                files.push((name, size));
-            }
+        if path.is_file()
+            && let Ok(meta) = std::fs::metadata(&path)
+        {
+            let size = meta.len();
+            total_bytes += size;
+            let name = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            files.push((name, size));
         }
     }
 
@@ -102,4 +102,74 @@ pub async fn page(
         })
         .map_err(BrowserError::from)?;
     Ok(Html(body).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `compute_fs_stats` must sum total bytes and return files sorted
+    /// descending by size.
+    #[test]
+    fn compute_fs_stats_happy_path() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        std::fs::write(dir.path().join("alpha.db"), vec![0u8; 100]).expect("alpha");
+        std::fs::write(dir.path().join("beta.db"), vec![0u8; 200]).expect("beta");
+        std::fs::write(dir.path().join("gamma.db"), vec![0u8; 50]).expect("gamma");
+
+        let stats = compute_fs_stats(dir.path());
+
+        assert_eq!(
+            stats.total_bytes, 350,
+            "total_bytes must be the sum of all file sizes"
+        );
+        assert_eq!(stats.top.len(), 3, "all three files must appear in top");
+        // Sorted descending: beta(200), alpha(100), gamma(50).
+        assert_eq!(stats.top[0].0, "beta");
+        assert_eq!(stats.top[0].1, 200);
+        assert_eq!(stats.top[1].0, "alpha");
+        assert_eq!(stats.top[1].1, 100);
+        assert_eq!(stats.top[2].0, "gamma");
+        assert_eq!(stats.top[2].1, 50);
+    }
+
+    /// A non-existent directory must return an empty `FsStats` rather than
+    /// panicking.
+    #[test]
+    fn compute_fs_stats_missing_dir() {
+        let stats = compute_fs_stats(std::path::Path::new("/this/path/does/not/exist"));
+        assert_eq!(
+            stats.total_bytes, 0,
+            "missing dir must yield total_bytes = 0"
+        );
+        assert!(
+            stats.top.is_empty(),
+            "missing dir must yield an empty top list"
+        );
+    }
+
+    /// When there are more than 10 files, `top` must be truncated to 10
+    /// entries (the largest ones).
+    #[test]
+    fn compute_fs_stats_truncates_to_10() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        for i in 0..12u64 {
+            let name = format!("file{i:02}.db");
+            // Give each file a distinct size so sort order is deterministic.
+            std::fs::write(dir.path().join(&name), vec![0u8; (i + 1) as usize])
+                .expect("write file");
+        }
+
+        let stats = compute_fs_stats(dir.path());
+
+        assert_eq!(stats.top.len(), 10, "top must be capped at 10 entries");
+        // The top entry must be the largest file (file11, size 12).
+        assert_eq!(
+            stats.top[0].1, 12,
+            "largest file must be first; got {} bytes",
+            stats.top[0].1
+        );
+    }
 }

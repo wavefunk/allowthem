@@ -1230,8 +1230,7 @@ async fn viewer_cannot_create() {
     let fx = Fixture::new().await;
     let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
     // Viewer has their own tenant ("viewer-ws") so they have a dashboard account.
-    let (viewer_cookie, _) =
-        signup_and_get_session(&fx, "viewer@example.com", "viewer-ws").await;
+    let (viewer_cookie, _) = signup_and_get_session(&fx, "viewer@example.com", "viewer-ws").await;
     // Add them to "acme" with viewer role.
     insert_tenant_member(&fx, "acme", "viewer@example.com", "viewer").await;
 
@@ -1289,7 +1288,11 @@ async fn admin_can_create_and_delete() {
     );
 
     // Find the app by name to get its id.
-    let apps = ath.db().list_applications().await.expect("list_applications");
+    let apps = ath
+        .db()
+        .list_applications()
+        .await
+        .expect("list_applications");
     let app = apps
         .iter()
         .find(|a| a.name == "Admin App")
@@ -1314,7 +1317,11 @@ async fn admin_can_create_and_delete() {
         .unwrap_or("");
     assert_eq!(loc, "/t/acme/applications", "delete must redirect to list");
 
-    let remaining = ath.db().list_applications().await.expect("list after delete");
+    let remaining = ath
+        .db()
+        .list_applications()
+        .await
+        .expect("list after delete");
     assert!(
         remaining.iter().all(|a| a.name != "Admin App"),
         "deleted app must not appear in list"
@@ -1353,7 +1360,11 @@ async fn connected_users_count_renders() {
     let ath = tenant_ath_for_slug(&fx, "acme").await;
 
     // The default app is provisioned by signup.
-    let apps = ath.db().list_applications().await.expect("list_applications");
+    let apps = ath
+        .db()
+        .list_applications()
+        .await
+        .expect("list_applications");
     let app = apps.first().expect("default app exists after signup");
 
     // Create two tenant users and grant them consent on the default app.
@@ -1469,7 +1480,10 @@ async fn user_role_rejection_matrix() {
         (format!("{user_base}/roles"), false),
         (format!("{user_base}/roles/{role_id_str}/remove"), false),
         (format!("{user_base}/permissions"), false),
-        (format!("{user_base}/permissions/{perm_id_str}/remove"), false),
+        (
+            format!("{user_base}/permissions/{perm_id_str}/remove"),
+            false,
+        ),
     ];
 
     // Viewer must be rejected (403) on every route — extractor fires before handler.
@@ -1564,7 +1578,11 @@ async fn force_password_reset_clears_hash_and_sessions() {
             Some(&session_cookie),
         )
         .await;
-    assert_eq!(resp.status(), StatusCode::SEE_OTHER, "force reset must redirect");
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "force reset must redirect"
+    );
 
     // Password hash must be NULL in the tenant DB.
     let (hash,): (Option<String>,) =
@@ -1628,7 +1646,11 @@ async fn assign_and_unassign_role_round_trip() {
             Some(&session_cookie),
         )
         .await;
-    assert_eq!(assign_resp.status(), StatusCode::SEE_OTHER, "assign must redirect");
+    assert_eq!(
+        assign_resp.status(),
+        StatusCode::SEE_OTHER,
+        "assign must redirect"
+    );
 
     let roles_after_assign = ath
         .db()
@@ -1648,7 +1670,11 @@ async fn assign_and_unassign_role_round_trip() {
             Some(&session_cookie),
         )
         .await;
-    assert_eq!(unassign_resp.status(), StatusCode::SEE_OTHER, "unassign must redirect");
+    assert_eq!(
+        unassign_resp.status(),
+        StatusCode::SEE_OTHER,
+        "unassign must redirect"
+    );
 
     let roles_after_unassign = ath
         .db()
@@ -1701,7 +1727,11 @@ async fn grant_and_revoke_permission_round_trip() {
             Some(&session_cookie),
         )
         .await;
-    assert_eq!(grant_resp.status(), StatusCode::SEE_OTHER, "grant must redirect");
+    assert_eq!(
+        grant_resp.status(),
+        StatusCode::SEE_OTHER,
+        "grant must redirect"
+    );
 
     let perms_after_grant = ath
         .db()
@@ -1721,7 +1751,11 @@ async fn grant_and_revoke_permission_round_trip() {
             Some(&session_cookie),
         )
         .await;
-    assert_eq!(revoke_resp.status(), StatusCode::SEE_OTHER, "revoke must redirect");
+    assert_eq!(
+        revoke_resp.status(),
+        StatusCode::SEE_OTHER,
+        "revoke must redirect"
+    );
 
     let perms_after_revoke = ath
         .db()
@@ -1765,7 +1799,11 @@ async fn delete_user_missing_confirm_redirects() {
             Some(&session_cookie),
         )
         .await;
-    assert_eq!(resp.status(), StatusCode::SEE_OTHER, "missing confirm must redirect");
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "missing confirm must redirect"
+    );
     let loc = resp
         .headers()
         .get(header::LOCATION)
@@ -1782,4 +1820,1001 @@ async fn delete_user_missing_confirm_redirects() {
         still_there.is_ok(),
         "user must still exist after rejected delete"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 99c.5 — settings, team, invite, stubs, API keys
+// ---------------------------------------------------------------------------
+
+/// Insert a pending invite row directly via ControlDb::invite_member.
+/// Returns the raw token string that should be used in the URL.
+async fn seed_pending_invite(
+    fx: &Fixture,
+    slug: &str,
+    invitee_email: &str,
+    role: allowthem_saas::TenantRole,
+    raw_token: &str,
+) {
+    use sha2::{Digest, Sha256};
+
+    let tenant = fx
+        .state
+        .control_db
+        .tenant_by_slug(slug)
+        .await
+        .expect("tenant_by_slug")
+        .expect("tenant exists");
+    let tenant_id = allowthem_saas::TenantId::from(tenant.id_as_uuid().unwrap());
+    let token_hash = Sha256::digest(raw_token.as_bytes()).to_vec();
+    let expires_at = chrono::Utc::now().timestamp() + 7 * 24 * 3600;
+    fx.state
+        .control_db
+        .invite_member(&tenant_id, invitee_email, role, &token_hash, expires_at)
+        .await
+        .expect("invite_member");
+}
+
+/// GET /invite/{token} with an optional pre-auth CSRF cookie, returning the
+/// response and extracting the csrf_pre cookie if a new one was set.
+async fn get_invite_page(
+    fx: &Fixture,
+    raw_token: &str,
+    pre_auth_cookie: Option<&str>,
+) -> axum::response::Response {
+    let mut req = Request::builder()
+        .method("GET")
+        .uri(format!("/invite/{raw_token}"))
+        .header(header::HOST, BASE_DOMAIN);
+    if let Some(c) = pre_auth_cookie {
+        req = req.header(header::COOKIE, c);
+    }
+    let req = req.body(Body::empty()).expect("build GET");
+    fx.app.clone().oneshot(req).await.expect("oneshot")
+}
+
+/// Extract the `csrf_pre=<value>` portion from the Set-Cookie headers in a response.
+fn extract_csrf_pre_cookie(resp: &axum::response::Response) -> Option<String> {
+    resp.headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .find_map(|hv| {
+            hv.to_str()
+                .ok()
+                .filter(|s| s.starts_with("csrf_pre="))
+                .and_then(|s| s.split(';').next())
+                .map(str::to_owned)
+        })
+}
+
+/// Full invite flow for a brand-new user (no prior dashboard account).
+///
+/// Flow:
+/// 1. Owner signs up → tenant "acme" exists.
+/// 2. A pending invite for newguy@example.com is seeded with a known token.
+/// 3. GET /invite/{token} → 200, register form rendered.
+/// 4. POST /invite/{token} with password → 303 to /t/acme.
+/// 5. Invite row is marked accepted; newguy@example.com has a dashboard account.
+#[tokio::test]
+async fn invite_new_user_full_flow() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let raw_token = "invite-new-user-test-token-99c5";
+    seed_pending_invite(
+        &fx,
+        "acme",
+        "newguy@example.com",
+        allowthem_saas::TenantRole::Admin,
+        raw_token,
+    )
+    .await;
+
+    // GET without any cookie — should render register form and set csrf_pre cookie.
+    let get_resp = get_invite_page(&fx, raw_token, None).await;
+    assert_eq!(get_resp.status(), StatusCode::OK, "invite GET must be 200");
+    let csrf_cookie = extract_csrf_pre_cookie(&get_resp)
+        .expect("csrf_pre cookie set on unauthenticated invite GET");
+    let csrf_token = csrf_cookie.strip_prefix("csrf_pre=").unwrap().to_owned();
+    let html = body_string(get_resp).await;
+    assert!(
+        html.contains("Create account"),
+        "register form must be rendered for new user"
+    );
+
+    // POST with the csrf_pre cookie + matching token in body.
+    let resp = fx
+        .post_form(
+            &format!("/invite/{raw_token}"),
+            &[("csrf_token", &csrf_token), ("password", "supersecret")],
+            Some(&csrf_cookie),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "POST invite (new user) must redirect"
+    );
+    let location = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(location, "/t/acme", "must redirect to tenant dashboard");
+
+    // A session cookie must be set for the newly-created user.
+    let session_set = resp.headers().get_all(header::SET_COOKIE).iter().any(|hv| {
+        hv.to_str()
+            .map(|s| s.starts_with("allowthem_dashboard_session="))
+            .unwrap_or(false)
+    });
+    assert!(
+        session_set,
+        "session cookie must be set after invite accept"
+    );
+
+    // Dashboard user exists.
+    let user = fx
+        .state
+        .ath
+        .db()
+        .get_user_by_email(&Email::new("newguy@example.com".into()).unwrap())
+        .await
+        .expect("newguy must now have a dashboard user account");
+    assert_eq!(user.email.as_str(), "newguy@example.com");
+
+    // Invite row is marked accepted (find_pending_invite_by_hash returns None).
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(raw_token.as_bytes()).to_vec();
+    let pending = fx
+        .state
+        .control_db
+        .find_pending_invite_by_hash(&hash)
+        .await
+        .expect("find_pending_invite_by_hash");
+    assert!(
+        pending.is_none(),
+        "invite must be consumed after acceptance"
+    );
+}
+
+/// Full invite flow for a user who already has a dashboard account (existing-user branch).
+///
+/// Flow:
+/// 1. owner@acme.com signs up → tenant "acme".
+/// 2. owner@beta.com signs up → tenant "beta".
+/// 3. beta-owner invites acme-owner's email to "beta".
+/// 4. GET /invite/{token} while logged in as acme-owner → accept.html.
+/// 5. POST /invite/{token} (no password, just session + csrf) → 303 to /t/beta.
+/// 6. Invite row accepted.
+#[tokio::test]
+async fn invite_existing_user_full_flow() {
+    let fx = Fixture::new().await;
+    let (acme_session, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (_beta_session, _) = signup_and_get_session(&fx, "owner@beta.com", "beta").await;
+
+    let raw_token = "invite-existing-user-test-token-99c5";
+    seed_pending_invite(
+        &fx,
+        "beta",
+        "owner@acme.com",
+        allowthem_saas::TenantRole::Admin,
+        raw_token,
+    )
+    .await;
+
+    // GET while logged in as acme-owner — must render accept.html, not register.html.
+    let csrf =
+        fetch_csrf_for_authed_form(&fx, &format!("/invite/{raw_token}"), &acme_session).await;
+
+    let html = {
+        let resp = get_authed(&fx, &format!("/invite/{raw_token}"), &acme_session).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "invite GET for existing user must be 200"
+        );
+        body_string(resp).await
+    };
+    assert!(
+        html.contains("Accept invite"),
+        "accept.html confirm button must be rendered"
+    );
+    assert!(
+        !html.contains("Create account"),
+        "register form must NOT appear for existing user"
+    );
+
+    // POST — no password, just session cookie + csrf.
+    let resp = fx
+        .post_form(
+            &format!("/invite/{raw_token}"),
+            &[("csrf_token", &csrf)],
+            Some(&acme_session),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "POST invite (existing user) must redirect"
+    );
+    let location = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(location, "/t/beta", "must redirect to beta dashboard");
+
+    // Invite row consumed.
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(raw_token.as_bytes()).to_vec();
+    let pending = fx
+        .state
+        .control_db
+        .find_pending_invite_by_hash(&hash)
+        .await
+        .expect("find_pending_invite_by_hash");
+    assert!(
+        pending.is_none(),
+        "invite must be consumed after existing-user acceptance"
+    );
+}
+
+/// POST to demote the last owner via the HTTP route must re-render the team
+/// page with a friendly error — not 500 or a silent no-op.
+#[tokio::test]
+async fn last_owner_demote_via_http_shows_error() {
+    let fx = Fixture::new().await;
+    let (owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    // Find the owner's member_id.
+    let tenant = fx
+        .state
+        .control_db
+        .tenant_by_slug("acme")
+        .await
+        .unwrap()
+        .unwrap();
+    let tenant_id = allowthem_saas::TenantId::from(tenant.id_as_uuid().unwrap());
+    let members = fx
+        .state
+        .control_db
+        .list_tenant_members(&tenant_id)
+        .await
+        .expect("list_tenant_members");
+    let owner_member = members
+        .iter()
+        .find(|m| m.email == "owner@acme.com")
+        .expect("owner member row");
+    let member_id_str = owner_member
+        .id_as_member_id()
+        .unwrap()
+        .as_uuid()
+        .to_string();
+
+    // Fetch CSRF from the team list page.
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/team", &owner_cookie).await;
+
+    // Attempt to demote the last owner to admin.
+    let resp = fx
+        .post_form(
+            &format!("/t/acme/settings/team/{member_id_str}/role"),
+            &[("csrf_token", &csrf), ("role", "admin")],
+            Some(&owner_cookie),
+        )
+        .await;
+
+    // Must re-render (200), not 500 or redirect.
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "demote last owner must re-render with error"
+    );
+    let body = body_string(resp).await;
+    assert!(
+        body.contains("Cannot demote the last owner"),
+        "error message must mention last-owner invariant, got: {body}"
+    );
+}
+
+/// All four stub settings pages must return 200 and contain "Coming soon".
+#[tokio::test]
+async fn stub_pages_return_200_with_coming_soon() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let stub_paths = [
+        "/t/acme/settings/webhooks",
+        "/t/acme/settings/email",
+        "/t/acme/settings/social",
+        "/t/acme/settings/domain",
+    ];
+
+    for path in &stub_paths {
+        let resp = get_authed(&fx, path, &session_cookie).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "stub page {path} must return 200"
+        );
+        let body = body_string(resp).await;
+        assert!(
+            body.contains("Coming soon"),
+            "stub page {path} must contain 'Coming soon'"
+        );
+    }
+}
+
+/// Authz smoke: viewers can read roles/permissions but not write; admins
+/// cannot post to billing/upgrade (owner-only).
+#[tokio::test]
+async fn authz_smoke_viewer_and_admin_enforcement() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (viewer_cookie, _) = signup_and_get_session(&fx, "viewer@viewer-ws.com", "viewer-ws").await;
+    let (admin_cookie, _) = signup_and_get_session(&fx, "admin@admin-ws.com", "admin-ws").await;
+
+    insert_tenant_member(&fx, "acme", "viewer@viewer-ws.com", "viewer").await;
+    insert_tenant_member(&fx, "acme", "admin@admin-ws.com", "admin").await;
+
+    // Viewer can GET roles list.
+    let resp = get_authed(&fx, "/t/acme/roles", &viewer_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK, "viewer can read roles");
+
+    // Viewer cannot POST to create a role — RequireTenantAdmin must fire.
+    // Need a CSRF token; viewer is owner of "viewer-ws" so can fetch one from there.
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/viewer-ws/roles/new", &viewer_cookie).await;
+    let resp = fx
+        .post_form(
+            "/t/acme/roles",
+            &[
+                ("csrf_token", &csrf),
+                ("name", "Evil Role"),
+                ("description", ""),
+            ],
+            Some(&viewer_cookie),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "viewer must not create roles"
+    );
+
+    // Admin cannot POST to billing/upgrade — RequireTenantOwner must fire.
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/admin-ws/settings/billing", &admin_cookie).await;
+    let resp = fx
+        .post_form(
+            "/t/acme/settings/billing/upgrade",
+            &[("csrf_token", &csrf)],
+            Some(&admin_cookie),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "admin must not access billing/upgrade (owner-only)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 99c.6 — super-admin panel integration tests
+// ---------------------------------------------------------------------------
+
+/// Sign up `email` / `slug` and assign the `super_admin` dashboard role.
+/// Returns the session cookie.
+async fn setup_super_admin(fx: &Fixture, email: &str, slug: &str) -> String {
+    let (cookie, _) = signup_and_get_session(fx, email, slug).await;
+    let user = fx
+        .state
+        .ath
+        .db()
+        .get_user_by_email(&Email::new(email.to_owned()).unwrap())
+        .await
+        .expect("get_user_by_email");
+    let role_name = allowthem_core::types::RoleName::new("super_admin");
+    let role = fx
+        .state
+        .ath
+        .db()
+        .create_role(&role_name, None)
+        .await
+        .expect("create super_admin role");
+    fx.state
+        .ath
+        .db()
+        .assign_role(&user.id, &role.id)
+        .await
+        .expect("assign super_admin role");
+    cookie
+}
+
+/// Count rows in `control_audit_events` matching the given `action` string.
+async fn count_control_audit(fx: &Fixture, action: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM control_audit_events WHERE action = ?")
+        .bind(action)
+        .fetch_one(fx.state.control_db.pool())
+        .await
+        .expect("count control audit")
+}
+
+// ---- resolve_scope super-admin fall-through ----
+
+/// A super-admin who is not a member of a tenant must still receive 200.
+/// The middleware must write a `superadmin.tenant_accessed` row in the
+/// control audit log on every such request.
+#[tokio::test]
+async fn super_admin_can_access_tenant_without_membership() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa-corp.com", "sa-corp").await;
+
+    let before = count_control_audit(&fx, "superadmin.tenant_accessed").await;
+
+    let resp = get_authed(&fx, "/t/acme/applications", &sadmin_cookie).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "super_admin must be granted access to any tenant"
+    );
+
+    let after = count_control_audit(&fx, "superadmin.tenant_accessed").await;
+    assert_eq!(
+        after - before,
+        1,
+        "one superadmin.tenant_accessed row expected; delta was {}",
+        after - before
+    );
+}
+
+/// A regular user who is not a member of a tenant must receive 404.
+/// No `superadmin.tenant_accessed` row must be written.
+#[tokio::test]
+async fn non_super_admin_non_member_gets_404() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (outsider_cookie, _) =
+        signup_and_get_session(&fx, "outsider@test.com", "outsider-ws").await;
+
+    let before = count_control_audit(&fx, "superadmin.tenant_accessed").await;
+
+    let resp = get_authed(&fx, "/t/acme/applications", &outsider_cookie).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "non-member without super_admin must not see tenant resources"
+    );
+
+    let after = count_control_audit(&fx, "superadmin.tenant_accessed").await;
+    assert_eq!(
+        after - before,
+        0,
+        "no audit row must be written for a failed non-super-admin access attempt"
+    );
+}
+
+/// Super-admin acting on a user in a foreign tenant must produce audit rows
+/// in both the control log and the tenant-local audit log, and the targeted
+/// mutation must actually take effect.
+#[tokio::test]
+async fn super_admin_drill_into_tenant_writes_dual_audit() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa-corp.com", "sa-corp").await;
+
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+    let target = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("target@acme.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("create target user");
+
+    let control_before = count_control_audit(&fx, "superadmin.tenant_accessed").await;
+    let tenant_before: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_audit_log WHERE user_id = ?")
+            .bind(target.id)
+            .fetch_one(ath.db().pool())
+            .await
+            .expect("tenant audit before");
+
+    // CSRF token is session-bound; fetch from the super_admin's own tenant
+    // — cross-tenant use is valid (same session, same derived token).
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/sa-corp/applications/new", &sadmin_cookie).await;
+
+    let block_path = format!("/t/acme/users/{}/block", target.id);
+    let resp = fx
+        .post_form(&block_path, &[("csrf_token", &csrf)], Some(&sadmin_cookie))
+        .await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER, "block must redirect");
+
+    let control_after = count_control_audit(&fx, "superadmin.tenant_accessed").await;
+    assert!(
+        control_after - control_before >= 1,
+        "at least one control audit row expected; delta was {}",
+        control_after - control_before
+    );
+
+    let tenant_after: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_audit_log WHERE user_id = ?")
+            .bind(target.id)
+            .fetch_one(ath.db().pool())
+            .await
+            .expect("tenant audit after");
+    assert!(
+        tenant_after - tenant_before >= 1,
+        "tenant audit log must have at least one new row; delta was {}",
+        tenant_after - tenant_before
+    );
+
+    let updated = ath
+        .db()
+        .get_user(target.id)
+        .await
+        .expect("get blocked user");
+    assert!(
+        !updated.is_active,
+        "user must be inactive (blocked) after super_admin block"
+    );
+}
+
+/// If writing to `control_audit_events` fails, super-admin access must be
+/// denied (500) — the middleware must fail closed and never grant access
+/// silently.
+#[tokio::test]
+async fn super_admin_audit_failure_denies_access() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa-corp.com", "sa-corp").await;
+
+    // Confirm baseline access works.
+    let ok = get_authed(&fx, "/t/acme/applications", &sadmin_cookie).await;
+    assert_eq!(
+        ok.status(),
+        StatusCode::OK,
+        "baseline: super_admin must access tenant"
+    );
+
+    // Sabotage the audit table.
+    sqlx::query("DROP TABLE control_audit_events")
+        .execute(fx.state.control_db.pool())
+        .await
+        .expect("drop control_audit_events");
+
+    let resp = get_authed(&fx, "/t/acme/applications", &sadmin_cookie).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "super_admin access must be denied (500) when the audit write fails"
+    );
+}
+
+// ---- Admin panel: overview ----
+
+/// Unauthenticated GET /admin must redirect to /login.
+#[tokio::test]
+async fn admin_overview_unauthenticated_redirects_to_login() {
+    let fx = Fixture::new().await;
+    let resp = fx.get("/admin").await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "unauthenticated /admin must redirect"
+    );
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        loc.starts_with("/login"),
+        "must redirect to /login, got: {loc}"
+    );
+}
+
+/// A regular authenticated user (no super_admin role) must receive 404.
+#[tokio::test]
+async fn admin_overview_non_super_admin_gets_404() {
+    let fx = Fixture::new().await;
+    let (regular_cookie, _) = signup_and_get_session(&fx, "regular@acme.com", "acme").await;
+    let resp = get_authed(&fx, "/admin", &regular_cookie).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "non-super-admin must not see /admin"
+    );
+}
+
+/// Super-admin must receive a rendered 200 overview page.
+#[tokio::test]
+async fn admin_overview_renders_for_super_admin() {
+    let fx = Fixture::new().await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa.com", "sadmin").await;
+    let resp = get_authed(&fx, "/admin", &sadmin_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK, "super_admin must see /admin");
+    let body = body_string(resp).await;
+    assert!(
+        body.contains("Tenants") || body.contains("ADMIN"),
+        "overview must render admin content; first 300 chars: {}",
+        &body[..body.len().min(300)]
+    );
+}
+
+/// A tenant created via signup must appear in the admin overview.
+#[tokio::test]
+async fn admin_overview_lists_seeded_tenants() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa.com", "sadmin").await;
+
+    let resp = get_authed(&fx, "/admin", &sadmin_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains("acme"),
+        "admin overview must list the acme tenant slug"
+    );
+}
+
+// ---- Admin panel: tenant detail ----
+
+/// GET /admin/tenants/<unknown-uuid> must return 404.
+#[tokio::test]
+async fn admin_detail_unknown_uuid_returns_404() {
+    let fx = Fixture::new().await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa.com", "sadmin").await;
+    let resp = get_authed(
+        &fx,
+        "/admin/tenants/00000000-0000-0000-0000-000000000000",
+        &sadmin_cookie,
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "unknown tenant UUID must 404"
+    );
+}
+
+/// GET /admin/tenants/{id} for an existing tenant must return a 200 detail page.
+#[tokio::test]
+async fn admin_detail_renders_for_existing_tenant() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa.com", "sadmin").await;
+
+    let meta = fx
+        .state
+        .control_db
+        .tenant_meta_by_slug("acme")
+        .await
+        .expect("ok")
+        .expect("acme exists");
+    let tenant_uuid = meta.id.as_uuid().to_string();
+
+    let resp = get_authed(
+        &fx,
+        &format!("/admin/tenants/{tenant_uuid}"),
+        &sadmin_cookie,
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "admin detail must return 200 for existing tenant"
+    );
+    let body = body_string(resp).await;
+    assert!(
+        body.contains("acme"),
+        "detail page must contain the tenant slug"
+    );
+}
+
+// ---- Admin panel: suspend / unsuspend / delete / change-plan ----
+
+/// POST suspend must set status to suspended and write a `tenant.suspend`
+/// control audit row.
+#[tokio::test]
+async fn admin_suspend_sets_status_and_logs_audit() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa.com", "sadmin").await;
+
+    let meta = fx
+        .state
+        .control_db
+        .tenant_meta_by_slug("acme")
+        .await
+        .expect("ok")
+        .expect("acme exists");
+    let tenant_uuid = meta.id.as_uuid().to_string();
+
+    let csrf = fetch_csrf_for_authed_form(
+        &fx,
+        &format!("/admin/tenants/{tenant_uuid}"),
+        &sadmin_cookie,
+    )
+    .await;
+    let audit_before = count_control_audit(&fx, "tenant.suspend").await;
+
+    let resp = fx
+        .post_form(
+            &format!("/admin/tenants/{tenant_uuid}/suspend"),
+            &[("csrf_token", &csrf)],
+            Some(&sadmin_cookie),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "suspend must redirect"
+    );
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        loc.contains(&tenant_uuid),
+        "redirect must target tenant detail; got: {loc}"
+    );
+
+    let updated = fx
+        .state
+        .control_db
+        .tenant_meta_by_slug("acme")
+        .await
+        .expect("ok")
+        .expect("acme still exists");
+    assert_eq!(
+        updated.status,
+        allowthem_saas::TenantStatus::Suspended,
+        "tenant status must be suspended"
+    );
+
+    let audit_after = count_control_audit(&fx, "tenant.suspend").await;
+    assert_eq!(
+        audit_after - audit_before,
+        1,
+        "one tenant.suspend audit row expected"
+    );
+}
+
+/// POST unsuspend must restore the tenant to active status.
+#[tokio::test]
+async fn admin_unsuspend_sets_status_active() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa.com", "sadmin").await;
+
+    let meta = fx
+        .state
+        .control_db
+        .tenant_meta_by_slug("acme")
+        .await
+        .expect("ok")
+        .expect("acme exists");
+    let tenant_id = meta.id;
+    let tenant_uuid = tenant_id.as_uuid().to_string();
+
+    // Pre-suspend so the HTTP unsuspend has something to undo.
+    fx.state
+        .control_db
+        .set_tenant_status(&tenant_id, allowthem_saas::TenantStatus::Suspended)
+        .await
+        .expect("pre-suspend");
+
+    let csrf = fetch_csrf_for_authed_form(
+        &fx,
+        &format!("/admin/tenants/{tenant_uuid}"),
+        &sadmin_cookie,
+    )
+    .await;
+
+    let resp = fx
+        .post_form(
+            &format!("/admin/tenants/{tenant_uuid}/unsuspend"),
+            &[("csrf_token", &csrf)],
+            Some(&sadmin_cookie),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "unsuspend must redirect"
+    );
+
+    let updated = fx
+        .state
+        .control_db
+        .tenant_meta_by_slug("acme")
+        .await
+        .expect("ok")
+        .expect("acme still exists");
+    assert_eq!(
+        updated.status,
+        allowthem_saas::TenantStatus::Active,
+        "tenant must be active after unsuspend"
+    );
+}
+
+/// POST delete must mark the tenant deleted and redirect to /admin.
+#[tokio::test]
+async fn admin_delete_redirects_to_admin() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa.com", "sadmin").await;
+
+    let meta = fx
+        .state
+        .control_db
+        .tenant_meta_by_slug("acme")
+        .await
+        .expect("ok")
+        .expect("acme exists");
+    let tenant_uuid = meta.id.as_uuid().to_string();
+
+    let csrf = fetch_csrf_for_authed_form(
+        &fx,
+        &format!("/admin/tenants/{tenant_uuid}"),
+        &sadmin_cookie,
+    )
+    .await;
+
+    let resp = fx
+        .post_form(
+            &format!("/admin/tenants/{tenant_uuid}/delete"),
+            &[("csrf_token", &csrf)],
+            Some(&sadmin_cookie),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER, "delete must redirect");
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(loc, "/admin", "delete must redirect to /admin");
+
+    let updated = fx
+        .state
+        .control_db
+        .tenant_meta_by_slug("acme")
+        .await
+        .expect("ok")
+        .expect("acme still has a row");
+    assert_eq!(
+        updated.status,
+        allowthem_saas::TenantStatus::Deleted,
+        "tenant must be marked deleted"
+    );
+}
+
+/// POST change-plan must update the tenant's plan_id to the selected one.
+#[tokio::test]
+async fn admin_change_plan_updates_tenant() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa.com", "sadmin").await;
+
+    let meta = fx
+        .state
+        .control_db
+        .tenant_meta_by_slug("acme")
+        .await
+        .expect("ok")
+        .expect("acme exists");
+    let tenant_uuid = meta.id.as_uuid().to_string();
+    let original_plan_id = meta.plan_id;
+
+    let plans = fx.state.control_db.list_plans().await.expect("list_plans");
+    let new_plan = plans
+        .iter()
+        .find(|p| p.id != original_plan_id)
+        .expect("seed data must contain at least two plans");
+    let new_plan_id_hex = hex::encode(&new_plan.id);
+
+    let csrf = fetch_csrf_for_authed_form(
+        &fx,
+        &format!("/admin/tenants/{tenant_uuid}"),
+        &sadmin_cookie,
+    )
+    .await;
+
+    let resp = fx
+        .post_form(
+            &format!("/admin/tenants/{tenant_uuid}/change-plan"),
+            &[("csrf_token", &csrf), ("plan_id", &new_plan_id_hex)],
+            Some(&sadmin_cookie),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "change-plan must redirect"
+    );
+
+    let updated = fx
+        .state
+        .control_db
+        .tenant_meta_by_slug("acme")
+        .await
+        .expect("ok")
+        .expect("acme still exists");
+    assert_eq!(updated.plan_id, new_plan.id, "tenant plan must be updated");
+}
+
+// ---- Admin panel: analytics pages ----
+
+/// Usage, revenue, and health pages must all return 200 for a super-admin.
+#[tokio::test]
+async fn admin_analytics_pages_render_200() {
+    let fx = Fixture::new().await;
+    let sadmin_cookie = setup_super_admin(&fx, "sadmin@sa.com", "sadmin").await;
+
+    for path in ["/admin/usage", "/admin/revenue", "/admin/health"] {
+        let resp = get_authed(&fx, path, &sadmin_cookie).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "analytics page {path} must return 200"
+        );
+    }
+}
+
+/// Minting an API key renders the raw secret once; a subsequent GET of the
+/// list page does not expose it again.
+#[tokio::test]
+async fn api_key_one_time_secret() {
+    let fx = Fixture::new().await;
+    let (owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/api-keys", &owner_cookie).await;
+
+    // Mint a key.
+    let mint_resp = fx
+        .post_form(
+            "/t/acme/settings/api-keys",
+            &[("csrf_token", &csrf), ("name", "CI key")],
+            Some(&owner_cookie),
+        )
+        .await;
+    assert_eq!(
+        mint_resp.status(),
+        StatusCode::OK,
+        "mint must render the list page (200)"
+    );
+    let mint_body = body_string(mint_resp).await;
+    assert!(
+        mint_body.contains("CI key"),
+        "minted key name must appear in response"
+    );
+    // The raw secret is rendered once — it starts with "sak_" by convention.
+    assert!(
+        mint_body.contains("sak_"),
+        "raw secret (sak_ prefix) must appear in mint response"
+    );
+
+    // Subsequent GET must not expose the raw secret.
+    let list_resp = get_authed(&fx, "/t/acme/settings/api-keys", &owner_cookie).await;
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let list_body = body_string(list_resp).await;
+    assert!(
+        list_body.contains("CI key"),
+        "key name must still appear in list"
+    );
+    // Extract the raw secret from the mint response and verify it's absent from list.
+    if let Some(start) = mint_body.find("sak_") {
+        let raw_secret: String = mint_body[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+        assert!(
+            !list_body.contains(&raw_secret),
+            "raw secret must NOT appear in subsequent list GET"
+        );
+    }
 }
