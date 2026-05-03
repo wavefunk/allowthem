@@ -91,7 +91,7 @@ pub async fn open_dashboard_handle(
 /// `csrf_middleware` is layered on the whole composed router so every POST
 /// handler is covered without per-sub-router wiring.
 pub fn dashboard_pages_router(state: state::DashboardRouterState) -> Router {
-    use axum::routing::{get, post};
+    use axum::routing::get;
 
     Router::new()
         // 99c.3 application CRUD.
@@ -224,6 +224,32 @@ mod tests {
         "/t/test-slug/users/00000000-0000-0000-0000-000000000000/roles/00000000-0000-0000-0000-000000000001/remove",
         "/t/test-slug/users/00000000-0000-0000-0000-000000000000/permissions",
         "/t/test-slug/users/00000000-0000-0000-0000-000000000000/permissions/00000000-0000-0000-0000-000000000001/remove",
+        // 99c.5 roles CRUD.
+        "/t/test-slug/roles",
+        "/t/test-slug/roles/new",
+        "/t/test-slug/roles/00000000-0000-0000-0000-000000000000",
+        "/t/test-slug/roles/00000000-0000-0000-0000-000000000000/permissions",
+        "/t/test-slug/roles/00000000-0000-0000-0000-000000000000/delete",
+        // 99c.5 permissions CRUD.
+        "/t/test-slug/permissions",
+        "/t/test-slug/permissions/new",
+        "/t/test-slug/permissions/00000000-0000-0000-0000-000000000000/delete",
+        // 99c.5 settings.
+        "/t/test-slug/settings",
+        "/t/test-slug/settings/team",
+        "/t/test-slug/settings/team/invite",
+        "/t/test-slug/settings/team/00000000-0000-0000-0000-000000000000/role",
+        "/t/test-slug/settings/team/00000000-0000-0000-0000-000000000000/remove",
+        "/t/test-slug/settings/api-keys",
+        "/t/test-slug/settings/api-keys/00000000-0000-0000-0000-000000000000/revoke",
+        "/t/test-slug/settings/billing",
+        "/t/test-slug/settings/billing/upgrade",
+        "/t/test-slug/settings/webhooks",
+        "/t/test-slug/settings/email",
+        "/t/test-slug/settings/social",
+        "/t/test-slug/settings/domain",
+        // 99c.5 invite accept (outside /t/{slug}).
+        "/invite/some-base64url-token",
         // 99c.6 super-admin panel.
         "/admin",
         "/admin/tenants/00000000-0000-0000-0000-000000000000",
