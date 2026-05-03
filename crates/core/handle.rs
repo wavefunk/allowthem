@@ -1260,4 +1260,330 @@ mod tests {
             "panic in callback must not propagate to caller"
         );
     }
+
+    // ---- EmailSender integration tests ----
+
+    /// A test-only sender that captures every message delivered to it.
+    struct CapturingSender(std::sync::Arc<std::sync::Mutex<Vec<crate::email::EmailMessage>>>);
+
+    impl crate::email::EmailSender for CapturingSender {
+        fn send<'a>(
+            &'a self,
+            message: &'a crate::email::EmailMessage,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::error::AuthError>> + Send + 'a>,
+        > {
+            self.0.lock().unwrap().push(message.clone());
+            Box::pin(std::future::ready(Ok(())))
+        }
+    }
+
+    fn capturing_sender() -> (
+        Box<dyn crate::email::EmailSender>,
+        std::sync::Arc<std::sync::Mutex<Vec<crate::email::EmailMessage>>>,
+    ) {
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sender = CapturingSender(captured.clone());
+        (Box::new(sender), captured)
+    }
+
+    /// A test-only sender that always returns an error.
+    struct FailingSender;
+
+    impl crate::email::EmailSender for FailingSender {
+        fn send<'a>(
+            &'a self,
+            _message: &'a crate::email::EmailMessage,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::error::AuthError>> + Send + 'a>,
+        > {
+            Box::pin(std::future::ready(Err(crate::error::AuthError::Email(
+                "injected failure".into(),
+            ))))
+        }
+    }
+
+    async fn make_user_with_username(ath: &AllowThem, email_str: &str, username: Option<&str>) {
+        let email = Email::new(email_str.into()).unwrap();
+        ath.db()
+            .create_user(
+                email,
+                "password",
+                username.map(|s| crate::types::Username::new(s)),
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn email_sender_default_is_noop_and_succeeds() {
+        // Build without email_sender — defaults to NoopEmailSender.
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .build()
+            .await
+            .unwrap();
+
+        // NoopEmailSender::send always returns Ok(()).
+        let msg = crate::email::EmailMessage {
+            to: "nobody@example.com".into(),
+            subject: "test".into(),
+            template: crate::email::EmailTemplate::PasswordReset {
+                url: "https://example.com/reset".into(),
+                username: "nobody".into(),
+            },
+        };
+        let result = ath.email_sender().send(&msg).await;
+        assert!(result.is_ok(), "NoopEmailSender must return Ok");
+    }
+
+    #[tokio::test]
+    async fn email_sender_custom_sender_installed() {
+        let (sender_box, captured) = capturing_sender();
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .email_sender(sender_box)
+            .build()
+            .await
+            .unwrap();
+
+        let msg = crate::email::EmailMessage {
+            to: "test@example.com".into(),
+            subject: "subject".into(),
+            template: crate::email::EmailTemplate::PasswordReset {
+                url: "https://example.com/reset".into(),
+                username: "test".into(),
+            },
+        };
+        ath.email_sender().send(&msg).await.unwrap();
+        assert_eq!(captured.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn send_password_reset_email_builds_correct_template() {
+        let (sender_box, captured) = capturing_sender();
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .email_sender(sender_box)
+            .build()
+            .await
+            .unwrap();
+        make_user_with_username(&ath, "reset@example.com", Some("alice")).await;
+
+        let email = Email::new("reset@example.com".into()).unwrap();
+        ath.send_password_reset_email(&email).await.unwrap();
+
+        let msgs = captured.lock().unwrap();
+        assert_eq!(msgs.len(), 1);
+        let msg = &msgs[0];
+        assert_eq!(msg.to, "reset@example.com");
+        assert_eq!(msg.subject, "Reset your password");
+        match &msg.template {
+            crate::email::EmailTemplate::PasswordReset { url, username } => {
+                assert!(
+                    url.contains("https://example.com"),
+                    "URL must contain base_url"
+                );
+                assert!(
+                    url.contains("/auth/reset-password?token="),
+                    "URL must have path"
+                );
+                assert_eq!(username, "alice");
+            }
+            other => panic!("expected PasswordReset template, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_verification_email_builds_correct_template() {
+        let (sender_box, captured) = capturing_sender();
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .email_sender(sender_box)
+            .build()
+            .await
+            .unwrap();
+        let email = Email::new("verify@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(
+                email.clone(),
+                "pass",
+                Some(crate::types::Username::new("bob")),
+                None,
+            )
+            .await
+            .unwrap();
+
+        ath.send_verification_email(user.id, &email).await.unwrap();
+
+        let msgs = captured.lock().unwrap();
+        assert_eq!(msgs.len(), 1);
+        let msg = &msgs[0];
+        assert_eq!(msg.to, "verify@example.com");
+        assert_eq!(msg.subject, "Verify your email address");
+        match &msg.template {
+            crate::email::EmailTemplate::EmailVerification { url, username } => {
+                assert!(url.contains("https://example.com"));
+                assert!(url.contains("/auth/verify-email?token="));
+                assert_eq!(username, "bob");
+            }
+            other => panic!("expected EmailVerification template, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_password_reset_email_username_fallback_uses_email_local_part() {
+        let (sender_box, captured) = capturing_sender();
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .email_sender(sender_box)
+            .build()
+            .await
+            .unwrap();
+        // Create user with no username — fallback must use email local part.
+        make_user_with_username(&ath, "noname@example.com", None).await;
+
+        let email = Email::new("noname@example.com".into()).unwrap();
+        ath.send_password_reset_email(&email).await.unwrap();
+
+        let msgs = captured.lock().unwrap();
+        let msg = &msgs[0];
+        match &msg.template {
+            crate::email::EmailTemplate::PasswordReset { username, .. } => {
+                assert_eq!(username, "noname", "must fall back to email local part");
+            }
+            other => panic!("expected PasswordReset, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn sender_error_propagates_as_auth_error_email() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .email_sender(Box::new(FailingSender))
+            .build()
+            .await
+            .unwrap();
+        make_user_with_username(&ath, "fail@example.com", Some("fail")).await;
+
+        let email = Email::new("fail@example.com".into()).unwrap();
+        let result = ath.send_password_reset_email(&email).await;
+        assert!(
+            matches!(result, Err(crate::error::AuthError::Email(_))),
+            "sender error must surface as AuthError::Email"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_password_reset_email_silent_on_unknown_email() {
+        let (sender_box, captured) = capturing_sender();
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .email_sender(sender_box)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("ghost@example.com".into()).unwrap();
+        let result = ath.send_password_reset_email(&email).await;
+        assert!(result.is_ok(), "must return Ok for unknown email");
+        assert!(
+            captured.lock().unwrap().is_empty(),
+            "no email must be sent for unknown address"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_invitation_email_creates_invitation_and_sends() {
+        use crate::types::UserId;
+
+        let (sender_box, captured) = capturing_sender();
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .email_sender(sender_box)
+            .build()
+            .await
+            .unwrap();
+
+        // Create the inviter.
+        let inviter_email = Email::new("inviter@example.com".into()).unwrap();
+        let inviter = ath
+            .db()
+            .create_user(
+                inviter_email,
+                "pass",
+                Some(crate::types::Username::new("Alice")),
+                None,
+            )
+            .await
+            .unwrap();
+        let inviter_id: UserId = inviter.id;
+
+        let invitee = Email::new("invitee@example.com".into()).unwrap();
+        let invite_url = "https://example.com/invite/tok123";
+        let expires_at = chrono::Utc::now() + chrono::Duration::hours(48);
+
+        ath.send_invitation_email(&invitee, invite_url, inviter_id, expires_at)
+            .await
+            .unwrap();
+
+        // One email sent.
+        let msgs = captured.lock().unwrap();
+        assert_eq!(msgs.len(), 1);
+        let msg = &msgs[0];
+        assert_eq!(msg.to, "invitee@example.com");
+        match &msg.template {
+            crate::email::EmailTemplate::Invitation { url, invited_by } => {
+                assert_eq!(url, invite_url);
+                assert_eq!(invited_by, "Alice");
+            }
+            other => panic!("expected Invitation template, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_mfa_recovery_email_sends_codes_without_db_write() {
+        let (sender_box, captured) = capturing_sender();
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .base_url("https://example.com")
+            .email_sender(sender_box)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("mfa@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(
+                email,
+                "pass",
+                Some(crate::types::Username::new("carol")),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let codes = vec!["code-1".into(), "code-2".into(), "code-3".into()];
+        ath.send_mfa_recovery_email(user.id, codes.clone())
+            .await
+            .unwrap();
+
+        let msgs = captured.lock().unwrap();
+        assert_eq!(msgs.len(), 1);
+        let msg = &msgs[0];
+        assert_eq!(msg.to, "mfa@example.com");
+        assert_eq!(msg.subject, "Your MFA recovery codes");
+        match &msg.template {
+            crate::email::EmailTemplate::MfaRecovery {
+                codes: sent_codes,
+                username,
+            } => {
+                assert_eq!(sent_codes, &codes, "codes must be forwarded as-is");
+                assert_eq!(username, "carol");
+            }
+            other => panic!("expected MfaRecovery template, got {other:?}"),
+        }
+    }
 }

@@ -4,6 +4,7 @@ use std::pin::Pin;
 use crate::error::AuthError;
 
 /// An email message to be sent.
+#[derive(Clone)]
 pub struct EmailMessage {
     pub to: String,
     pub subject: String,
@@ -16,6 +17,7 @@ pub struct EmailMessage {
 /// can be added in c8m.2/c8m.3 without a breaking API change. Sender
 /// implementations must include a catch-all arm on exhaustive matches.
 #[non_exhaustive]
+#[derive(Clone)]
 pub enum EmailTemplate {
     EmailVerification {
         url: String,
