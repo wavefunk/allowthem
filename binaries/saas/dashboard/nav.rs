@@ -90,16 +90,15 @@ pub fn tenant_nav_items(slug: &str, current_path: &str, role: TenantRole) -> Vec
 pub fn admin_nav_items(current_path: &str) -> Vec<NavSection> {
     let active = |href: &str| current_path == href || current_path.starts_with(&format!("{href}/"));
 
-    let item =
-        |label: &'static str, href: &'static str| -> NavItem {
-            NavItem {
-                label,
-                href: href.to_string(),
-                active: active(href),
-                muted: false,
-                coming_soon: false,
-            }
-        };
+    let item = |label: &'static str, href: &'static str| -> NavItem {
+        NavItem {
+            label,
+            href: href.to_string(),
+            active: active(href),
+            muted: false,
+            coming_soon: false,
+        }
+    };
 
     vec![NavSection {
         heading: "ADMIN",

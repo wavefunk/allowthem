@@ -129,7 +129,9 @@ pub async fn update(
     }
 
     let Some(uuid) = scope.tenant.id_as_uuid() else {
-        return Err(BrowserError::from(allowthem_core::error::AuthError::NotFound));
+        return Err(BrowserError::from(
+            allowthem_core::error::AuthError::NotFound,
+        ));
     };
     let tenant_id = TenantId::from(uuid);
 

@@ -1307,10 +1307,7 @@ mod tests {
         .await
         .expect("insert consent 2");
 
-        let count = db
-            .count_users_for_application(app.id)
-            .await
-            .expect("count");
+        let count = db.count_users_for_application(app.id).await.expect("count");
         assert_eq!(count, 2, "expected 2 consented users");
     }
 

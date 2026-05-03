@@ -41,7 +41,7 @@ pub async fn page(
     let mut mrr_cents: i64 = 0;
     for (plan_name, count) in &by_plan {
         if let Some(plan) = plans.iter().find(|p| &p.name == plan_name) {
-            mrr_cents += plan.price_cents * (*count as i64);
+            mrr_cents += plan.price_cents * count;
         }
     }
 

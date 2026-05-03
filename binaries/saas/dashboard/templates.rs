@@ -62,8 +62,7 @@ const SETTINGS_TEAM_LIST_HTML: &str = include_str!("templates/settings/team/list
 const SETTINGS_BILLING_HTML: &str = include_str!("templates/settings/billing.html");
 
 // API key management page (99c.5 Step 11).
-const SETTINGS_API_KEYS_LIST_HTML: &str =
-    include_str!("templates/settings/api_keys/list.html");
+const SETTINGS_API_KEYS_LIST_HTML: &str = include_str!("templates/settings/api_keys/list.html");
 
 // General settings page (99c.5 Step 10).
 const SETTINGS_GENERAL_HTML: &str = include_str!("templates/settings/general.html");

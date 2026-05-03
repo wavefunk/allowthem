@@ -39,9 +39,9 @@ pub(crate) mod tests {
     use axum::http::{Request, header};
     use tower::ServiceExt;
 
-    use allowthem_core::{Email, EmailSender, LogEmailSender};
     use allowthem_core::sessions::{generate_token, hash_token};
     use allowthem_core::types::{RoleName, UserId};
+    use allowthem_core::{Email, EmailSender, LogEmailSender};
     use allowthem_saas::{ControlDb, HandleCache, SlugCache, TenantBuilderConfig, TenantId};
 
     use crate::dashboard::open_dashboard_handle;
@@ -127,11 +127,7 @@ pub(crate) mod tests {
             let control_pool = sqlx::SqlitePool::connect("sqlite::memory:")
                 .await
                 .expect("control pool");
-            let control_db = Arc::new(
-                ControlDb::new(control_pool)
-                    .await
-                    .expect("ControlDb::new"),
-            );
+            let control_db = Arc::new(ControlDb::new(control_pool).await.expect("ControlDb::new"));
 
             let tenant_config = Arc::new(TenantBuilderConfig {
                 mfa_key: [1u8; 32],
@@ -237,9 +233,7 @@ pub(crate) mod tests {
             }
             for (s, is_key) in [(*k, true), (*v, false)] {
                 for byte in s.bytes() {
-                    if byte.is_ascii_alphanumeric()
-                        || matches!(byte, b'-' | b'_' | b'.' | b'~')
-                    {
+                    if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
                         out.push(byte as char);
                     } else if byte == b' ' {
                         out.push('+');

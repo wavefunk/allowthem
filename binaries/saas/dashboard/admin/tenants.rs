@@ -281,8 +281,7 @@ pub async fn overview(
         .map_err(saas_err)?;
 
     let total_pages = result.total.div_ceil(PAGE_SIZE).max(1);
-    let has_filters =
-        !q_trimmed.is_empty() || !q.status.is_empty() || !q.plan.is_empty();
+    let has_filters = !q_trimmed.is_empty() || !q.status.is_empty() || !q.plan.is_empty();
     let nav = admin_nav_items("/admin");
 
     let tenant_views: Vec<TenantRowView> = result.rows.iter().map(TenantRowView::new).collect();
@@ -350,7 +349,10 @@ pub async fn detail(
         .map_err(saas_err)?;
     let all_plans = state.control_db.list_plans().await.map_err(saas_err)?;
 
-    let tenant_uuid = tenant.id_as_uuid().map(|u| u.to_string()).unwrap_or_default();
+    let tenant_uuid = tenant
+        .id_as_uuid()
+        .map(|u| u.to_string())
+        .unwrap_or_default();
     let current_plan_id_hex = hex::encode(&tenant.plan_id);
     let all_plan_views: Vec<PlanView> = all_plans.iter().map(PlanView::from_plan).collect();
     let nav = admin_nav_items("/admin");
@@ -477,9 +479,8 @@ pub async fn change_plan(
     State(state): State<DashboardRouterState>,
     HtmlForm(form): HtmlForm<ChangePlanForm>,
 ) -> Result<Response, BrowserError> {
-    let plan_id_bytes = hex::decode(&form.plan_id).map_err(|_| {
-        BrowserError::Auth(AuthError::Validation("invalid plan_id".into()))
-    })?;
+    let plan_id_bytes = hex::decode(&form.plan_id)
+        .map_err(|_| BrowserError::Auth(AuthError::Validation("invalid plan_id".into())))?;
 
     let tenant_id = TenantId::from(id);
     state
@@ -497,10 +498,8 @@ pub async fn change_plan(
         )
         .await
         .map_err(saas_err)?;
-    Ok(redirect_with_flash(
-        &format!("/admin/tenants/{id}"),
-        Some("Plan updated."),
-        None,
+    Ok(
+        redirect_with_flash(&format!("/admin/tenants/{id}"), Some("Plan updated."), None)
+            .into_response(),
     )
-    .into_response())
 }

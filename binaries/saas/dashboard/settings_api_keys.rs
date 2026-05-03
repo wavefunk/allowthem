@@ -31,14 +31,8 @@ use super::state::DashboardRouterState;
 
 pub fn api_key_routes() -> Router<DashboardRouterState> {
     Router::new()
-        .route(
-            "/t/{slug}/settings/api-keys",
-            get(list).post(mint),
-        )
-        .route(
-            "/t/{slug}/settings/api-keys/{id}/revoke",
-            post(revoke),
-        )
+        .route("/t/{slug}/settings/api-keys", get(list).post(mint))
+        .route("/t/{slug}/settings/api-keys/{id}/revoke", post(revoke))
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +157,9 @@ async fn mint(
     let name = form.name.trim().to_owned();
 
     let Some(tenant_id) = tenant_id_from_scope(&scope) else {
-        return Ok(Redirect::to(&format!("/t/{}/settings/api-keys", scope.tenant.slug)).into_response());
+        return Ok(
+            Redirect::to(&format!("/t/{}/settings/api-keys", scope.tenant.slug)).into_response(),
+        );
     };
 
     if name.is_empty() || name.len() > 80 {
@@ -172,12 +168,17 @@ async fn mint(
             .list_api_keys_for_tenant(&tenant_id)
             .await
             .unwrap_or_default();
-        let key_views = api_keys.iter().map(|k| context! {
-            id => k.id.to_string(),
-            name => k.name.clone(),
-            created_at => k.created_at.to_rfc3339(),
-            expires_at => k.expires_at.map(|dt| dt.to_rfc3339()),
-        }).collect::<Vec<_>>();
+        let key_views = api_keys
+            .iter()
+            .map(|k| {
+                context! {
+                    id => k.id.to_string(),
+                    name => k.name.clone(),
+                    created_at => k.created_at.to_rfc3339(),
+                    expires_at => k.expires_at.map(|dt| dt.to_rfc3339()),
+                }
+            })
+            .collect::<Vec<_>>();
 
         let path = format!("/t/{}/settings/api-keys", scope.tenant.slug);
         let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
@@ -225,12 +226,17 @@ async fn mint(
         .list_api_keys_for_tenant(&tenant_id)
         .await
         .unwrap_or_default();
-    let key_views = api_keys.iter().map(|k| context! {
-        id => k.id.to_string(),
-        name => k.name.clone(),
-        created_at => k.created_at.to_rfc3339(),
-        expires_at => k.expires_at.map(|dt| dt.to_rfc3339()),
-    }).collect::<Vec<_>>();
+    let key_views = api_keys
+        .iter()
+        .map(|k| {
+            context! {
+                id => k.id.to_string(),
+                name => k.name.clone(),
+                created_at => k.created_at.to_rfc3339(),
+                expires_at => k.expires_at.map(|dt| dt.to_rfc3339()),
+            }
+        })
+        .collect::<Vec<_>>();
 
     let path = format!("/t/{}/settings/api-keys", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
@@ -256,19 +262,19 @@ async fn revoke(
     State(state): State<DashboardRouterState>,
 ) -> Result<Response, BrowserError> {
     let Some(tenant_id) = tenant_id_from_scope(&scope) else {
-        return Ok(Redirect::to(&format!("/t/{}/settings/api-keys", scope.tenant.slug)).into_response());
+        return Ok(
+            Redirect::to(&format!("/t/{}/settings/api-keys", scope.tenant.slug)).into_response(),
+        );
     };
 
     let Some(key_uuid) = raw_id.parse::<Uuid>().ok() else {
-        return Ok(Redirect::to(&format!("/t/{}/settings/api-keys", scope.tenant.slug)).into_response());
+        return Ok(
+            Redirect::to(&format!("/t/{}/settings/api-keys", scope.tenant.slug)).into_response(),
+        );
     };
     let key_id = allowthem_saas::api_keys::ApiKeyId::from_uuid(key_uuid);
 
-    if let Err(e) = state
-        .control_db
-        .revoke_api_key(&key_id, &tenant_id)
-        .await
-    {
+    if let Err(e) = state.control_db.revoke_api_key(&key_id, &tenant_id).await {
         tracing::error!(error = %e, "revoke_api_key failed");
     }
 

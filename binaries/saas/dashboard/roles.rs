@@ -40,10 +40,7 @@ pub fn role_routes() -> Router<DashboardRouterState> {
     Router::new()
         .route("/t/{slug}/roles", get(list).post(create))
         .route("/t/{slug}/roles/new", get(new_form))
-        .route(
-            "/t/{slug}/roles/{id}",
-            get(detail).post(update),
-        )
+        .route("/t/{slug}/roles/{id}", get(detail).post(update))
         .route("/t/{slug}/roles/{id}/permissions", post(set_permissions))
         .route("/t/{slug}/roles/{id}/delete", post(delete))
 }
@@ -331,11 +328,13 @@ async fn update(
         let assigned_ids: HashSet<_> = assigned.iter().map(|p| p.id).collect();
         let perm_views: Vec<_> = all_permissions
             .iter()
-            .map(|p| context! {
-                id => p.id.to_string(),
-                name => p.name.as_str(),
-                description => p.description.clone(),
-                assigned => assigned_ids.contains(&p.id),
+            .map(|p| {
+                context! {
+                    id => p.id.to_string(),
+                    name => p.name.as_str(),
+                    description => p.description.clone(),
+                    assigned => assigned_ids.contains(&p.id),
+                }
             })
             .collect();
         let path = format!("/t/{}/roles/{}", scope.tenant.slug, role_id);
@@ -364,7 +363,11 @@ async fn update(
     match scope
         .ath
         .db()
-        .update_role(&role_id, &role_name, Some(desc.as_str()).filter(|s| !s.is_empty()))
+        .update_role(
+            &role_id,
+            &role_name,
+            Some(desc.as_str()).filter(|s| !s.is_empty()),
+        )
         .await
     {
         Ok(updated_role) => {
@@ -389,11 +392,13 @@ async fn update(
             let assigned_ids: HashSet<_> = assigned.iter().map(|p| p.id).collect();
             let perm_views: Vec<_> = all_permissions
                 .iter()
-                .map(|p| context! {
-                    id => p.id.to_string(),
-                    name => p.name.as_str(),
-                    description => p.description.clone(),
-                    assigned => assigned_ids.contains(&p.id),
+                .map(|p| {
+                    context! {
+                        id => p.id.to_string(),
+                        name => p.name.as_str(),
+                        description => p.description.clone(),
+                        assigned => assigned_ids.contains(&p.id),
+                    }
                 })
                 .collect();
             let path = format!("/t/{}/roles/{}", scope.tenant.slug, role_id);
@@ -452,10 +457,18 @@ async fn set_permissions(
 
     // v1: pool-level calls; _in_tx variants filed as follow-up.
     for pid in &to_add {
-        scope.ath.db().assign_permission_to_role(&role_id, pid).await?;
+        scope
+            .ath
+            .db()
+            .assign_permission_to_role(&role_id, pid)
+            .await?;
     }
     for pid in &to_remove {
-        scope.ath.db().unassign_permission_from_role(&role_id, pid).await?;
+        scope
+            .ath
+            .db()
+            .unassign_permission_from_role(&role_id, pid)
+            .await?;
     }
 
     if !to_add.is_empty() || !to_remove.is_empty() {

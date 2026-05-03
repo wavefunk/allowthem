@@ -549,15 +549,11 @@ pub struct PeriodAggregate {
 
 impl ControlDb {
     /// Count tenants in a given status (active / suspended / deleted).
-    pub async fn count_tenants_by_status(
-        &self,
-        status: TenantStatus,
-    ) -> Result<i64, SaasError> {
-        let n: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM tenants WHERE status = ?1")
-                .bind(status)
-                .fetch_one(&self.pool)
-                .await?;
+    pub async fn count_tenants_by_status(&self, status: TenantStatus) -> Result<i64, SaasError> {
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenants WHERE status = ?1")
+            .bind(status)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(n)
     }
 
@@ -566,20 +562,17 @@ impl ControlDb {
         &self,
         since: DateTime<Utc>,
     ) -> Result<i64, SaasError> {
-        let n: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM tenants WHERE created_at >= ?1")
-                .bind(since)
-                .fetch_one(&self.pool)
-                .await?;
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenants WHERE created_at >= ?1")
+            .bind(since)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(n)
     }
 
     /// Return `(plan_name, tenant_count)` pairs ordered by count descending.
     ///
     /// Deleted tenants are excluded. Plans with no tenants still appear with 0.
-    pub async fn count_tenants_grouped_by_plan(
-        &self,
-    ) -> Result<Vec<(String, i64)>, SaasError> {
+    pub async fn count_tenants_grouped_by_plan(&self) -> Result<Vec<(String, i64)>, SaasError> {
         let rows: Vec<(String, i64)> = sqlx::query_as(
             "SELECT p.name, COUNT(t.id) AS count \
              FROM tenant_plans p \
@@ -646,9 +639,8 @@ impl ControlDb {
         };
 
         // Count query — no JOINs needed; filter columns are all on `tenants`.
-        let count_sql: &'static str = Box::leak(
-            format!("SELECT COUNT(*) FROM tenants t {where_sql}").into_boxed_str(),
-        );
+        let count_sql: &'static str =
+            Box::leak(format!("SELECT COUNT(*) FROM tenants t {where_sql}").into_boxed_str());
         let mut count_q = sqlx::query_scalar::<_, i64>(count_sql);
         for v in &string_binds {
             count_q = count_q.bind(v);
@@ -677,8 +669,7 @@ impl ControlDb {
             )
             .into_boxed_str(),
         );
-        let mut data_q =
-            sqlx::query_as::<_, TenantOverviewRow>(data_sql).bind(p.current_period);
+        let mut data_q = sqlx::query_as::<_, TenantOverviewRow>(data_sql).bind(p.current_period);
         for v in &string_binds {
             data_q = data_q.bind(v);
         }
@@ -747,10 +738,7 @@ impl ControlDb {
 
     /// Count non-deleted tenants that have not been seen since `before`
     /// (i.e. `last_seen_at` is NULL or earlier than the threshold).
-    pub async fn count_dormant_tenants(
-        &self,
-        before: DateTime<Utc>,
-    ) -> Result<i64, SaasError> {
+    pub async fn count_dormant_tenants(&self, before: DateTime<Utc>) -> Result<i64, SaasError> {
         let n: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM tenants \
              WHERE status != 'deleted' \
@@ -1423,7 +1411,9 @@ pub(crate) mod tests {
         seed_tenant_with_status(&db, "deleted-a", "deleted").await;
 
         assert_eq!(
-            db.count_tenants_by_status(TenantStatus::Active).await.unwrap(),
+            db.count_tenants_by_status(TenantStatus::Active)
+                .await
+                .unwrap(),
             3
         );
         assert_eq!(
@@ -1433,7 +1423,9 @@ pub(crate) mod tests {
             2
         );
         assert_eq!(
-            db.count_tenants_by_status(TenantStatus::Deleted).await.unwrap(),
+            db.count_tenants_by_status(TenantStatus::Deleted)
+                .await
+                .unwrap(),
             1
         );
     }
@@ -1470,12 +1462,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn count_tenants_grouped_by_plan_counts_correctly() {
         let db = ControlDb::new(test_pool().await).await.unwrap();
-        let plans: Vec<(Vec<u8>, String)> = sqlx::query_as(
-            "SELECT id, name FROM tenant_plans ORDER BY price_cents ASC LIMIT 2",
-        )
-        .fetch_all(db.pool())
-        .await
-        .unwrap();
+        let plans: Vec<(Vec<u8>, String)> =
+            sqlx::query_as("SELECT id, name FROM tenant_plans ORDER BY price_cents ASC LIMIT 2")
+                .fetch_all(db.pool())
+                .await
+                .unwrap();
         let (dev_id, _) = &plans[0];
         let (starter_id, _) = &plans[1];
 
@@ -1590,10 +1581,12 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(result.total, 2);
-        assert!(result
-            .rows
-            .iter()
-            .all(|r| r.status == TenantStatus::Suspended));
+        assert!(
+            result
+                .rows
+                .iter()
+                .all(|r| r.status == TenantStatus::Suspended)
+        );
     }
 
     #[tokio::test]
@@ -1718,7 +1711,11 @@ pub(crate) mod tests {
         }
 
         let history = db.aggregate_usage_history(12).await.unwrap();
-        assert_eq!(history.len(), 12, "only the 12 most recent periods returned");
+        assert_eq!(
+            history.len(),
+            12,
+            "only the 12 most recent periods returned"
+        );
         // Ordered newest first.
         assert!(history[0].period > history[11].period);
     }
@@ -1732,9 +1729,7 @@ pub(crate) mod tests {
         seed_tenant_with_status(&db, "del", "deleted").await;
 
         let n = db
-            .count_dormant_tenants(
-                chrono::Utc::now() + chrono::Duration::days(365),
-            )
+            .count_dormant_tenants(chrono::Utc::now() + chrono::Duration::days(365))
             .await
             .unwrap();
         assert_eq!(n, 1, "deleted tenant must not be counted as dormant");
@@ -1763,12 +1758,11 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let (status,): (String,) =
-            sqlx::query_as("SELECT status FROM tenants WHERE id = ?1")
-                .bind(tid.as_bytes())
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
+        let (status,): (String,) = sqlx::query_as("SELECT status FROM tenants WHERE id = ?1")
+            .bind(tid.as_bytes())
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
         assert_eq!(status, "suspended");
     }
 
@@ -1782,12 +1776,11 @@ pub(crate) mod tests {
 
         db.set_tenant_plan(&tid, &new_plan.id).await.unwrap();
 
-        let (plan_id,): (Vec<u8>,) =
-            sqlx::query_as("SELECT plan_id FROM tenants WHERE id = ?1")
-                .bind(tid.as_bytes())
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
+        let (plan_id,): (Vec<u8>,) = sqlx::query_as("SELECT plan_id FROM tenants WHERE id = ?1")
+            .bind(tid.as_bytes())
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
         assert_eq!(plan_id, new_plan.id);
     }
 
