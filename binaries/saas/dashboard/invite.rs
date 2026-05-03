@@ -278,7 +278,7 @@ pub async fn accept(
             Ok(_) => {}
             Err(e) => {
                 tracing::error!(error = %e, "accept_invite failed after user creation; rolling back");
-                if let Err(del_err) = state.ath.db().delete_user(registered.user.id).await {
+                if let Err(del_err) = state.ath.delete_user(registered.user.id).await {
                     tracing::error!(
                         user_id = %registered.user.id,
                         error = %del_err,

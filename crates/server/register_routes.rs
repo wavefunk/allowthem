@@ -222,7 +222,6 @@ async fn post_register(
 
     // 6. Create user
     let user = match ath
-        .db()
         .create_user(email, password, username, custom_data.as_ref())
         .await
     {

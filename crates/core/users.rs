@@ -5,6 +5,8 @@ use serde_json::Value;
 
 use crate::db::Db;
 use crate::error::AuthError;
+use crate::event_sink::AuthEvent;
+use crate::handle::AllowThem;
 use crate::password::hash_password;
 use crate::types::{Email, User, UserId, Username};
 
@@ -562,6 +564,109 @@ impl Db {
             .execute(self.pool())
             .await?;
 
+        Ok(())
+    }
+}
+
+// ─── AllowThem wrappers ───────────────────────────────────────────────────────
+
+impl AllowThem {
+    /// Create a user and emit a `user.created` event on success.
+    pub async fn create_user(
+        &self,
+        email: Email,
+        password: &str,
+        username: Option<Username>,
+        custom_data: Option<&Value>,
+    ) -> Result<User, AuthError> {
+        let user = self.db().create_user(email, password, username, custom_data).await?;
+        self.emit_event(AuthEvent::new(
+            "user.created",
+            Some(user.id),
+            serde_json::json!({
+                "user_id": user.id,
+                "email": user.email,
+                "username": user.username,
+            }),
+        ))
+        .await;
+        Ok(user)
+    }
+
+    /// Update a user's email address and emit a `user.updated` event on success.
+    pub async fn update_user_email(
+        &self,
+        id: UserId,
+        email: Email,
+    ) -> Result<(), AuthError> {
+        self.db().update_user_email(id, email).await?;
+        self.emit_event(AuthEvent::new(
+            "user.updated",
+            Some(id),
+            serde_json::json!({ "user_id": id, "field": "email" }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    /// Update a user's username and emit a `user.updated` event on success.
+    pub async fn update_user_username(
+        &self,
+        id: UserId,
+        username: Option<Username>,
+    ) -> Result<(), AuthError> {
+        self.db().update_user_username(id, username).await?;
+        self.emit_event(AuthEvent::new(
+            "user.updated",
+            Some(id),
+            serde_json::json!({ "user_id": id, "field": "username" }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    /// Update a user's password and emit a `password.changed` event on success.
+    pub async fn update_user_password(
+        &self,
+        id: UserId,
+        new_password: &str,
+    ) -> Result<(), AuthError> {
+        self.db().update_user_password(id, new_password).await?;
+        self.emit_event(AuthEvent::new(
+            "password.changed",
+            Some(id),
+            serde_json::json!({ "user_id": id }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    /// Delete a user and emit a `user.deleted` event on success.
+    pub async fn delete_user(&self, id: UserId) -> Result<(), AuthError> {
+        self.db().delete_user(id).await?;
+        self.emit_event(AuthEvent::new(
+            "user.deleted",
+            Some(id),
+            serde_json::json!({ "user_id": id }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    /// Set a user's active status and emit `user.blocked` or `user.unblocked`.
+    pub async fn update_user_active(
+        &self,
+        id: UserId,
+        is_active: bool,
+    ) -> Result<(), AuthError> {
+        self.db().update_user_active(id, is_active).await?;
+        let event_type = if is_active { "user.unblocked" } else { "user.blocked" };
+        self.emit_event(AuthEvent::new(
+            event_type,
+            Some(id),
+            serde_json::json!({ "user_id": id }),
+        ))
+        .await;
         Ok(())
     }
 }

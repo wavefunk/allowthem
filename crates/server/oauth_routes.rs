@@ -292,6 +292,17 @@ async fn callback(
                                 ),
                             ))
                         });
+                        ath.emit_event(allowthem_core::AuthEvent::new(
+                            "user.created",
+                            Some(new_user.id),
+                            serde_json::json!({
+                                "user_id": new_user.id,
+                                "email": new_user.email,
+                                "source": "oauth",
+                                "provider": provider_name,
+                            }),
+                        ))
+                        .await;
                         new_user
                     }
                     Err(e) => {
@@ -353,6 +364,17 @@ async fn callback(
                         ),
                     ))
                 });
+                ath.emit_event(allowthem_core::AuthEvent::new(
+                    "user.created",
+                    Some(new_user.id),
+                    serde_json::json!({
+                        "user_id": new_user.id,
+                        "email": new_user.email,
+                        "source": "oauth",
+                        "provider": provider_name,
+                    }),
+                ))
+                .await;
                 new_user
             }
         }

@@ -302,7 +302,7 @@ async fn block(
     let Ok(user_id) = raw_id.parse::<UserId>() else {
         return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
     };
-    scope.ath.db().update_user_active(user_id, false).await?;
+    scope.ath.update_user_active(user_id, false).await?;
     scope.ath.db().delete_user_sessions(&user_id).await?;
     log_admin_action(&scope, AuditEvent::UserUpdated, user_id, "blocked").await;
     Ok(Redirect::to(&format!("/t/{slug}/users/{user_id}")).into_response())
@@ -315,7 +315,7 @@ async fn unblock(
     let Ok(user_id) = raw_id.parse::<UserId>() else {
         return Ok(Redirect::to(&format!("/t/{slug}/users")).into_response());
     };
-    scope.ath.db().update_user_active(user_id, true).await?;
+    scope.ath.update_user_active(user_id, true).await?;
     log_admin_action(&scope, AuditEvent::UserUpdated, user_id, "unblocked").await;
     Ok(Redirect::to(&format!("/t/{slug}/users/{user_id}")).into_response())
 }
@@ -412,7 +412,7 @@ async fn delete_user(
     // persists even after the user record is removed.
     log_admin_action(&scope, AuditEvent::UserDeleted, user_id, "deleted").await;
 
-    scope.ath.db().delete_user(user_id).await?;
+    scope.ath.delete_user(user_id).await?;
     Ok(Redirect::to(&format!("/t/{slug}/users")).into_response())
 }
 
