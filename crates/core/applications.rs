@@ -1243,6 +1243,90 @@ mod tests {
         );
     }
 
+    // count_users_for_application tests
+
+    #[tokio::test]
+    async fn count_users_for_application_returns_consent_count() {
+        let db = crate::db::Db::connect("sqlite::memory:")
+            .await
+            .expect("in-memory db");
+        let (app, _secret) = db
+            .create_application(CreateApplicationParams {
+                name: "Count Test".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
+            .await
+            .expect("create_application");
+
+        let email1 = crate::Email::new("u1@test.com".into()).expect("email");
+        let email2 = crate::Email::new("u2@test.com".into()).expect("email");
+        let user1 = db
+            .create_user(email1, "pw", None, None)
+            .await
+            .expect("user1");
+        let user2 = db
+            .create_user(email2, "pw", None, None)
+            .await
+            .expect("user2");
+
+        let id1 = uuid::Uuid::new_v4();
+        let id2 = uuid::Uuid::new_v4();
+        sqlx::query(
+            "INSERT OR IGNORE INTO allowthem_consents (id, user_id, application_id) \
+             VALUES (?, ?, ?)",
+        )
+        .bind(id1.to_string())
+        .bind(user1.id)
+        .bind(app.id)
+        .execute(db.pool())
+        .await
+        .expect("insert consent 1");
+        sqlx::query(
+            "INSERT OR IGNORE INTO allowthem_consents (id, user_id, application_id) \
+             VALUES (?, ?, ?)",
+        )
+        .bind(id2.to_string())
+        .bind(user2.id)
+        .bind(app.id)
+        .execute(db.pool())
+        .await
+        .expect("insert consent 2");
+
+        let count = db
+            .count_users_for_application(app.id)
+            .await
+            .expect("count");
+        assert_eq!(count, 2, "expected 2 consented users");
+    }
+
+    #[tokio::test]
+    async fn count_users_is_zero_for_unknown_application() {
+        let db = crate::db::Db::connect("sqlite::memory:")
+            .await
+            .expect("in-memory db");
+        let unknown_id = ApplicationId::new();
+        let count = db
+            .count_users_for_application(unknown_id)
+            .await
+            .expect("count for unknown app");
+        assert_eq!(count, 0, "no consents for unknown application");
+    }
+
     #[cfg(test)]
     mod branding_config_builder_tests {
         use super::*;

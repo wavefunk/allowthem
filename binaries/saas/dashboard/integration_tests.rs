@@ -1178,3 +1178,233 @@ async fn user_list_unauthenticated_redirects_to_login() {
         "unauthenticated users list must redirect to login: {loc}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 99c.3.6 missing application management tests
+// ---------------------------------------------------------------------------
+
+/// Insert a dashboard user as a member of an existing tenant (by slug).
+/// Mirrors `insert_member` in `control_db.rs` test helpers.
+async fn insert_tenant_member(fx: &Fixture, slug: &str, email: &str, role: &str) {
+    let tenant = fx
+        .state
+        .control_db
+        .tenant_by_slug(slug)
+        .await
+        .expect("tenant_by_slug query")
+        .expect("tenant exists");
+    let tenant_id = allowthem_saas::TenantId::from(tenant.id_as_uuid().unwrap());
+    let member_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO tenant_members (id, tenant_id, email, role, accepted_at) \
+         VALUES (?, ?, ?, ?, datetime('now'))",
+    )
+    .bind(member_id.as_bytes().as_ref())
+    .bind(tenant_id.as_bytes())
+    .bind(email)
+    .bind(role)
+    .execute(fx.state.control_db.pool())
+    .await
+    .expect("insert tenant member");
+}
+
+#[tokio::test]
+async fn non_member_gets_404() {
+    let fx = Fixture::new().await;
+    // Owner sets up the "acme" tenant.
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    // A second dashboard user signs up with a different tenant ("zulu").
+    // They have no tenant_members row for "acme".
+    let (other_cookie, _) = signup_and_get_session(&fx, "other@zulu.com", "zulu").await;
+
+    let resp = get_authed(&fx, "/t/acme/applications", &other_cookie).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "non-member must receive 404"
+    );
+}
+
+#[tokio::test]
+async fn viewer_cannot_create() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    // Viewer has their own tenant ("viewer-ws") so they have a dashboard account.
+    let (viewer_cookie, _) =
+        signup_and_get_session(&fx, "viewer@example.com", "viewer-ws").await;
+    // Add them to "acme" with viewer role.
+    insert_tenant_member(&fx, "acme", "viewer@example.com", "viewer").await;
+
+    // The viewer is owner of "viewer-ws" so they can GET /t/viewer-ws/applications/new
+    // which renders a csrf_token input. The CSRF is derived from the session cookie
+    // (same dashboard AllowThem key across all tenant paths), so the token is valid
+    // for any POST by this session, including the attempt on "acme".
+    let csrf =
+        fetch_csrf_for_authed_form(&fx, "/t/viewer-ws/applications/new", &viewer_cookie).await;
+
+    let form = vec![
+        ("name", "Evil App"),
+        ("client_type", "confidential"),
+        ("redirect_uris", "https://evil.test/callback"),
+        ("logo_url", ""),
+        ("csrf_token", csrf.as_str()),
+    ];
+    let resp = fx
+        .post_form("/t/acme/applications", &form, Some(&viewer_cookie))
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "viewer must not be permitted to create an application"
+    );
+}
+
+#[tokio::test]
+async fn admin_can_create_and_delete() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    // Admin has their own tenant so they have a dashboard account.
+    let (admin_cookie, _) = signup_and_get_session(&fx, "admin@example.com", "admin-ws").await;
+    insert_tenant_member(&fx, "acme", "admin@example.com", "admin").await;
+
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    // --- Create ---
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/applications/new", &admin_cookie).await;
+    let form = vec![
+        ("name", "Admin App"),
+        ("client_type", "confidential"),
+        ("redirect_uris", "https://admin.test/callback"),
+        ("logo_url", ""),
+        ("csrf_token", csrf.as_str()),
+    ];
+    let resp = fx
+        .post_form("/t/acme/applications", &form, Some(&admin_cookie))
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains("Admin App"),
+        "create response must contain app name"
+    );
+
+    // Find the app by name to get its id.
+    let apps = ath.db().list_applications().await.expect("list_applications");
+    let app = apps
+        .iter()
+        .find(|a| a.name == "Admin App")
+        .expect("Admin App must exist after create");
+    let app_id = app.id;
+
+    // --- Delete ---
+    let detail_path = format!("/t/acme/applications/{app_id}");
+    let csrf2 = fetch_csrf_for_authed_form(&fx, &detail_path, &admin_cookie).await;
+    let del_resp = fx
+        .post_form(
+            &format!("{detail_path}/delete"),
+            &[("csrf_token", csrf2.as_str())],
+            Some(&admin_cookie),
+        )
+        .await;
+    assert_eq!(del_resp.status(), StatusCode::SEE_OTHER);
+    let loc = del_resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(loc, "/t/acme/applications", "delete must redirect to list");
+
+    let remaining = ath.db().list_applications().await.expect("list after delete");
+    assert!(
+        remaining.iter().all(|a| a.name != "Admin App"),
+        "deleted app must not appear in list"
+    );
+}
+
+#[tokio::test]
+async fn suspended_tenant_renders_suspended_page() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    // Suspend the tenant directly. resolve_scope calls tenant_by_slug on each
+    // request (no caching), so the new status is visible immediately.
+    sqlx::query("UPDATE tenants SET status = 'suspended' WHERE slug = 'acme'")
+        .execute(fx.state.control_db.pool())
+        .await
+        .expect("suspend tenant");
+
+    let resp = get_authed(&fx, "/t/acme/applications", &session_cookie).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "suspended tenant must return 503"
+    );
+    let body = body_string(resp).await;
+    assert!(
+        body.contains("Workspace suspended"),
+        "suspended page must contain 'Workspace suspended'"
+    );
+}
+
+#[tokio::test]
+async fn connected_users_count_renders() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let ath = tenant_ath_for_slug(&fx, "acme").await;
+
+    // The default app is provisioned by signup.
+    let apps = ath.db().list_applications().await.expect("list_applications");
+    let app = apps.first().expect("default app exists after signup");
+
+    // Create two tenant users and grant them consent on the default app.
+    let user1 = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("cu1@example.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("user1");
+    let user2 = ath
+        .db()
+        .create_user(
+            allowthem_core::Email::new("cu2@example.com".into()).unwrap(),
+            "secret",
+            None,
+            None,
+        )
+        .await
+        .expect("user2");
+
+    for (uid, consent_id) in [
+        (user1.id, uuid::Uuid::new_v4()),
+        (user2.id, uuid::Uuid::new_v4()),
+    ] {
+        sqlx::query(
+            "INSERT OR IGNORE INTO allowthem_consents (id, user_id, application_id) \
+             VALUES (?, ?, ?)",
+        )
+        .bind(consent_id.to_string())
+        .bind(uid)
+        .bind(app.id)
+        .execute(ath.db().pool())
+        .await
+        .expect("insert consent");
+    }
+
+    let resp = get_authed(
+        &fx,
+        &format!("/t/acme/applications/{}", app.id),
+        &session_cookie,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains("Connected users"),
+        "detail page must show 'Connected users' label"
+    );
+    assert!(body.contains('2'), "connected users count must be 2");
+}
