@@ -765,4 +765,306 @@ mod tests {
         let result = ath.create_session_cookie(UserId::new()).await;
         assert!(matches!(result, Err(AuthError::NotFound)));
     }
+
+    // -- on_user_active callback tests ------------------------------------------
+
+    #[tokio::test]
+    async fn on_user_active_default_is_none() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .build()
+            .await
+            .unwrap();
+        assert!(ath.on_user_active().is_none());
+    }
+
+    #[tokio::test]
+    async fn on_user_active_builder_stores_callback() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        assert!(ath.on_user_active().is_some());
+    }
+
+    #[tokio::test]
+    async fn on_user_active_fires_on_login_success() {
+        use std::sync::{Arc, Mutex};
+
+        let captured: Arc<Mutex<Vec<(UserId, DateTime<Utc>)>>> = Arc::new(Mutex::new(Vec::new()));
+        let cap = captured.clone();
+        let cb: OnUserActive = Arc::new(move |uid, ts| {
+            cap.lock().unwrap().push((uid, ts));
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("active@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "hunter2", None, None)
+            .await
+            .unwrap();
+
+        let before = Utc::now();
+        ath.login("active@example.com", "hunter2").await.unwrap();
+        let after = Utc::now();
+
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1, "callback must fire exactly once");
+        assert_eq!(events[0].0, user.id, "callback receives correct UserId");
+        assert!(
+            events[0].1 >= before && events[0].1 <= after,
+            "callback timestamp must be within the test window"
+        );
+    }
+
+    #[tokio::test]
+    async fn on_user_active_no_fire_on_login_wrong_password() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("wrongpw@example.com".into()).unwrap();
+        ath.db()
+            .create_user(email, "correct", None, None)
+            .await
+            .unwrap();
+
+        let _ = ath.login("wrongpw@example.com", "wrong").await;
+        assert_eq!(counter.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn on_user_active_no_fire_on_login_unknown_identifier() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        let _ = ath.login("nobody@example.com", "any").await;
+        assert_eq!(counter.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn on_user_active_no_fire_on_login_inactive_user() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("inact@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "secret", None, None)
+            .await
+            .unwrap();
+        ath.db().update_user_active(user.id, false).await.unwrap();
+
+        let _ = ath.login("inact@example.com", "secret").await;
+        assert_eq!(counter.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn on_user_active_no_fire_on_login_no_password_hash() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        let id = UserId::new();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        sqlx::query(
+            "INSERT INTO allowthem_users \
+             (id, email, username, password_hash, email_verified, is_active, created_at, updated_at) \
+             VALUES (?, 'sso2@example.com', NULL, NULL, 1, 1, ?, ?)",
+        )
+        .bind(id)
+        .bind(&now)
+        .bind(&now)
+        .execute(ath.db().pool())
+        .await
+        .unwrap();
+
+        let _ = ath.login("sso2@example.com", "any").await;
+        assert_eq!(counter.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn on_user_active_fires_on_create_session_cookie() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("csc@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "pass", None, None)
+            .await
+            .unwrap();
+
+        ath.create_session_cookie(user.id).await.unwrap();
+        assert_eq!(counter.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn on_user_active_no_fire_on_create_session_cookie_unknown_user() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        let _ = ath.create_session_cookie(UserId::new()).await;
+        assert_eq!(counter.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn on_user_active_no_fire_on_session_validation() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("passive@example.com".into()).unwrap();
+        ath.db()
+            .create_user(email, "pass", None, None)
+            .await
+            .unwrap();
+
+        let outcome = ath.login("passive@example.com", "pass").await.unwrap();
+        // Counter is 1 after the login fire.
+        assert_eq!(counter.load(Ordering::Relaxed), 1);
+
+        // Session validation is a passive event — counter must not change.
+        let _ = ath
+            .db()
+            .validate_session(&outcome.token, Duration::hours(24))
+            .await
+            .unwrap();
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            1,
+            "session validation must not fire callback"
+        );
+    }
+
+    #[tokio::test]
+    async fn on_user_active_panic_does_not_propagate() {
+        let cb: OnUserActive = Arc::new(|_uid, _ts| {
+            panic!("intentional test panic in on_user_active callback");
+        });
+
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .on_user_active(cb)
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("panic@example.com".into()).unwrap();
+        ath.db()
+            .create_user(email, "pass", None, None)
+            .await
+            .unwrap();
+
+        // Suppress the default panic hook output so test output stays clean.
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = ath.login("panic@example.com", "pass").await;
+        std::panic::set_hook(prev_hook);
+
+        assert!(
+            result.is_ok(),
+            "panic in callback must not propagate to caller"
+        );
+    }
 }
