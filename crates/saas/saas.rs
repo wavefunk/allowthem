@@ -9,7 +9,10 @@ pub mod tenants;
 
 pub use api_keys::ApiKeyScope;
 pub use cache::{HandleCache, SlugCache, TenantMeta};
-pub use control_db::{ControlDb, TenantRole};
+pub use control_db::{
+    ControlDb, PeriodAggregate, SearchTenantsParams, SearchTenantsResult, SortDir,
+    TenantOverviewRow, TenantRole, TenantSortCol,
+};
 pub use dashboard::{
     DashboardSignupError, DashboardSignupParams, DashboardSignupResult, DashboardState,
     ProvisionForUserError, dashboard_cookie_name, dashboard_signup, provision_tenant_for_user,

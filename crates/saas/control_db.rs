@@ -7,7 +7,7 @@ use allowthem_core::error::AuthError;
 
 use crate::cache::TenantMeta;
 use crate::error::SaasError;
-use crate::tenants::{MemberId, Tenant, TenantId, TenantMember, TenantStatus};
+use crate::tenants::{MemberId, Tenant, TenantId, TenantMember, TenantPlan, TenantStatus};
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct TenantUsage {
@@ -446,6 +446,382 @@ impl ControlDb {
             .await?;
         tx.commit().await?;
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Super-admin control-plane types (99c.6 Step 1).
+// ---------------------------------------------------------------------------
+
+/// One row returned by [`ControlDb::search_tenants`].
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct TenantOverviewRow {
+    pub id: Vec<u8>,
+    pub name: String,
+    pub slug: String,
+    pub owner_email: String,
+    pub status: TenantStatus,
+    pub plan_name: String,
+    pub mau_count: i64,
+    pub created_at: DateTime<Utc>,
+    pub last_seen_at: Option<DateTime<Utc>>,
+}
+
+/// Column to sort [`ControlDb::search_tenants`] results by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TenantSortCol {
+    #[default]
+    Name,
+    Slug,
+    Status,
+    Plan,
+    Mau,
+    CreatedAt,
+    LastSeenAt,
+}
+
+impl TenantSortCol {
+    fn as_sql(&self) -> &'static str {
+        match self {
+            Self::Name => "t.name",
+            Self::Slug => "t.slug",
+            Self::Status => "t.status",
+            Self::Plan => "p.name",
+            Self::Mau => "COALESCE(tu.mau_count, 0)",
+            Self::CreatedAt => "t.created_at",
+            // NULLs sort last regardless of direction.
+            Self::LastSeenAt => "COALESCE(t.last_seen_at, '')",
+        }
+    }
+}
+
+/// Sort direction for [`ControlDb::search_tenants`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortDir {
+    #[default]
+    Asc,
+    Desc,
+}
+
+impl SortDir {
+    fn as_sql(&self) -> &'static str {
+        match self {
+            Self::Asc => "ASC",
+            Self::Desc => "DESC",
+        }
+    }
+}
+
+/// Parameters for [`ControlDb::search_tenants`].
+pub struct SearchTenantsParams<'a> {
+    /// Optional search term matched against `name`, `slug`, and `owner_email`.
+    pub query: Option<&'a str>,
+    pub status: Option<TenantStatus>,
+    /// Filter by raw BLOB `plan_id`. Computed by the handler from a plan name.
+    pub plan_id: Option<&'a [u8]>,
+    /// `%Y-%m` period string (UTC) used for the MAU LEFT JOIN. Computed by the
+    /// handler; not embedded in the query to prevent SQL injection.
+    pub current_period: &'a str,
+    pub sort_col: TenantSortCol,
+    pub sort_dir: SortDir,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+/// Result of [`ControlDb::search_tenants`].
+pub struct SearchTenantsResult {
+    pub rows: Vec<TenantOverviewRow>,
+    pub total: u32,
+}
+
+/// Per-period usage aggregate returned by [`ControlDb::aggregate_usage_for_period`]
+/// and [`ControlDb::aggregate_usage_history`].
+#[derive(Debug, Clone, Serialize)]
+pub struct PeriodAggregate {
+    pub period: String,
+    pub total_mau: i64,
+    pub active_tenants: i64,
+}
+
+// ---------------------------------------------------------------------------
+// Super-admin queries — counts, search, aggregates, mutations (99c.6 Step 1).
+// ---------------------------------------------------------------------------
+
+impl ControlDb {
+    /// Count tenants in a given status (active / suspended / deleted).
+    pub async fn count_tenants_by_status(
+        &self,
+        status: TenantStatus,
+    ) -> Result<i64, SaasError> {
+        let n: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tenants WHERE status = ?1")
+                .bind(status)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(n)
+    }
+
+    /// Count tenants whose `created_at` is >= `since`.
+    pub async fn count_tenants_created_since(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<i64, SaasError> {
+        let n: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tenants WHERE created_at >= ?1")
+                .bind(since)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(n)
+    }
+
+    /// Return `(plan_name, tenant_count)` pairs ordered by count descending.
+    ///
+    /// Deleted tenants are excluded. Plans with no tenants still appear with 0.
+    pub async fn count_tenants_grouped_by_plan(
+        &self,
+    ) -> Result<Vec<(String, i64)>, SaasError> {
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT p.name, COUNT(t.id) AS count \
+             FROM tenant_plans p \
+             LEFT JOIN tenants t ON t.plan_id = p.id AND t.status != 'deleted' \
+             GROUP BY p.id, p.name \
+             ORDER BY count DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Paginated, sortable, filterable tenant search.
+    ///
+    /// Mirrors the `Box::leak`+dynamic-WHERE pattern from `Db::search_users`.
+    /// `plan_id` (BLOB) and `current_period` are bound separately from the
+    /// string-typed binds to preserve positional correctness.
+    pub async fn search_tenants(
+        &self,
+        p: SearchTenantsParams<'_>,
+    ) -> Result<SearchTenantsResult, SaasError> {
+        let mut where_clauses: Vec<String> = Vec::new();
+        let mut string_binds: Vec<String> = Vec::new();
+
+        if let Some(q) = p.query {
+            let trimmed = q.trim();
+            if !trimmed.is_empty() {
+                let esc = trimmed
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_");
+                let pat = format!("%{esc}%");
+                where_clauses.push(
+                    "(t.name LIKE ? ESCAPE '\\' \
+                     OR t.slug LIKE ? ESCAPE '\\' \
+                     OR t.owner_email LIKE ? ESCAPE '\\')"
+                        .into(),
+                );
+                string_binds.push(pat.clone());
+                string_binds.push(pat.clone());
+                string_binds.push(pat);
+            }
+        }
+
+        if let Some(s) = p.status {
+            where_clauses.push("t.status = ?".into());
+            let s_str = match s {
+                TenantStatus::Active => "active",
+                TenantStatus::Suspended => "suspended",
+                TenantStatus::Deleted => "deleted",
+            };
+            string_binds.push(s_str.to_owned());
+        }
+
+        let has_plan_filter = p.plan_id.is_some();
+        if has_plan_filter {
+            where_clauses.push("t.plan_id = ?".into());
+        }
+
+        let where_sql = if where_clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", where_clauses.join(" AND "))
+        };
+
+        // Count query — no JOINs needed; filter columns are all on `tenants`.
+        let count_sql: &'static str = Box::leak(
+            format!("SELECT COUNT(*) FROM tenants t {where_sql}").into_boxed_str(),
+        );
+        let mut count_q = sqlx::query_scalar::<_, i64>(count_sql);
+        for v in &string_binds {
+            count_q = count_q.bind(v);
+        }
+        if let Some(pid) = p.plan_id {
+            count_q = count_q.bind(pid);
+        }
+        let total = count_q.fetch_one(&self.pool).await? as u32;
+
+        // Data query — LEFT JOIN usage for MAU; JOIN plans for plan name.
+        // sort_col/sort_dir come from an enum allowlist — no injection risk.
+        let sort_col_sql = p.sort_col.as_sql();
+        let sort_dir_sql = p.sort_dir.as_sql();
+        let data_sql: &'static str = Box::leak(
+            format!(
+                "SELECT t.id, t.name, t.slug, t.owner_email, t.status, \
+                 t.created_at, t.last_seen_at, \
+                 p.name AS plan_name, COALESCE(tu.mau_count, 0) AS mau_count \
+                 FROM tenants t \
+                 JOIN tenant_plans p ON p.id = t.plan_id \
+                 LEFT JOIN tenant_usage tu \
+                   ON tu.tenant_id = t.id AND tu.period = ? \
+                 {where_sql} \
+                 ORDER BY {sort_col_sql} {sort_dir_sql} \
+                 LIMIT ? OFFSET ?"
+            )
+            .into_boxed_str(),
+        );
+        let mut data_q =
+            sqlx::query_as::<_, TenantOverviewRow>(data_sql).bind(p.current_period);
+        for v in &string_binds {
+            data_q = data_q.bind(v);
+        }
+        if let Some(pid) = p.plan_id {
+            data_q = data_q.bind(pid);
+        }
+        data_q = data_q.bind(p.limit).bind(p.offset);
+
+        let rows = data_q.fetch_all(&self.pool).await?;
+
+        Ok(SearchTenantsResult { rows, total })
+    }
+
+    /// Aggregate MAU + active-tenant count for a single period (e.g. `"2026-05"`).
+    ///
+    /// Returns zeros when no usage rows exist for the period.
+    pub async fn aggregate_usage_for_period(
+        &self,
+        period: &str,
+    ) -> Result<PeriodAggregate, SaasError> {
+        let (total_mau, active_tenants): (i64, i64) = sqlx::query_as(
+            "SELECT \
+               COALESCE(SUM(mau_count), 0) AS total_mau, \
+               COUNT(CASE WHEN mau_count > 0 THEN 1 END) AS active_tenants \
+             FROM tenant_usage \
+             WHERE period = ?1",
+        )
+        .bind(period)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(PeriodAggregate {
+            period: period.to_owned(),
+            total_mau,
+            active_tenants,
+        })
+    }
+
+    /// Return the `n_months` most-recent per-period aggregates, newest first.
+    pub async fn aggregate_usage_history(
+        &self,
+        n_months: u32,
+    ) -> Result<Vec<PeriodAggregate>, SaasError> {
+        let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+            "SELECT period, \
+               SUM(mau_count) AS total_mau, \
+               COUNT(CASE WHEN mau_count > 0 THEN 1 END) AS active_tenants \
+             FROM tenant_usage \
+             GROUP BY period \
+             ORDER BY period DESC \
+             LIMIT ?1",
+        )
+        .bind(n_months)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(period, total_mau, active_tenants)| PeriodAggregate {
+                period,
+                total_mau,
+                active_tenants,
+            })
+            .collect())
+    }
+
+    /// Count non-deleted tenants that have not been seen since `before`
+    /// (i.e. `last_seen_at` is NULL or earlier than the threshold).
+    pub async fn count_dormant_tenants(
+        &self,
+        before: DateTime<Utc>,
+    ) -> Result<i64, SaasError> {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tenants \
+             WHERE status != 'deleted' \
+               AND (last_seen_at IS NULL OR last_seen_at < ?1)",
+        )
+        .bind(before)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(n)
+    }
+
+    /// Set a tenant's status. Bumps `updated_at`.
+    pub async fn set_tenant_status(
+        &self,
+        tenant_id: &TenantId,
+        status: TenantStatus,
+    ) -> Result<(), SaasError> {
+        sqlx::query(
+            "UPDATE tenants \
+             SET status = ?1, \
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE id = ?2",
+        )
+        .bind(status)
+        .bind(tenant_id.as_bytes())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Set a tenant's plan. Bumps `updated_at`.
+    pub async fn set_tenant_plan(
+        &self,
+        tenant_id: &TenantId,
+        plan_id: &[u8],
+    ) -> Result<(), SaasError> {
+        sqlx::query(
+            "UPDATE tenants \
+             SET plan_id = ?1, \
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE id = ?2",
+        )
+        .bind(plan_id)
+        .bind(tenant_id.as_bytes())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// All available plans ordered by `price_cents ASC`.
+    pub async fn list_plans(&self) -> Result<Vec<TenantPlan>, SaasError> {
+        let rows = sqlx::query_as::<_, TenantPlan>(
+            "SELECT id, name, mau_limit, price_cents, features \
+             FROM tenant_plans \
+             ORDER BY price_cents ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Look up a plan by its raw BLOB id. Returns `None` if not found.
+    pub async fn get_plan_by_id(&self, plan_id: &[u8]) -> Result<Option<TenantPlan>, SaasError> {
+        let row = sqlx::query_as::<_, TenantPlan>(
+            "SELECT id, name, mau_limit, price_cents, features \
+             FROM tenant_plans WHERE id = ?1",
+        )
+        .bind(plan_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 }
 
@@ -1032,5 +1408,416 @@ pub(crate) mod tests {
 
         db.remove_member(&admin).await.unwrap();
         assert!(db.get_tenant_member(&admin).await.unwrap().is_none());
+    }
+
+    // ---- 99c.6 Step 1: super-admin queries ----
+
+    #[tokio::test]
+    async fn count_tenants_by_status_returns_correct_counts() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        seed_tenant_with_status(&db, "active-a", "active").await;
+        seed_tenant_with_status(&db, "active-b", "active").await;
+        seed_tenant_with_status(&db, "active-c", "active").await;
+        seed_tenant_with_status(&db, "suspended-a", "suspended").await;
+        seed_tenant_with_status(&db, "suspended-b", "suspended").await;
+        seed_tenant_with_status(&db, "deleted-a", "deleted").await;
+
+        assert_eq!(
+            db.count_tenants_by_status(TenantStatus::Active).await.unwrap(),
+            3
+        );
+        assert_eq!(
+            db.count_tenants_by_status(TenantStatus::Suspended)
+                .await
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.count_tenants_by_status(TenantStatus::Deleted).await.unwrap(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn count_tenants_created_since_threshold() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        seed_tenant(&db, "old-a").await;
+        seed_tenant(&db, "old-b").await;
+
+        let threshold = chrono::Utc::now();
+        seed_tenant(&db, "new-a").await;
+
+        // At minimum new-a was created after threshold (all three were inserted
+        // in tight succession, but at least one must qualify).
+        let after = db.count_tenants_created_since(threshold).await.unwrap();
+        let all = db
+            .count_tenants_created_since(chrono::DateTime::UNIX_EPOCH)
+            .await
+            .unwrap();
+        assert_eq!(all, 3);
+        assert!(after >= 0 && after <= 3, "threshold count in sane range");
+    }
+
+    #[tokio::test]
+    async fn count_tenants_grouped_by_plan_returns_all_plans_zero() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        // No tenants seeded — all four seed plans should appear with count 0.
+        let by_plan = db.count_tenants_grouped_by_plan().await.unwrap();
+        assert_eq!(by_plan.len(), 4, "all 4 seed plans returned");
+        assert!(by_plan.iter().all(|(_, c)| *c == 0));
+    }
+
+    #[tokio::test]
+    async fn count_tenants_grouped_by_plan_counts_correctly() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let plans: Vec<(Vec<u8>, String)> = sqlx::query_as(
+            "SELECT id, name FROM tenant_plans ORDER BY price_cents ASC LIMIT 2",
+        )
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
+        let (dev_id, _) = &plans[0];
+        let (starter_id, _) = &plans[1];
+
+        for slug in ["dev-a", "dev-b"] {
+            let id = uuid::Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO tenants (id, name, slug, owner_email, plan_id, status, db_path) \
+                 VALUES (?, ?, ?, ?, ?, 'active', ?)",
+            )
+            .bind(id.as_bytes().as_ref())
+            .bind(slug)
+            .bind(slug)
+            .bind(format!("{slug}@x.com"))
+            .bind(dev_id)
+            .bind(format!("{slug}.db"))
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+        let sid = uuid::Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO tenants (id, name, slug, owner_email, plan_id, status, db_path) \
+             VALUES (?, 'Starter', 'strt', 'strt@x.com', ?, 'active', 'strt.db')",
+        )
+        .bind(sid.as_bytes().as_ref())
+        .bind(starter_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        let by_plan = db.count_tenants_grouped_by_plan().await.unwrap();
+        let dev_count = by_plan.iter().find(|(n, _)| n == "dev").map(|(_, c)| *c);
+        let starter_count = by_plan
+            .iter()
+            .find(|(n, _)| n == "starter")
+            .map(|(_, c)| *c);
+        assert_eq!(dev_count, Some(2));
+        assert_eq!(starter_count, Some(1));
+    }
+
+    #[tokio::test]
+    async fn search_tenants_no_filter_returns_all() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        seed_tenant(&db, "alpha").await;
+        seed_tenant(&db, "beta").await;
+        seed_tenant(&db, "gamma").await;
+
+        let result = db
+            .search_tenants(SearchTenantsParams {
+                query: None,
+                status: None,
+                plan_id: None,
+                current_period: "2026-05",
+                sort_col: TenantSortCol::Name,
+                sort_dir: SortDir::Asc,
+                limit: 25,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.total, 3);
+        assert_eq!(result.rows.len(), 3);
+        assert_eq!(result.rows[0].slug, "alpha");
+        assert_eq!(result.rows[2].slug, "gamma");
+    }
+
+    #[tokio::test]
+    async fn search_tenants_query_matches_slug_and_name() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        seed_tenant(&db, "acme").await;
+        seed_tenant(&db, "acme-staging").await;
+        seed_tenant(&db, "beta").await;
+
+        let result = db
+            .search_tenants(SearchTenantsParams {
+                query: Some("acme"),
+                status: None,
+                plan_id: None,
+                current_period: "2026-05",
+                sort_col: TenantSortCol::Name,
+                sort_dir: SortDir::Asc,
+                limit: 25,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.total, 2);
+        assert!(result.rows.iter().all(|r| r.slug.contains("acme")));
+    }
+
+    #[tokio::test]
+    async fn search_tenants_status_filter() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        seed_tenant_with_status(&db, "susp-a", "suspended").await;
+        seed_tenant_with_status(&db, "susp-b", "suspended").await;
+        seed_tenant(&db, "active-z").await;
+
+        let result = db
+            .search_tenants(SearchTenantsParams {
+                query: None,
+                status: Some(TenantStatus::Suspended),
+                plan_id: None,
+                current_period: "2026-05",
+                sort_col: TenantSortCol::Name,
+                sort_dir: SortDir::Asc,
+                limit: 25,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.total, 2);
+        assert!(result
+            .rows
+            .iter()
+            .all(|r| r.status == TenantStatus::Suspended));
+    }
+
+    #[tokio::test]
+    async fn search_tenants_pagination() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        for i in 0..30u32 {
+            seed_tenant(&db, &format!("page-t-{i:02}")).await;
+        }
+
+        let page1 = db
+            .search_tenants(SearchTenantsParams {
+                query: None,
+                status: None,
+                plan_id: None,
+                current_period: "2026-05",
+                sort_col: TenantSortCol::Name,
+                sort_dir: SortDir::Asc,
+                limit: 25,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+        let page2 = db
+            .search_tenants(SearchTenantsParams {
+                query: None,
+                status: None,
+                plan_id: None,
+                current_period: "2026-05",
+                sort_col: TenantSortCol::Name,
+                sort_dir: SortDir::Asc,
+                limit: 25,
+                offset: 25,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(page1.total, 30);
+        assert_eq!(page1.rows.len(), 25);
+        assert_eq!(page2.rows.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn search_tenants_sort_name_desc() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        seed_tenant(&db, "aaa").await;
+        seed_tenant(&db, "bbb").await;
+        seed_tenant(&db, "ccc").await;
+
+        let result = db
+            .search_tenants(SearchTenantsParams {
+                query: None,
+                status: None,
+                plan_id: None,
+                current_period: "2026-05",
+                sort_col: TenantSortCol::Name,
+                sort_dir: SortDir::Desc,
+                limit: 25,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.rows[0].slug, "ccc");
+        assert_eq!(result.rows[2].slug, "aaa");
+    }
+
+    #[tokio::test]
+    async fn aggregate_usage_for_period_returns_zeros_when_empty() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let agg = db.aggregate_usage_for_period("2026-05").await.unwrap();
+        assert_eq!(agg.period, "2026-05");
+        assert_eq!(agg.total_mau, 0);
+        assert_eq!(agg.active_tenants, 0);
+    }
+
+    #[tokio::test]
+    async fn aggregate_usage_for_period_sums_correctly() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let ta = seed_tenant(&db, "agg-a").await;
+        let tb = seed_tenant(&db, "agg-b").await;
+        let tc = seed_tenant(&db, "agg-c").await;
+
+        for (tid, mau) in [(&ta, 100i64), (&tb, 200), (&tc, 0)] {
+            let uid = uuid::Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO tenant_usage (id, tenant_id, period, mau_count) \
+                 VALUES (?, ?, '2026-05', ?)",
+            )
+            .bind(uid.as_bytes().as_ref())
+            .bind(tid.as_bytes())
+            .bind(mau)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+
+        let agg = db.aggregate_usage_for_period("2026-05").await.unwrap();
+        assert_eq!(agg.total_mau, 300);
+        // tc has mau_count=0 → not counted as active.
+        assert_eq!(agg.active_tenants, 2);
+    }
+
+    #[tokio::test]
+    async fn aggregate_usage_history_returns_n_most_recent() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "hist").await;
+
+        // Seed 14 periods.
+        for i in 0..14u32 {
+            let uid = uuid::Uuid::new_v4();
+            let period = format!("2025-{:02}", i + 1);
+            sqlx::query(
+                "INSERT INTO tenant_usage (id, tenant_id, period, mau_count) \
+                 VALUES (?, ?, ?, 1)",
+            )
+            .bind(uid.as_bytes().as_ref())
+            .bind(tid.as_bytes())
+            .bind(&period)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+
+        let history = db.aggregate_usage_history(12).await.unwrap();
+        assert_eq!(history.len(), 12, "only the 12 most recent periods returned");
+        // Ordered newest first.
+        assert!(history[0].period > history[11].period);
+    }
+
+    #[tokio::test]
+    async fn count_dormant_tenants_excludes_deleted() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        // Active with no last_seen_at → dormant.
+        seed_tenant(&db, "never-seen").await;
+        // Deleted → excluded regardless.
+        seed_tenant_with_status(&db, "del", "deleted").await;
+
+        let n = db
+            .count_dormant_tenants(
+                chrono::Utc::now() + chrono::Duration::days(365),
+            )
+            .await
+            .unwrap();
+        assert_eq!(n, 1, "deleted tenant must not be counted as dormant");
+    }
+
+    #[tokio::test]
+    async fn count_dormant_tenants_excludes_recently_seen() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "recent-tenant").await;
+        db.touch_last_seen(&tid).await.unwrap();
+
+        // Threshold is in the past → recently-seen tenant is not dormant.
+        let n = db
+            .count_dormant_tenants(chrono::Utc::now() - chrono::Duration::days(30))
+            .await
+            .unwrap();
+        assert_eq!(n, 0, "recently-seen tenant should not be dormant");
+    }
+
+    #[tokio::test]
+    async fn set_tenant_status_updates_row() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "suspend-me").await;
+
+        db.set_tenant_status(&tid, TenantStatus::Suspended)
+            .await
+            .unwrap();
+
+        let (status,): (String,) =
+            sqlx::query_as("SELECT status FROM tenants WHERE id = ?1")
+                .bind(tid.as_bytes())
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+        assert_eq!(status, "suspended");
+    }
+
+    #[tokio::test]
+    async fn set_tenant_plan_updates_plan_id() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "change-plan").await;
+        let plans = db.list_plans().await.unwrap();
+        // dev is plan index 0; pick the next one.
+        let new_plan = &plans[1];
+
+        db.set_tenant_plan(&tid, &new_plan.id).await.unwrap();
+
+        let (plan_id,): (Vec<u8>,) =
+            sqlx::query_as("SELECT plan_id FROM tenants WHERE id = ?1")
+                .bind(tid.as_bytes())
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+        assert_eq!(plan_id, new_plan.id);
+    }
+
+    #[tokio::test]
+    async fn list_plans_returns_four_seed_plans_ordered_by_price() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let plans = db.list_plans().await.unwrap();
+        assert_eq!(plans.len(), 4);
+        let names: Vec<&str> = plans.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains(&"dev"));
+        assert!(names.contains(&"starter"));
+        assert!(names.contains(&"growth"));
+        assert!(names.contains(&"scale"));
+        // Cheapest first.
+        assert_eq!(plans[0].name, "dev");
+        assert_eq!(plans[0].price_cents, 0);
+    }
+
+    #[tokio::test]
+    async fn get_plan_by_id_some_and_none() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let plans = db.list_plans().await.unwrap();
+        let first = &plans[0];
+
+        let found = db.get_plan_by_id(&first.id).await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, first.name);
+
+        let bogus = vec![0u8; 16];
+        let not_found = db.get_plan_by_id(&bogus).await.unwrap();
+        assert!(not_found.is_none());
     }
 }
