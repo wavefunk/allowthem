@@ -50,6 +50,9 @@ const USER_PERMISSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_p
 const USER_SESSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_sessions.html");
 const USER_AUDIT_PARTIAL: &str = include_str!("templates/_partials/_user_audit.html");
 
+// General settings page (99c.5 Step 10).
+const SETTINGS_GENERAL_HTML: &str = include_str!("templates/settings/general.html");
+
 // Permissions CRUD pages (99c.5 Step 9).
 const PERMISSIONS_LIST_HTML: &str = include_str!("templates/permissions/list.html");
 const PERMISSIONS_NEW_HTML: &str = include_str!("templates/permissions/new.html");
@@ -160,6 +163,10 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
         .expect("_partials/_user_sessions.html");
     env.add_template_owned("_partials/_user_audit.html", USER_AUDIT_PARTIAL)
         .expect("_partials/_user_audit.html");
+
+    // General settings page (99c.5 Step 10).
+    env.add_template_owned("settings/general.html", SETTINGS_GENERAL_HTML)
+        .expect("settings/general.html");
 
     // Permissions CRUD pages (99c.5 Step 9).
     env.add_template_owned("permissions/list.html", PERMISSIONS_LIST_HTML)
