@@ -16,7 +16,7 @@ use serde::Deserialize;
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::types::ClientId;
 use allowthem_core::{
-    AllowThem, AuditEvent, AuthError, AuthEvent, AuthEventSender, Email, EventContext,
+    AllowThem, AuditEvent, AuthError, LifecycleEvent, LifecycleEventSender, Email, EventContext,
     RegisteredEvent, RegistrationSource, Username, generate_token, hash_token,
 };
 
@@ -36,7 +36,7 @@ struct RegisterConfig {
     templates: Arc<Environment<'static>>,
     is_production: bool,
     custom_schema: Option<Arc<CustomSchemaConfig>>,
-    events_tx: Option<AuthEventSender>,
+    events_tx: Option<LifecycleEventSender>,
     base_url: Option<String>,
     oauth_providers: Vec<String>,
 }
@@ -285,7 +285,7 @@ async fn post_register(
 
     // 9. Publish lifecycle event (fire-and-forget; after all fallible DB calls).
     publish(config.events_tx.as_ref(), || {
-        AuthEvent::Registered(RegisteredEvent::new(
+        LifecycleEvent::Registered(RegisteredEvent::new(
             user.clone(),
             RegistrationSource::Password,
             EventContext::new(
@@ -463,7 +463,7 @@ pub fn register_routes(
     templates: Arc<Environment<'static>>,
     is_production: bool,
     custom_schema: Option<CustomSchemaConfig>,
-    events_tx: Option<AuthEventSender>,
+    events_tx: Option<LifecycleEventSender>,
     base_url: Option<String>,
     oauth_providers: Vec<String>,
 ) -> Router<()> {
@@ -491,7 +491,7 @@ mod tests {
     use allowthem_core::applications::CreateApplicationParams;
     use allowthem_core::types::ClientType;
     use allowthem_core::{
-        AllowThem, AllowThemBuilder, AuditEvent, AuthEvent, Email, RegistrationSource, Username,
+        AllowThem, AllowThemBuilder, AuditEvent, LifecycleEvent, Email, RegistrationSource, Username,
         parse_session_cookie,
     };
 
@@ -1202,7 +1202,7 @@ mod tests {
     fn test_app_with_events(
         ath: AllowThem,
         config: RegisterConfig,
-        events_tx: allowthem_core::AuthEventSender,
+        events_tx: allowthem_core::LifecycleEventSender,
         base_url: String,
     ) -> Router {
         register_routes(
@@ -1242,7 +1242,7 @@ mod tests {
             .expect("channel sender still alive");
 
         match event {
-            AuthEvent::Registered(e) => {
+            LifecycleEvent::Registered(e) => {
                 assert!(matches!(e.source, RegistrationSource::Password));
                 assert_eq!(e.user.email.as_str(), "events@example.com");
                 assert_eq!(e.ctx.base_url, "http://test");

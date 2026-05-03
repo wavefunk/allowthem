@@ -4,14 +4,14 @@
 
 use axum::http::HeaderMap;
 
-use allowthem_core::events::{AuthEvent, AuthEventSender};
+use allowthem_core::events::{LifecycleEvent, LifecycleEventSender};
 
 /// Send an event into `tx` if configured. Silently ignores `SendError`
 /// (a dropped receiver is the integrator's problem; see §6 of the spec).
 ///
 /// Takes a builder closure so the call site can skip event construction
 /// entirely when no sender is configured.
-pub(crate) fn publish(tx: Option<&AuthEventSender>, build: impl FnOnce() -> AuthEvent) {
+pub(crate) fn publish(tx: Option<&LifecycleEventSender>, build: impl FnOnce() -> LifecycleEvent) {
     if let Some(tx) = tx {
         let _ = tx.send(build());
     }

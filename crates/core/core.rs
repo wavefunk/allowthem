@@ -37,8 +37,9 @@ pub use csrf::{derive_csrf_token, verify_csrf_token};
 pub use db::Db;
 pub use email::{EmailMessage, EmailSender, EmailTemplate, LogEmailSender, NoopEmailSender};
 pub use error::{AccessTokenError, AuthError};
+pub use event_sink::{AuthEvent, EventSink, LoggingEventSink, NoopEventSink};
 pub use events::{
-    AuthEvent, AuthEventReceiver, AuthEventSender, EventContext, RegisteredEvent,
+    EventContext, LifecycleEvent, LifecycleEventReceiver, LifecycleEventSender, RegisteredEvent,
     RegistrationSource,
 };
 pub use handle::{AllowThem, AllowThemBuilder, BuildError, LoginOutcome, OnUserActive};

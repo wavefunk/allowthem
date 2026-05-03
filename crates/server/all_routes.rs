@@ -5,7 +5,7 @@ use std::sync::Arc;
 use axum::Router;
 use minijinja::Environment;
 
-use allowthem_core::{AllowThem, AuthEventSender, OAuthProvider};
+use allowthem_core::{AllowThem, LifecycleEventSender, OAuthProvider};
 
 use crate::browser_templates::build_default_browser_env;
 
@@ -68,7 +68,7 @@ pub struct AllRoutesBuilder {
     custom_fields_schema: Option<serde_json::Value>,
 
     // Event publishing (optional)
-    events_tx: Option<AuthEventSender>,
+    events_tx: Option<LifecycleEventSender>,
 
     // Route selection
     routes: HashSet<RouteGroup>,
@@ -128,7 +128,7 @@ impl AllRoutesBuilder {
     ///
     /// See `docs/superpowers/specs/2026-04-20-lifecycle-events-design.md` for
     /// the delivery contract. Called at most once; subsequent calls overwrite.
-    pub fn events(mut self, tx: AuthEventSender) -> Self {
+    pub fn events(mut self, tx: LifecycleEventSender) -> Self {
         self.events_tx = Some(tx);
         self
     }
