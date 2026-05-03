@@ -50,6 +50,10 @@ const USER_PERMISSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_p
 const USER_SESSIONS_PARTIAL: &str = include_str!("templates/_partials/_user_sessions.html");
 const USER_AUDIT_PARTIAL: &str = include_str!("templates/_partials/_user_audit.html");
 
+// API key management page (99c.5 Step 11).
+const SETTINGS_API_KEYS_LIST_HTML: &str =
+    include_str!("templates/settings/api_keys/list.html");
+
 // General settings page (99c.5 Step 10).
 const SETTINGS_GENERAL_HTML: &str = include_str!("templates/settings/general.html");
 
@@ -163,6 +167,10 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
         .expect("_partials/_user_sessions.html");
     env.add_template_owned("_partials/_user_audit.html", USER_AUDIT_PARTIAL)
         .expect("_partials/_user_audit.html");
+
+    // API key management page (99c.5 Step 11).
+    env.add_template_owned("settings/api_keys/list.html", SETTINGS_API_KEYS_LIST_HTML)
+        .expect("settings/api_keys/list.html");
 
     // General settings page (99c.5 Step 10).
     env.add_template_owned("settings/general.html", SETTINGS_GENERAL_HTML)

@@ -8,6 +8,7 @@
 //!   (signup + quickstart in 99c.2; app CRUD, super-admin in 99c.3+).
 //! - Submodules for the user-facing onboarding surface live alongside.
 
+pub mod admin;
 pub mod applications;
 pub mod audit;
 pub mod auth_helpers;
@@ -17,6 +18,7 @@ pub mod permissions;
 pub mod quickstart;
 pub mod quickstart_cache;
 pub mod roles;
+pub mod settings_api_keys;
 pub mod settings_general;
 pub mod signup;
 pub mod state;
