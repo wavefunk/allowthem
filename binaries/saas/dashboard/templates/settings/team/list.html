@@ -6,6 +6,7 @@
    - csrf_token: String
    - members: Vec<{id, email, role, status, invited_at, accepted_at?}>
    - can_manage: bool
+   - invite_error: String  (empty string when no error)
 #}
 {% extends "_partials/_dashboard_shell.html" %}
 
@@ -19,12 +20,37 @@
   <div class="wf-panel" style="margin:16px 24px 0">
     <div class="wf-panel-head">
       <div class="wf-panel-title">Team Members</div>
-      {% if can_manage %}
-        <a href="/t/{{ tenant.slug }}/settings/team/invite" class="wf-btn primary sm">
-          Invite member
-        </a>
-      {% endif %}
     </div>
+
+    {% if can_manage %}
+      <form method="post" action="/t/{{ tenant.slug }}/settings/team/invite"
+            style="display:flex; gap:12px; align-items:flex-end; padding:12px 16px; flex-wrap:wrap;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <label>
+          Email
+          <input type="email" name="email" placeholder="colleague@example.com"
+                 required maxlength="254" />
+        </label>
+        <label>
+          Role
+          <select name="role">
+            <option value="viewer">viewer</option>
+            <option value="admin">admin</option>
+            {% if role == "owner" %}
+              <option value="owner">owner</option>
+            {% endif %}
+          </select>
+        </label>
+        <button type="submit" class="wf-btn primary sm">Invite</button>
+      </form>
+      {% if invite_error %}
+        <div class="wf-alert err" style="margin:0 16px 12px;">
+          <span class="wf-bar"></span>
+          <div>{{ invite_error }}</div>
+          <span></span>
+        </div>
+      {% endif %}
+    {% endif %}
   </div>
 
   {% if members %}
@@ -66,8 +92,7 @@
                             action="/t/{{ tenant.slug }}/settings/team/{{ m.id }}/role"
                             style="display:inline">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-                        <select name="role" onchange="this.form.submit()"
-                                {% if m.role == "owner" and loop.length == 1 %}disabled{% endif %}>
+                        <select name="role" onchange="this.form.submit()">
                           <option value="owner" {% if m.role == "owner" %}selected{% endif %}>owner</option>
                           <option value="admin" {% if m.role == "admin" %}selected{% endif %}>admin</option>
                           <option value="viewer" {% if m.role == "viewer" %}selected{% endif %}>viewer</option>
