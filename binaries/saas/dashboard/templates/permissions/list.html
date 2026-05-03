@@ -1,0 +1,65 @@
+{# permissions/list.html — tenant permission directory.
+   Expected context:
+   - tenant.{name, slug}
+   - role: "owner" | "admin" | "viewer"
+   - nav_sections
+   - csrf_token: String
+   - permissions: Vec<{id, name, description}>
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}Permissions — {{ tenant.name }}{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">{{ tenant.name }} · PERMISSIONS</div>
+{% endblock %}
+
+{% block dashboard_content %}
+  <div class="wf-panel" style="margin:16px 24px 0">
+    <div class="wf-panel-head">
+      <div class="wf-panel-title">Permissions ({{ permissions | length }})</div>
+      {% if role == "owner" or role == "admin" %}
+        <a class="wf-btn primary sm" href="/t/{{ tenant.slug }}/permissions/new">+ New permission</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if permissions %}
+    <div class="wf-tablewrap">
+      <div class="wf-tablescroll">
+        <table class="wf-table sticky">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Description</th>
+              {% if role == "owner" or role == "admin" %}
+                <th>Actions</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in permissions %}
+              <tr>
+                <td><code>{{ p.name }}</code></td>
+                <td>{{ p.description or "—" }}</td>
+                {% if role == "owner" or role == "admin" %}
+                  <td>
+                    <form method="post"
+                          action="/t/{{ tenant.slug }}/permissions/{{ p.id }}/delete"
+                          style="display:inline"
+                          onsubmit="return confirm('Delete permission {{ p.name }}?')">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                      <button type="submit" class="wf-btn sm err">Delete</button>
+                    </form>
+                  </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <p class="wf-empty" style="margin:12px 24px;">No permissions yet.</p>
+  {% endif %}
+{% endblock %}
