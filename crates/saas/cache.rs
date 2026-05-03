@@ -242,4 +242,25 @@ mod tests {
 
         assert_eq!(count.load(Ordering::SeqCst), 2);
     }
+
+    // Step 3 (99c.6): SlugCache::entry_count
+    #[tokio::test]
+    async fn slug_cache_entry_count_increments_on_get_or_fetch() {
+        let cache = SlugCache::new(10, 60);
+        let meta = make_meta(42);
+        let m = meta.clone();
+
+        cache
+            .get_or_fetch("newslug", move || {
+                let m = m.clone();
+                async move { Ok(Some(m)) }
+            })
+            .await
+            .unwrap();
+
+        // Moka's entry_count is eventually consistent; flush pending tasks
+        // so the counter is updated before we assert.
+        cache.0.run_pending_tasks().await;
+        assert!(cache.entry_count() >= 1);
+    }
 }
