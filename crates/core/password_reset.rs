@@ -209,6 +209,7 @@ pub fn reset_expires_at(from: DateTime<Utc>) -> DateTime<Utc> {
 mod tests {
     use crate::db::Db;
     use crate::email::LogEmailSender;
+    use crate::handle::AllowThemBuilder;
     use crate::types::Email;
 
     async fn test_db() -> Db {
@@ -308,30 +309,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_password_reset_succeeds_for_known_email() {
-        let db = test_db().await;
-        let email = make_user(&db).await;
-        let sender = LogEmailSender;
-        let result = db
-            .send_password_reset(&email, "https://example.com", &sender)
-            .await;
+    async fn send_password_reset_email_succeeds_for_known_email() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .base_url("https://example.com")
+            .email_sender(Box::new(LogEmailSender))
+            .build()
+            .await
+            .expect("build AllowThem");
+        let email = Email::new("reset@example.com".to_string()).unwrap();
+        ath.db()
+            .create_user(email.clone(), "initial-password", None, None)
+            .await
+            .expect("create user");
+        let result = ath.send_password_reset_email(&email).await;
         assert!(
             result.is_ok(),
-            "send_password_reset must succeed for known email"
+            "send_password_reset_email must succeed for known email"
         );
     }
 
     #[tokio::test]
-    async fn send_password_reset_is_silent_for_unknown_email() {
-        let db = test_db().await;
+    async fn send_password_reset_email_is_silent_for_unknown_email() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .base_url("https://example.com")
+            .email_sender(Box::new(LogEmailSender))
+            .build()
+            .await
+            .expect("build AllowThem");
         let email = Email::new("ghost@example.com".to_string()).unwrap();
-        let sender = LogEmailSender;
-        let result = db
-            .send_password_reset(&email, "https://example.com", &sender)
-            .await;
+        let result = ath.send_password_reset_email(&email).await;
         assert!(
             result.is_ok(),
-            "send_password_reset must not error for unknown email"
+            "send_password_reset_email must not error for unknown email"
         );
     }
 }

@@ -129,6 +129,7 @@ impl Db {
 mod tests {
     use crate::db::Db;
     use crate::email::LogEmailSender;
+    use crate::handle::AllowThemBuilder;
     use crate::types::Email;
 
     async fn test_db() -> Db {
@@ -210,12 +211,20 @@ mod tests {
 
     #[tokio::test]
     async fn send_verification_email_succeeds() {
-        let db = test_db().await;
-        let (user_id, email) = make_user(&db).await;
-        let sender = LogEmailSender;
-        let result = db
-            .send_verification_email(user_id, &email, "https://example.com", &sender)
-            .await;
-        assert!(result.is_ok());
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .base_url("https://example.com")
+            .email_sender(Box::new(LogEmailSender))
+            .build()
+            .await
+            .expect("build AllowThem");
+        let email = Email::new("verify@example.com".to_string()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email.clone(), "test-password", None, None)
+            .await
+            .expect("create user");
+        let result = ath.send_verification_email(user.id, &email).await;
+        assert!(result.is_ok(), "send_verification_email must succeed");
     }
 }

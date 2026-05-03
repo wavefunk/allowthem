@@ -4,10 +4,10 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx::SqlitePool;
 
 use crate::db::Db;
-use crate::email::{EmailSender, NoopEmailSender};
+use crate::email::{EmailMessage, EmailSender, EmailTemplate, NoopEmailSender, fallback_username};
 use crate::error::AuthError;
 use crate::sessions::{self, SessionConfig};
-use crate::types::{SessionToken, User, UserId};
+use crate::types::{Email, SessionToken, User, UserId};
 
 /// Callback type for active authentication events.
 ///
@@ -333,6 +333,160 @@ impl AllowThem {
     /// [`AllowThemBuilder::email_sender`].
     pub fn email_sender(&self) -> &dyn EmailSender {
         &*self.inner.email_sender
+    }
+
+    // -------------------------------------------------------------------------
+    // Email-sending helpers
+    // -------------------------------------------------------------------------
+
+    /// Send a password reset email to the given address.
+    ///
+    /// Creates a reset token, composes the reset URL from [`base_url`], and
+    /// sends a `PasswordReset` template. Returns `Ok(())` silently if no user
+    /// exists for that email (enumeration prevention). Requires [`base_url`] to
+    /// be configured; returns `Err(BaseUrlNotConfigured)` otherwise.
+    ///
+    /// [`base_url`]: AllowThemBuilder::base_url
+    pub async fn send_password_reset_email(&self, email: &Email) -> Result<(), AuthError> {
+        let raw_token = match self.db().create_password_reset(email).await? {
+            None => return Ok(()),
+            Some(t) => t,
+        };
+
+        let username = match self.db().get_user_by_email(email).await {
+            Ok(user) => fallback_username(&user),
+            Err(_) => email
+                .as_str()
+                .split('@')
+                .next()
+                .unwrap_or("there")
+                .to_owned(),
+        };
+
+        let reset_url = format!(
+            "{}/auth/reset-password?token={}",
+            self.base_url()?,
+            raw_token
+        );
+        let message = EmailMessage {
+            to: email.as_str().to_owned(),
+            subject: "Reset your password".to_owned(),
+            template: EmailTemplate::PasswordReset {
+                url: reset_url,
+                username,
+            },
+        };
+
+        self.email_sender()
+            .send(&message)
+            .await
+            .map_err(|e| AuthError::Email(e.to_string()))
+    }
+
+    /// Send an email verification link to the given user.
+    ///
+    /// Creates a verification token, composes the verification URL from
+    /// [`base_url`], and sends an `EmailVerification` template. Requires
+    /// [`base_url`] to be configured.
+    ///
+    /// [`base_url`]: AllowThemBuilder::base_url
+    pub async fn send_verification_email(
+        &self,
+        user_id: UserId,
+        email: &Email,
+    ) -> Result<(), AuthError> {
+        let raw_token = self.db().create_email_verification(user_id).await?;
+
+        let username = match self.db().get_user(user_id).await {
+            Ok(user) => fallback_username(&user),
+            Err(_) => email
+                .as_str()
+                .split('@')
+                .next()
+                .unwrap_or("there")
+                .to_owned(),
+        };
+
+        let verify_url = format!("{}/auth/verify-email?token={}", self.base_url()?, raw_token);
+        let message = EmailMessage {
+            to: email.as_str().to_owned(),
+            subject: "Verify your email address".to_owned(),
+            template: EmailTemplate::EmailVerification {
+                url: verify_url,
+                username,
+            },
+        };
+
+        self.email_sender()
+            .send(&message)
+            .await
+            .map_err(|e| AuthError::Email(e.to_string()))
+    }
+
+    /// Send an invitation email to the given address.
+    ///
+    /// Creates an invitation token in the database and sends an `Invitation`
+    /// template. `invitation_url` must be pre-composed by the caller — the
+    /// URL format varies by deployment (the saas binary uses
+    /// `https://{base_domain}/invite/{token}`; standalone server may differ).
+    /// `invited_by` is the `UserId` of the inviter; their display name is
+    /// resolved from the database and used in the template. On lookup failure,
+    /// falls back to `"your team"`.
+    pub async fn send_invitation_email(
+        &self,
+        email: &Email,
+        invitation_url: &str,
+        invited_by: UserId,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), AuthError> {
+        self.db()
+            .create_invitation(Some(email), None, Some(invited_by), expires_at)
+            .await?;
+
+        let inviter_name = match self.db().get_user(invited_by).await {
+            Ok(user) => fallback_username(&user),
+            Err(_) => "your team".to_owned(),
+        };
+
+        let message = EmailMessage {
+            to: email.as_str().to_owned(),
+            subject: format!("You've been invited by {inviter_name}"),
+            template: EmailTemplate::Invitation {
+                url: invitation_url.to_owned(),
+                invited_by: inviter_name,
+            },
+        };
+
+        self.email_sender()
+            .send(&message)
+            .await
+            .map_err(|e| AuthError::Email(e.to_string()))
+    }
+
+    /// Send MFA recovery codes to the given user via email.
+    ///
+    /// Looks up the user by `user_id` to determine recipient address and
+    /// username. Sends an `MfaRecovery` template with the supplied codes. Does
+    /// **not** write to the database — code generation and persistence are the
+    /// caller's responsibility (see `Db::enable_mfa`).
+    pub async fn send_mfa_recovery_email(
+        &self,
+        user_id: UserId,
+        codes: Vec<String>,
+    ) -> Result<(), AuthError> {
+        let user = self.db().get_user(user_id).await?;
+        let username = fallback_username(&user);
+
+        let message = EmailMessage {
+            to: user.email.as_str().to_owned(),
+            subject: "Your MFA recovery codes".to_owned(),
+            template: EmailTemplate::MfaRecovery { codes, username },
+        };
+
+        self.email_sender()
+            .send(&message)
+            .await
+            .map_err(|e| AuthError::Email(e.to_string()))
     }
 
     /// Fire the `on_user_active` callback, if configured.
