@@ -312,6 +312,8 @@ async fn post_login(
                     )
                     .await;
 
+                ath.notify_user_active(user.id);
+
                 let dest = form.next.as_deref().map(validate_next).unwrap_or("/");
                 Ok((
                     StatusCode::SEE_OTHER,

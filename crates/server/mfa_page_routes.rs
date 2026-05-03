@@ -642,6 +642,8 @@ async fn post_mfa_challenge(
         .create_session(user_id, token_hash, ip.as_deref(), ua, expires_at)
         .await?;
 
+    ath.notify_user_active(user_id);
+
     let cookie = ath.session_cookie(&token);
 
     Ok((

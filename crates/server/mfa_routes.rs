@@ -296,6 +296,8 @@ async fn verify_mfa(
             .into_response();
     }
 
+    ath.notify_user_active(user_id);
+
     let cookie_value = ath.session_cookie(&token);
 
     (
@@ -381,6 +383,8 @@ async fn recover(Extension(ath): Extension<AllowThem>, Json(body): Json<RecoverB
         )
             .into_response();
     }
+
+    ath.notify_user_active(user_id);
 
     let cookie_value = ath.session_cookie(&token);
     let remaining = ath

@@ -382,6 +382,8 @@ async fn callback(
             .into_response();
     }
 
+    ath.notify_user_active(user.id);
+
     let cookie = ath.session_cookie(&token);
     let redirect_to = state_info.post_login_redirect.as_deref().unwrap_or("/");
 
