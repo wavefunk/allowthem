@@ -353,8 +353,6 @@ impl AllowThem {
     /// available at this layer; callers who need them in the audit log should
     /// use the low-level `Db` methods directly.
     pub async fn login(&self, identifier: &str, password: &str) -> Result<LoginOutcome, AuthError> {
-        use chrono::Utc;
-
         use crate::audit::AuditEvent;
         use crate::password::verify_password;
 
@@ -392,6 +390,8 @@ impl AllowThem {
             .log_audit(AuditEvent::Login, Some(&user.id), None, None, None, None)
             .await;
 
+        self.notify_user_active(user.id);
+
         let set_cookie = self.session_cookie(&token);
         Ok(LoginOutcome {
             user,
@@ -407,10 +407,8 @@ impl AllowThem {
     /// for audit logging.
     pub async fn create_session_cookie(
         &self,
-        user_id: crate::types::UserId,
+        user_id: UserId,
     ) -> Result<LoginOutcome, AuthError> {
-        use chrono::Utc;
-
         let user = self.db().get_user(user_id).await?;
         let token = sessions::generate_token();
         let token_hash = sessions::hash_token(&token);
@@ -418,6 +416,8 @@ impl AllowThem {
         self.db()
             .create_session(user_id, token_hash, None, None, expires_at)
             .await?;
+
+        self.notify_user_active(user_id);
 
         let set_cookie = self.session_cookie(&token);
         Ok(LoginOutcome {
