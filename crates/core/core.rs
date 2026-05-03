@@ -9,6 +9,7 @@ pub mod db;
 pub mod email;
 pub mod email_verification;
 pub mod error;
+pub mod event_sink;
 pub mod events;
 pub mod handle;
 pub mod invitations;
