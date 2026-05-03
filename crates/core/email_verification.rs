@@ -5,7 +5,7 @@ use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 use crate::db::Db;
-use crate::email::{EmailMessage, EmailSender};
+use crate::email::{EmailMessage, EmailSender, EmailTemplate, fallback_username};
 use crate::error::AuthError;
 use crate::types::{Email, UserId, VerificationTokenId};
 
@@ -97,26 +97,29 @@ impl Db {
     ) -> Result<(), AuthError> {
         let raw_token = self.create_email_verification(user_id).await?;
 
-        let verify_url = format!("{}/auth/verify-email?token={}", base_url, raw_token);
-        let body = format!(
-            "Please verify your email address by clicking the link below:\n\n{}\n\nThis link expires in {} hours.",
-            verify_url, VERIFICATION_TTL_HOURS,
-        );
-        let html = format!(
-            "<p>Please verify your email address. <a href=\"{}\">Click here to verify</a>.</p>\
-             <p>This link expires in {} hours.</p>",
-            verify_url, VERIFICATION_TTL_HOURS,
-        );
+        // Username is best-effort; fall back to email local-part on lookup failure.
+        let username = match self.get_user(user_id).await {
+            Ok(user) => fallback_username(&user),
+            Err(_) => email
+                .as_str()
+                .split('@')
+                .next()
+                .unwrap_or("there")
+                .to_owned(),
+        };
 
+        let verify_url = format!("{}/auth/verify-email?token={}", base_url, raw_token);
         let message = EmailMessage {
-            to: email.as_str(),
-            subject: "Verify your email address",
-            body: &body,
-            html: Some(&html),
+            to: email.as_str().to_owned(),
+            subject: "Verify your email address".to_owned(),
+            template: EmailTemplate::EmailVerification {
+                url: verify_url,
+                username,
+            },
         };
 
         sender
-            .send(message)
+            .send(&message)
             .await
             .map_err(|e| AuthError::Email(e.to_string()))
     }

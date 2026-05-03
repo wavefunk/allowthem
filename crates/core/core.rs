@@ -34,7 +34,7 @@ pub use audit::{AuditEntry, AuditEvent};
 pub use auth_client::{AuthClient, AuthFuture, EmbeddedAuthClient};
 pub use csrf::{derive_csrf_token, verify_csrf_token};
 pub use db::Db;
-pub use email::{EmailMessage, EmailSender, LogEmailSender};
+pub use email::{EmailMessage, EmailSender, EmailTemplate, LogEmailSender, NoopEmailSender};
 pub use error::{AccessTokenError, AuthError};
 pub use events::{
     AuthEvent, AuthEventReceiver, AuthEventSender, EventContext, RegisteredEvent,

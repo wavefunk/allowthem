@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use uuid::Uuid;
 
-use allowthem_core::email::EmailMessage;
+use allowthem_core::email::{EmailMessage, EmailTemplate};
 use allowthem_core::sessions::generate_token;
 use allowthem_saas::{MemberId, SaasError, TenantId, TenantRole};
 use allowthem_server::browser_error::BrowserError;
@@ -262,24 +262,15 @@ pub async fn invite(
         state.base_domain,
         raw_token.as_str()
     );
-    let subject = format!("You've been invited to {}", scope.tenant.name);
-    let text_body = format!(
-        "You've been invited to {}. Accept here: {}\n(This invite expires in 7 days.)",
-        scope.tenant.name, invite_url,
-    );
-    let html_body = format!(
-        "<p>You've been invited to {}. \
-         <a href=\"{}\">Accept the invite</a>.</p>\
-         <p>This invite expires in 7 days.</p>",
-        scope.tenant.name, invite_url,
-    );
     let msg = EmailMessage {
-        to: &email,
-        subject: &subject,
-        body: &text_body,
-        html: Some(&html_body),
+        to: email.clone(),
+        subject: format!("You've been invited to {}", scope.tenant.name),
+        template: EmailTemplate::Invitation {
+            url: invite_url,
+            invited_by: scope.tenant.name.clone(),
+        },
     };
-    if let Err(e) = state.email_sender.send(msg).await {
+    if let Err(e) = state.email_sender.send(&msg).await {
         tracing::error!(error = %e, "failed to send invite email");
     }
 

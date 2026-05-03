@@ -5,7 +5,7 @@ use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 use crate::db::Db;
-use crate::email::{EmailMessage, EmailSender};
+use crate::email::{EmailMessage, EmailSender, EmailTemplate, fallback_username};
 use crate::error::AuthError;
 use crate::password::hash_password;
 use crate::types::{Email, ResetTokenId, UserId};
@@ -169,25 +169,29 @@ impl Db {
             Some(t) => t,
         };
 
-        let reset_url = format!("{}/auth/reset-password?token={}", base_url, raw_token);
-        let body = format!(
-            "You requested a password reset. Click the link below to set a new password:\n\n{}\n\nThis link expires in {} minutes.",
-            reset_url, RESET_TTL_MINUTES,
-        );
-        let html = format!(
-            "<p>You requested a password reset. <a href=\"{}\">Click here to set a new password</a>.</p><p>This link expires in {} minutes.</p>",
-            reset_url, RESET_TTL_MINUTES,
-        );
+        // Username is best-effort; fall back to email local-part on lookup failure.
+        let username = match self.get_user_by_email(email).await {
+            Ok(user) => fallback_username(&user),
+            Err(_) => email
+                .as_str()
+                .split('@')
+                .next()
+                .unwrap_or("there")
+                .to_owned(),
+        };
 
+        let reset_url = format!("{}/auth/reset-password?token={}", base_url, raw_token);
         let message = EmailMessage {
-            to: email.as_str(),
-            subject: "Reset your password",
-            body: &body,
-            html: Some(&html),
+            to: email.as_str().to_owned(),
+            subject: "Reset your password".to_owned(),
+            template: EmailTemplate::PasswordReset {
+                url: reset_url,
+                username,
+            },
         };
 
         sender
-            .send(message)
+            .send(&message)
             .await
             .map_err(|e| AuthError::Email(e.to_string()))
     }
