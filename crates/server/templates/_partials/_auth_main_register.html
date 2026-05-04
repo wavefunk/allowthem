@@ -11,6 +11,13 @@
 {%- else -%}
   {%- set login_href = "/login" -%}
 {%- endif -%}
+{%- if signup_url -%}
+  {%- set register_href = signup_url -%}
+{%- elif client_id -%}
+  {%- set register_href = "/register?client_id=" ~ client_id -%}
+{%- else -%}
+  {%- set register_href = "/register" -%}
+{%- endif -%}
 <main class="wf-auth-form">
   <div class="wf-auth-top">
     {{ auth.kicker(app_name, "Create account",
@@ -24,7 +31,7 @@
     <p class="wf-auth-sub">Let's get you set up.</p>
 
     <div class="wf-mt-5">
-      {{ auth.tabs(active="signup") }}
+      {{ auth.tabs(active="signup", signup_href=register_href) }}
     </div>
 
     {% if error %}

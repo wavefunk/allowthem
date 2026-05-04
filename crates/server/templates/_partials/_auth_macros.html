@@ -17,7 +17,7 @@
   {% endif %}
 {% endmacro %}
 
-{% macro tabs(active) %}
+{% macro tabs(active, signup_href="/register") %}
   <div class="wf-tabs" role="tablist">
     <a role="tab"
        class="{% if active == 'signin' %}is-active{% endif %}"
@@ -28,11 +28,11 @@
        hx-push-url="true">Sign in</a>
     <a role="tab"
        class="{% if active == 'signup' %}is-active{% endif %}"
-       href="/register"
-       hx-get="/register"
+       href="{{ signup_href }}"
+       {% if signup_href == "/register" %}hx-get="{{ signup_href }}"
        hx-target=".wf-auth-form"
        hx-swap="outerHTML"
-       hx-push-url="true">Sign up</a>
+       hx-push-url="true"{% endif %}>Sign up</a>
   </div>
 {% endmacro %}
 
