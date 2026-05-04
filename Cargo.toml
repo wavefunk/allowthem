@@ -53,6 +53,12 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 regex = "1"
+lettre = { version = "0.11", default-features = false, features = [
+    "tokio1-rustls-tls",
+    "smtp-transport",
+    "builder",
+] }
+html-escape = "0.2"
 
 [profile.dev.package.sqlx-macros]
 opt-level = 3

@@ -31,6 +31,7 @@ pub mod token_issuance;
 pub mod totp;
 pub mod types;
 pub mod users;
+pub mod webhook_sig;
 
 pub use access_tokens::{AccessTokenClaims, has_scope};
 pub use audit::{AuditEntry, AuditEvent};
@@ -65,6 +66,7 @@ pub use token_issuance::{
     mint_id_token, verify_pkce_s256,
 };
 pub use types::*;
+pub use webhook_sig::{SigError, sign_payload, verify_payload};
 
 #[cfg(test)]
 mod db_tests;
