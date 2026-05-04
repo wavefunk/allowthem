@@ -138,6 +138,7 @@ impl WebhookWorker {
         // join inside the UPDATE is awkward in SQLite because the inner
         // SELECT can't be a JOIN that depends on the outer table; the
         // separate fetch is simpler and cheap (one indexed lookup per id).
+        #[allow(clippy::type_complexity)]
         let claimed: Vec<(Vec<u8>, Vec<u8>, String, String, i64)> = sqlx::query_as(
             "UPDATE webhook_deliveries \
                 SET status = 'in_flight', \
@@ -233,11 +234,7 @@ fn next_retry_after(attempts_after_failure: i64) -> Option<Duration> {
     }
 }
 
-async fn dispatch_and_record(
-    pool: &SqlitePool,
-    http: &reqwest::Client,
-    claim: ClaimedDelivery,
-) {
+async fn dispatch_and_record(pool: &SqlitePool, http: &reqwest::Client, claim: ClaimedDelivery) {
     let now_ts = Utc::now().timestamp();
     let signature = sign_payload(claim.secret.as_bytes(), now_ts, claim.payload.as_bytes());
 
@@ -272,8 +269,7 @@ async fn dispatch_and_record(
                 error = %e,
                 "webhook worker: HTTP transport error"
             );
-            if let Err(e) =
-                schedule_retry_or_fail(pool, &claim.id, claim.attempts + 1, None).await
+            if let Err(e) = schedule_retry_or_fail(pool, &claim.id, claim.attempts + 1, None).await
             {
                 tracing::warn!(error = %e, "webhook worker: failed to record transport error");
             }
@@ -353,8 +349,8 @@ mod tests {
     use crate::control_db::ControlDb;
     use crate::control_db::tests::test_pool;
     use crate::tenants::TenantId;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use uuid::Uuid;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -397,12 +393,7 @@ mod tests {
         TenantId::from(tid)
     }
 
-    async fn seed_webhook(
-        db: &ControlDb,
-        tenant_id: TenantId,
-        url: &str,
-        secret: &str,
-    ) -> Vec<u8> {
+    async fn seed_webhook(db: &ControlDb, tenant_id: TenantId, url: &str, secret: &str) -> Vec<u8> {
         let id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO tenant_webhooks (id, tenant_id, url, secret_key, event_types, enabled) \
@@ -506,7 +497,10 @@ mod tests {
         assert!(next_retry.is_none());
 
         let sig = captured.lock().unwrap().clone().expect("sig captured");
-        assert!(sig.starts_with("t="), "signature should be Stripe-style: {sig}");
+        assert!(
+            sig.starts_with("t="),
+            "signature should be Stripe-style: {sig}"
+        );
         assert!(sig.contains(",v1="), "signature should contain v1=: {sig}");
     }
 
@@ -541,7 +535,10 @@ mod tests {
         // Should be ~60 seconds in the future (retry #1).
         let lower = before + chrono::Duration::seconds(55);
         let upper = after + chrono::Duration::seconds(65);
-        assert!(next >= lower && next <= upper, "next={next} expected ~now+60s");
+        assert!(
+            next >= lower && next <= upper,
+            "next={next} expected ~now+60s"
+        );
     }
 
     // -- attempts=5 + 500 → failed ------------------------------------------
@@ -645,7 +642,11 @@ mod tests {
 
         let worker = WebhookWorker::new(db.pool().clone(), small_config());
         let claims = worker.claim_due_batch().await.unwrap();
-        assert_eq!(claims.len(), 3, "only the three immediately-due rows are claimed");
+        assert_eq!(
+            claims.len(),
+            3,
+            "only the three immediately-due rows are claimed"
+        );
 
         // Subsequent claim returns nothing — claimed rows are now in_flight.
         let again = worker.claim_due_batch().await.unwrap();
@@ -729,11 +730,12 @@ mod tests {
             observed <= 3,
             "peak in-flight should never exceed concurrency=3 (observed: {observed})"
         );
-        let delivered: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM webhook_deliveries WHERE status = 'delivered'")
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
+        let delivered: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM webhook_deliveries WHERE status = 'delivered'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
         assert_eq!(delivered, 20, "all 20 deliveries should reach delivered");
     }
 }
