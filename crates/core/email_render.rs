@@ -106,11 +106,7 @@ fn text_footer(branding: &EmailBranding) -> String {
         .unwrap_or_default()
 }
 
-fn render_email_verification(
-    url: &str,
-    username: &str,
-    branding: &EmailBranding,
-) -> RenderedEmail {
+fn render_email_verification(url: &str, username: &str, branding: &EmailBranding) -> RenderedEmail {
     let app = encode_safe(&branding.app_name);
     let safe_user = encode_safe(username);
 

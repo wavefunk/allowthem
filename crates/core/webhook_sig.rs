@@ -38,8 +38,7 @@ pub enum SigError {
 /// The signed material is `"{timestamp}.{body}"` — same scheme as Stripe
 /// so customers with prior integrations can reuse verification snippets.
 pub fn sign_payload(secret: &[u8], timestamp: i64, body: &[u8]) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret).expect("HMAC accepts any key length");
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC accepts any key length");
     mac.update(format!("{timestamp}.").as_bytes());
     mac.update(body);
     let tag = mac.finalize().into_bytes();
@@ -71,8 +70,8 @@ pub fn verify_payload(
         }
     }
     let timestamp = ts_part.ok_or(SigError::Malformed)?;
-    let sig_bytes = hex::decode(sig_hex.ok_or(SigError::Malformed)?)
-        .map_err(|_| SigError::Malformed)?;
+    let sig_bytes =
+        hex::decode(sig_hex.ok_or(SigError::Malformed)?).map_err(|_| SigError::Malformed)?;
 
     // Freshness check.
     if tolerance_seconds > 0 {
@@ -85,12 +84,8 @@ pub fn verify_payload(
     // Recompute and compare in constant time.
     let expected = sign_payload(secret, timestamp, body);
     // Extract the hex portion after "v1=".
-    let expected_hex = expected
-        .split("v1=")
-        .nth(1)
-        .ok_or(SigError::Malformed)?;
-    let expected_bytes =
-        hex::decode(expected_hex).map_err(|_| SigError::Malformed)?;
+    let expected_hex = expected.split("v1=").nth(1).ok_or(SigError::Malformed)?;
+    let expected_bytes = hex::decode(expected_hex).map_err(|_| SigError::Malformed)?;
 
     if sig_bytes.ct_eq(&expected_bytes).into() {
         Ok(())

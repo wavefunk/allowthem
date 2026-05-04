@@ -93,17 +93,11 @@ impl SmtpEmailSender {
         }
 
         let mut builder = match config.tls {
-            SmtpTls::StartTls => {
-                AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)
-                    .map_err(|e| AuthError::Email(e.to_string()))?
-            }
-            SmtpTls::ImplicitTls => {
-                AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)
-                    .map_err(|e| AuthError::Email(e.to_string()))?
-            }
-            SmtpTls::None => {
-                AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
-            }
+            SmtpTls::StartTls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)
+                .map_err(|e| AuthError::Email(e.to_string()))?,
+            SmtpTls::ImplicitTls => AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)
+                .map_err(|e| AuthError::Email(e.to_string()))?,
+            SmtpTls::None => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host),
         };
 
         builder = builder.port(config.port);
