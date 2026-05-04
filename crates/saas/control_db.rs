@@ -813,6 +813,194 @@ impl ControlDb {
     }
 }
 
+// ---------------------------------------------------------------------------
+// tenant_domains CRUD
+// ---------------------------------------------------------------------------
+
+impl ControlDb {
+    /// Insert a new domain row for the tenant with `status = pending_verification`.
+    ///
+    /// Maps a UNIQUE violation on `domain` to [`SaasError::DomainAlreadyExists`].
+    pub async fn create_tenant_domain(
+        &self,
+        tenant_id: &crate::tenants::TenantId,
+        domain: &str,
+        dns_target: &str,
+    ) -> Result<crate::domains::TenantDomain, SaasError> {
+        use crate::domains::{DomainId, DomainStatus, TenantDomain};
+
+        let id = DomainId::new();
+        let result = sqlx::query(
+            "INSERT INTO tenant_domains \
+                 (id, tenant_id, domain, status, dns_target) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(id.as_bytes())
+        .bind(tenant_id.as_bytes())
+        .bind(domain)
+        .bind(DomainStatus::PendingVerification.as_str())
+        .bind(dns_target)
+        .execute(&self.pool)
+        .await;
+
+        match result {
+            Ok(_) => {}
+            Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => {
+                return Err(SaasError::DomainAlreadyExists);
+            }
+            Err(e) => return Err(SaasError::Db(e)),
+        }
+
+        let row = sqlx::query_as::<_, TenantDomain>(
+            "SELECT id, tenant_id, domain, status, dns_target, \
+                    verified_at, cert_expires_at, last_error, created_at, updated_at \
+             FROM tenant_domains WHERE id = ?1",
+        )
+        .bind(id.as_bytes())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// All domains for the given tenant, ordered newest-first.
+    pub async fn list_tenant_domains(
+        &self,
+        tenant_id: &crate::tenants::TenantId,
+    ) -> Result<Vec<crate::domains::TenantDomain>, SaasError> {
+        use crate::domains::TenantDomain;
+
+        let rows = sqlx::query_as::<_, TenantDomain>(
+            "SELECT id, tenant_id, domain, status, dns_target, \
+                    verified_at, cert_expires_at, last_error, created_at, updated_at \
+             FROM tenant_domains \
+             WHERE tenant_id = ?1 \
+             ORDER BY created_at DESC",
+        )
+        .bind(tenant_id.as_bytes())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Fetch a single domain row only if it belongs to `tenant_id`.
+    ///
+    /// Returns `None` when the domain does not exist or belongs to another
+    /// tenant (caller should treat both as 404 at the API boundary).
+    pub async fn get_tenant_domain_scoped(
+        &self,
+        domain_id: &crate::domains::DomainId,
+        tenant_id: &crate::tenants::TenantId,
+    ) -> Result<Option<crate::domains::TenantDomain>, SaasError> {
+        use crate::domains::TenantDomain;
+
+        let row = sqlx::query_as::<_, TenantDomain>(
+            "SELECT id, tenant_id, domain, status, dns_target, \
+                    verified_at, cert_expires_at, last_error, created_at, updated_at \
+             FROM tenant_domains \
+             WHERE id = ?1 AND tenant_id = ?2",
+        )
+        .bind(domain_id.as_bytes())
+        .bind(tenant_id.as_bytes())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Update the status of a domain row, bumping `updated_at`.
+    ///
+    /// - `verified_at` is set only when transitioning to `Verified`.
+    /// - `last_error` is cleared on `Verified` and set on `Failed`.
+    pub async fn set_tenant_domain_status(
+        &self,
+        domain_id: &crate::domains::DomainId,
+        status: crate::domains::DomainStatus,
+        verified_at: Option<chrono::DateTime<chrono::Utc>>,
+        last_error: Option<&str>,
+    ) -> Result<(), SaasError> {
+        sqlx::query(
+            "UPDATE tenant_domains \
+             SET status = ?1, \
+                 verified_at = ?2, \
+                 last_error = ?3, \
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE id = ?4",
+        )
+        .bind(status.as_str())
+        .bind(verified_at)
+        .bind(last_error)
+        .bind(domain_id.as_bytes())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a domain row only if it belongs to `tenant_id`.
+    ///
+    /// Returns `true` when a row was deleted, `false` when the domain did not
+    /// exist or belonged to another tenant.
+    pub async fn delete_tenant_domain_scoped(
+        &self,
+        domain_id: &crate::domains::DomainId,
+        tenant_id: &crate::tenants::TenantId,
+    ) -> Result<bool, SaasError> {
+        let result = sqlx::query("DELETE FROM tenant_domains WHERE id = ?1 AND tenant_id = ?2")
+            .bind(domain_id.as_bytes())
+            .bind(tenant_id.as_bytes())
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Find the tenant whose custom domain matches `domain` and whose status
+    /// is `verified` or `active`. Used by 38y.2's router fallback.
+    ///
+    /// Input is lowercased before binding (DNS is case-insensitive; storage
+    /// is always lowercase).
+    pub async fn tenant_by_custom_domain(
+        &self,
+        domain: &str,
+    ) -> Result<Option<crate::tenants::Tenant>, SaasError> {
+        use crate::tenants::Tenant;
+
+        let lower = domain.to_lowercase();
+        let row = sqlx::query_as::<_, Tenant>(
+            "SELECT t.id, t.name, t.slug, t.owner_email, t.plan_id, t.status, \
+                    t.db_path, t.last_seen_at, t.created_at, t.updated_at \
+             FROM tenants t \
+             JOIN tenant_domains d ON d.tenant_id = t.id \
+             WHERE d.domain = ?1 \
+               AND d.status IN ('verified', 'active')",
+        )
+        .bind(&lower)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Rows eligible for the background verification sweep: those with status
+    /// `pending_verification` or `failed`, ordered oldest-first, capped at
+    /// `limit`.
+    pub async fn list_domains_for_sweep(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<crate::domains::TenantDomain>, SaasError> {
+        use crate::domains::TenantDomain;
+
+        let rows = sqlx::query_as::<_, TenantDomain>(
+            "SELECT id, tenant_id, domain, status, dns_target, \
+                    verified_at, cert_expires_at, last_error, created_at, updated_at \
+             FROM tenant_domains \
+             WHERE status IN ('pending_verification', 'failed') \
+             ORDER BY updated_at ASC \
+             LIMIT ?1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1812,5 +2000,324 @@ pub(crate) mod tests {
         let bogus = vec![0u8; 16];
         let not_found = db.get_plan_by_id(&bogus).await.unwrap();
         assert!(not_found.is_none());
+    }
+
+    // ── tenant_domains CRUD ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn create_tenant_domain_inserts_pending() {
+        use crate::domains::DomainStatus;
+
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "dom-insert").await;
+
+        let row = db
+            .create_tenant_domain(&tid, "auth.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+
+        assert_eq!(row.domain, "auth.example.com");
+        assert_eq!(row.dns_target, "custom.allowthem.io");
+        assert_eq!(row.status, DomainStatus::PendingVerification);
+        assert!(row.verified_at.is_none());
+        assert!(row.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn create_tenant_domain_unique_violation_returns_conflict() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "dom-conflict").await;
+
+        db.create_tenant_domain(&tid, "auth.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+
+        let err = db
+            .create_tenant_domain(&tid, "auth.example.com", "custom.allowthem.io")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, SaasError::DomainAlreadyExists),
+            "expected DomainAlreadyExists, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_tenant_domains_orders_by_created_at_desc() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "dom-list-order").await;
+
+        db.create_tenant_domain(&tid, "a.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        db.create_tenant_domain(&tid, "b.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        db.create_tenant_domain(&tid, "c.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+
+        let rows = db.list_tenant_domains(&tid).await.unwrap();
+        assert_eq!(rows.len(), 3);
+        // newest first — insertion order = a,b,c so c was most recent
+        assert_eq!(rows[0].domain, "c.example.com");
+        assert_eq!(rows[2].domain, "a.example.com");
+    }
+
+    #[tokio::test]
+    async fn list_tenant_domains_filters_by_tenant_id() {
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid_a = seed_tenant(&db, "dom-filter-a").await;
+        let tid_b = seed_tenant(&db, "dom-filter-b").await;
+
+        db.create_tenant_domain(&tid_a, "auth.acme.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        db.create_tenant_domain(&tid_b, "auth.beta.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+
+        let rows_a = db.list_tenant_domains(&tid_a).await.unwrap();
+        assert_eq!(rows_a.len(), 1);
+        assert_eq!(rows_a[0].domain, "auth.acme.com");
+
+        let rows_b = db.list_tenant_domains(&tid_b).await.unwrap();
+        assert_eq!(rows_b.len(), 1);
+        assert_eq!(rows_b[0].domain, "auth.beta.com");
+    }
+
+    #[tokio::test]
+    async fn get_tenant_domain_scoped_other_tenant_is_none() {
+        use crate::domains::DomainId;
+
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid_a = seed_tenant(&db, "dom-scope-a").await;
+        let tid_b = seed_tenant(&db, "dom-scope-b").await;
+
+        let row = db
+            .create_tenant_domain(&tid_a, "auth.acme.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        let did = DomainId::from(Uuid::from_slice(&row.id).unwrap());
+
+        // Correct tenant sees the row.
+        let found = db.get_tenant_domain_scoped(&did, &tid_a).await.unwrap();
+        assert!(found.is_some());
+
+        // Other tenant gets None.
+        let not_found = db.get_tenant_domain_scoped(&did, &tid_b).await.unwrap();
+        assert!(not_found.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_tenant_domain_status_to_verified_clears_last_error_and_sets_verified_at() {
+        use crate::domains::{DomainId, DomainStatus};
+
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "dom-verify").await;
+
+        let row = db
+            .create_tenant_domain(&tid, "auth.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        let did = DomainId::from(Uuid::from_slice(&row.id).unwrap());
+
+        let now = chrono::Utc::now();
+        db.set_tenant_domain_status(&did, DomainStatus::Verified, Some(now), None)
+            .await
+            .unwrap();
+
+        let updated = db
+            .get_tenant_domain_scoped(&did, &tid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.status, DomainStatus::Verified);
+        assert!(updated.verified_at.is_some());
+        assert!(updated.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_tenant_domain_status_to_failed_records_last_error() {
+        use crate::domains::{DomainId, DomainStatus};
+
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "dom-fail").await;
+
+        let row = db
+            .create_tenant_domain(&tid, "auth.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        let did = DomainId::from(Uuid::from_slice(&row.id).unwrap());
+
+        db.set_tenant_domain_status(
+            &did,
+            DomainStatus::Failed,
+            None,
+            Some("no CNAME record found"),
+        )
+        .await
+        .unwrap();
+
+        let updated = db
+            .get_tenant_domain_scoped(&did, &tid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.status, DomainStatus::Failed);
+        assert!(updated.verified_at.is_none());
+        assert_eq!(updated.last_error.as_deref(), Some("no CNAME record found"));
+    }
+
+    #[tokio::test]
+    async fn delete_tenant_domain_scoped_other_tenant_is_no_op() {
+        use crate::domains::DomainId;
+
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid_a = seed_tenant(&db, "dom-del-a").await;
+        let tid_b = seed_tenant(&db, "dom-del-b").await;
+
+        let row = db
+            .create_tenant_domain(&tid_a, "auth.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        let did = DomainId::from(Uuid::from_slice(&row.id).unwrap());
+
+        // Deleting from the wrong tenant returns false (no rows affected).
+        let affected = db.delete_tenant_domain_scoped(&did, &tid_b).await.unwrap();
+        assert!(!affected);
+
+        // Row still exists for the correct tenant.
+        let still_there = db.get_tenant_domain_scoped(&did, &tid_a).await.unwrap();
+        assert!(still_there.is_some());
+
+        // Correct tenant can delete.
+        let deleted = db.delete_tenant_domain_scoped(&did, &tid_a).await.unwrap();
+        assert!(deleted);
+
+        let gone = db.get_tenant_domain_scoped(&did, &tid_a).await.unwrap();
+        assert!(gone.is_none());
+    }
+
+    #[tokio::test]
+    async fn tenant_by_custom_domain_returns_only_verified_or_active() {
+        use crate::domains::{DomainId, DomainStatus};
+
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "dom-router").await;
+
+        // pending_verification → should not be returned
+        let row = db
+            .create_tenant_domain(&tid, "pending.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        let did_pending = DomainId::from(Uuid::from_slice(&row.id).unwrap());
+        assert!(
+            db.tenant_by_custom_domain("pending.example.com")
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        // Flip to verified → should be returned
+        db.set_tenant_domain_status(
+            &did_pending,
+            DomainStatus::Verified,
+            Some(chrono::Utc::now()),
+            None,
+        )
+        .await
+        .unwrap();
+        let found = db
+            .tenant_by_custom_domain("pending.example.com")
+            .await
+            .unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().slug, "dom-router");
+
+        // failed → not returned
+        let row2 = db
+            .create_tenant_domain(&tid, "failed.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        let did_failed = DomainId::from(Uuid::from_slice(&row2.id).unwrap());
+        db.set_tenant_domain_status(&did_failed, DomainStatus::Failed, None, Some("err"))
+            .await
+            .unwrap();
+        assert!(
+            db.tenant_by_custom_domain("failed.example.com")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn tenant_by_custom_domain_lowercases_input() {
+        use crate::domains::{DomainId, DomainStatus};
+
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "dom-case").await;
+
+        let row = db
+            .create_tenant_domain(&tid, "auth.example.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        let did = DomainId::from(Uuid::from_slice(&row.id).unwrap());
+        db.set_tenant_domain_status(&did, DomainStatus::Verified, Some(chrono::Utc::now()), None)
+            .await
+            .unwrap();
+
+        // Query with mixed case — should still find the row.
+        let found = db
+            .tenant_by_custom_domain("Auth.EXAMPLE.COM")
+            .await
+            .unwrap();
+        assert!(found.is_some());
+    }
+
+    #[tokio::test]
+    async fn list_domains_for_sweep_oldest_first_capped() {
+        use crate::domains::{DomainId, DomainStatus};
+
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tid = seed_tenant(&db, "dom-sweep").await;
+
+        // Insert three pending rows.
+        for domain in ["a.sweep.com", "b.sweep.com", "c.sweep.com"] {
+            db.create_tenant_domain(&tid, domain, "custom.allowthem.io")
+                .await
+                .unwrap();
+        }
+
+        // Insert one verified row — should not appear.
+        let row = db
+            .create_tenant_domain(&tid, "v.sweep.com", "custom.allowthem.io")
+            .await
+            .unwrap();
+        let did_v = DomainId::from(Uuid::from_slice(&row.id).unwrap());
+        db.set_tenant_domain_status(
+            &did_v,
+            DomainStatus::Verified,
+            Some(chrono::Utc::now()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Cap at 2 — only 2 of the 3 pending rows returned.
+        let sweep = db.list_domains_for_sweep(2).await.unwrap();
+        assert_eq!(sweep.len(), 2);
+        // None should be verified.
+        for r in &sweep {
+            assert!(
+                matches!(
+                    r.status,
+                    DomainStatus::PendingVerification | DomainStatus::Failed
+                ),
+                "unexpected status {:?}",
+                r.status
+            );
+        }
     }
 }

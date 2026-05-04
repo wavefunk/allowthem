@@ -26,6 +26,14 @@ pub enum SaasError {
     CannotDemoteLastOwner,
     #[error("cannot remove the only remaining owner")]
     CannotRemoveLastOwner,
+    #[error("domain already exists")]
+    DomainAlreadyExists,
+    #[error("domain not found")]
+    DomainNotFound,
+    #[error("invalid domain: {0}")]
+    DomainInvalid(&'static str),
+    #[error("dns error: {0}")]
+    Dns(String),
     #[error(transparent)]
     Auth(#[from] AuthError),
     #[error(transparent)]
