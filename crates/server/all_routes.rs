@@ -57,6 +57,7 @@ pub struct AllRoutesBuilder {
     max_login_attempts: u32,
     rate_limit_window_secs: u64,
     oauth_providers_list: Option<Vec<String>>,
+    login_overrides: Option<crate::login_routes::LoginOverrides>,
 
     // OAuth-specific
     oauth_provider_impls: Option<HashMap<String, Box<dyn OAuthProvider>>>,
@@ -96,6 +97,7 @@ impl AllRoutesBuilder {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             oauth_providers_list: None,
+            login_overrides: None,
             oauth_provider_impls: None,
             mfa_issuer: None,
             custom_fields_schema: None,
@@ -159,6 +161,11 @@ impl AllRoutesBuilder {
 
     pub fn oauth_providers_list(mut self, providers: Vec<String>) -> Self {
         self.oauth_providers_list = Some(providers);
+        self
+    }
+
+    pub fn login_overrides(mut self, overrides: crate::login_routes::LoginOverrides) -> Self {
+        self.login_overrides = Some(overrides);
         self
     }
 
@@ -334,6 +341,7 @@ impl AllRoutesBuilder {
                 self.max_login_attempts,
                 self.rate_limit_window_secs,
                 oauth_providers_list.clone(),
+                self.login_overrides.take(),
             ));
         }
 
