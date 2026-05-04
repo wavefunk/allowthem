@@ -4,6 +4,7 @@ pub mod control_db;
 pub mod dashboard;
 pub mod error;
 pub mod manage;
+pub mod mau;
 pub mod router;
 pub mod tenants;
 
@@ -19,6 +20,7 @@ pub use dashboard::{
 };
 pub use error::SaasError;
 pub use manage::{ManageState, manage_router};
+pub use mau::MauSink;
 pub use router::{
     RequireActiveTenant, TenantRouterState, build_handle_with_path, pre_warm,
     tenant_router_middleware,
