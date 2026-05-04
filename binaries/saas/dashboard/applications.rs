@@ -30,6 +30,7 @@ use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
 use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
+use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
 // ---------------------------------------------------------------------------
@@ -113,12 +114,18 @@ async fn list(
 ) -> Result<Response, BrowserError> {
     let apps = scope.ath.db().list_applications().await?;
     let workspaces = workspaces_for_user(&state, &scope).await;
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/applications", scope.tenant.slug),
+        scope.role,
+    );
     let html = render(
         &state,
         "applications/list.html",
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
+            nav_sections => nav,
             applications => apps,
             current_tenant => tenant_ctx(&scope.tenant),
             workspaces,
@@ -133,12 +140,18 @@ async fn new_form(
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/applications", scope.tenant.slug),
+        scope.role,
+    );
     Ok(render(
         &state,
         "applications/new.html",
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
+            nav_sections => nav,
             csrf_token => csrf.as_str(),
             client_type => "confidential",
             name => "",
@@ -167,12 +180,18 @@ async fn detail(
     };
     let connected_users = scope.ath.db().count_users_for_application(app.id).await?;
     let redirect_uris = app.redirect_uri_list()?;
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/applications", scope.tenant.slug),
+        scope.role,
+    );
     Ok(render(
         &state,
         "applications/detail.html",
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
+            nav_sections => nav,
             app => &app,
             redirect_uris,
             connected_users,
@@ -191,12 +210,18 @@ async fn edit_form(
 ) -> Result<Response, BrowserError> {
     let app = scope.ath.db().get_application(app_id).await?;
     let redirect_uris = app.redirect_uri_list()?;
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/applications", scope.tenant.slug),
+        scope.role,
+    );
     Ok(render(
         &state,
         "applications/edit.html",
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
+            nav_sections => nav,
             app => &app,
             redirect_uris,
             csrf_token => csrf.as_str(),
@@ -431,12 +456,18 @@ fn rerender_new(
     form: &CreateAppForm,
     error: &str,
 ) -> Result<Response, BrowserError> {
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/applications", scope.tenant.slug),
+        scope.role,
+    );
     Ok(render(
         state,
         "applications/new.html",
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(scope),
+            nav_sections => nav,
             csrf_token => csrf.as_str(),
             client_type => if form.client_type.is_empty() { "confidential" } else { form.client_type.as_str() },
             name => form.name.as_str(),
@@ -456,12 +487,18 @@ fn rerender_edit(
     form: &EditAppForm,
     error: &str,
 ) -> Result<Response, BrowserError> {
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/applications", scope.tenant.slug),
+        scope.role,
+    );
     Ok(render(
         state,
         "applications/edit.html",
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(scope),
+            nav_sections => nav,
             app => existing,
             redirect_uris => filter_uris(form.redirect_uris.clone()),
             csrf_token => csrf.as_str(),
