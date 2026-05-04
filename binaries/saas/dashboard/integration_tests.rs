@@ -2165,6 +2165,173 @@ async fn domains_settings_page_returns_200() {
     assert!(body.contains("CNAME"), "page should include DNS instructions");
 }
 
+/// POST a valid domain → 303 redirect back to the domains list; row created.
+#[tokio::test]
+async fn domains_register_redirects_on_success() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
+    let resp = fx
+        .post_form(
+            "/t/acme/settings/domains",
+            &[("csrf_token", csrf.as_str()), ("domain", "auth.myapp.com")],
+            Some(&session_cookie),
+        )
+        .await;
+
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let location = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(location, "/t/acme/settings/domains");
+
+    // Verify the row exists in the DB.
+    let tenant = fx
+        .state
+        .control_db
+        .tenant_by_slug("acme")
+        .await
+        .expect("db")
+        .expect("tenant");
+    let tenant_id = allowthem_saas::TenantId::from(tenant.id_as_uuid().unwrap());
+    let domains = fx
+        .state
+        .control_db
+        .list_tenant_domains(&tenant_id)
+        .await
+        .expect("list_tenant_domains");
+    assert_eq!(domains.len(), 1);
+    assert_eq!(domains[0].domain, "auth.myapp.com");
+}
+
+/// POST a domain that is already registered re-renders the page with an error.
+#[tokio::test]
+async fn domains_register_duplicate_shows_error() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    // First registration succeeds.
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
+    let resp1 = fx
+        .post_form(
+            "/t/acme/settings/domains",
+            &[("csrf_token", csrf.as_str()), ("domain", "dup.myapp.com")],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(resp1.status(), StatusCode::SEE_OTHER);
+
+    // Second registration for the same domain re-renders with an error.
+    let csrf2 =
+        fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
+    let resp2 = fx
+        .post_form(
+            "/t/acme/settings/domains",
+            &[
+                ("csrf_token", csrf2.as_str()),
+                ("domain", "dup.myapp.com"),
+            ],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(resp2.status(), StatusCode::OK, "re-render on duplicate");
+    let body = body_string(resp2).await;
+    assert!(
+        body.contains("already registered"),
+        "error banner should mention already registered"
+    );
+}
+
+/// POST /t/{slug}/settings/domains/{id}/verify redirects after triggering DNS check.
+#[tokio::test]
+async fn domains_verify_triggers_and_redirects() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    // Seed domain directly via control_db.
+    let tenant = fx
+        .state
+        .control_db
+        .tenant_by_slug("acme")
+        .await
+        .expect("db")
+        .expect("tenant");
+    let tenant_id = allowthem_saas::TenantId::from(tenant.id_as_uuid().unwrap());
+    let row = fx
+        .state
+        .control_db
+        .create_tenant_domain(&tenant_id, "verify.myapp.com", "acme.example.com")
+        .await
+        .expect("create_tenant_domain");
+    let domain_id =
+        uuid::Uuid::from_slice(&row.id).expect("domain UUID").to_string();
+
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
+    let resp = fx
+        .post_form(
+            &format!("/t/acme/settings/domains/{domain_id}/verify"),
+            &[("csrf_token", csrf.as_str())],
+            Some(&session_cookie),
+        )
+        .await;
+
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let location = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(location, "/t/acme/settings/domains");
+}
+
+/// POST /t/{slug}/settings/domains/{id}/delete removes the row and redirects.
+#[tokio::test]
+async fn domains_delete_removes_and_redirects() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    // Seed domain directly via control_db.
+    let tenant = fx
+        .state
+        .control_db
+        .tenant_by_slug("acme")
+        .await
+        .expect("db")
+        .expect("tenant");
+    let tenant_id = allowthem_saas::TenantId::from(tenant.id_as_uuid().unwrap());
+    let row = fx
+        .state
+        .control_db
+        .create_tenant_domain(&tenant_id, "delete.myapp.com", "acme.example.com")
+        .await
+        .expect("create_tenant_domain");
+    let domain_id =
+        uuid::Uuid::from_slice(&row.id).expect("domain UUID").to_string();
+
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
+    let resp = fx
+        .post_form(
+            &format!("/t/acme/settings/domains/{domain_id}/delete"),
+            &[("csrf_token", csrf.as_str())],
+            Some(&session_cookie),
+        )
+        .await;
+
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+    // Domain no longer exists.
+    let remaining = fx
+        .state
+        .control_db
+        .list_tenant_domains(&tenant_id)
+        .await
+        .expect("list");
+    assert!(remaining.is_empty(), "domain should have been deleted");
+}
+
 /// Authz smoke: viewers can read roles/permissions but not write; admins
 /// cannot post to billing/upgrade (owner-only).
 #[tokio::test]
