@@ -241,7 +241,10 @@ mod tests {
         id.as_bytes().to_vec()
     }
 
-    async fn deliveries_for_tenant(db: &ControlDb, tenant_id: TenantId) -> Vec<(Vec<u8>, String, String, String, i64)> {
+    async fn deliveries_for_tenant(
+        db: &ControlDb,
+        tenant_id: TenantId,
+    ) -> Vec<(Vec<u8>, String, String, String, i64)> {
         sqlx::query_as::<_, (Vec<u8>, String, String, String, i64)>(
             "SELECT webhook_id, event_id, event_type, status, attempts \
              FROM webhook_deliveries WHERE tenant_id = ? ORDER BY created_at ASC",
@@ -257,7 +260,14 @@ mod tests {
         let db = ControlDb::new(test_pool().await).await.unwrap();
         let tenant = seed_tenant(&db, "acme").await;
         // Webhook subscribes to a different event type.
-        seed_webhook(&db, tenant, "https://acme.example/hook", &["session.created"], true).await;
+        seed_webhook(
+            &db,
+            tenant,
+            "https://acme.example/hook",
+            &["session.created"],
+            true,
+        )
+        .await;
 
         let sink = WebhookEventSink::new(db.pool().clone(), tenant);
         let event = AuthEvent::new("user.created", None, serde_json::json!({}));
@@ -270,7 +280,14 @@ mod tests {
     async fn emit_inserts_one_pending_row_per_matching_webhook() {
         let db = ControlDb::new(test_pool().await).await.unwrap();
         let tenant = seed_tenant(&db, "acme").await;
-        let h1 = seed_webhook(&db, tenant, "https://h1.example/hook", &["user.created"], true).await;
+        let h1 = seed_webhook(
+            &db,
+            tenant,
+            "https://h1.example/hook",
+            &["user.created"],
+            true,
+        )
+        .await;
         let h2 = seed_webhook(
             &db,
             tenant,
@@ -280,7 +297,14 @@ mod tests {
         )
         .await;
         // Decoy: subscribed to a different type.
-        seed_webhook(&db, tenant, "https://decoy.example/hook", &["role.assigned"], true).await;
+        seed_webhook(
+            &db,
+            tenant,
+            "https://decoy.example/hook",
+            &["role.assigned"],
+            true,
+        )
+        .await;
 
         let sink = WebhookEventSink::new(db.pool().clone(), tenant);
         let event = AuthEvent::new("user.created", None, serde_json::json!({"k": "v"}));
@@ -294,7 +318,10 @@ mod tests {
         assert!(webhook_ids.contains(&h1));
         assert!(webhook_ids.contains(&h2));
         for (_, event_id, event_type, status, attempts) in &rows {
-            assert_eq!(event_id, &event_id_str, "all rows share the source event_id");
+            assert_eq!(
+                event_id, &event_id_str,
+                "all rows share the source event_id"
+            );
             assert_eq!(event_type, "user.created");
             assert_eq!(status, "pending");
             assert_eq!(*attempts, 0);
@@ -305,7 +332,14 @@ mod tests {
     async fn emit_skips_disabled_webhook() {
         let db = ControlDb::new(test_pool().await).await.unwrap();
         let tenant = seed_tenant(&db, "acme").await;
-        seed_webhook(&db, tenant, "https://h1.example/hook", &["user.created"], false).await;
+        seed_webhook(
+            &db,
+            tenant,
+            "https://h1.example/hook",
+            &["user.created"],
+            false,
+        )
+        .await;
 
         let sink = WebhookEventSink::new(db.pool().clone(), tenant);
         let event = AuthEvent::new("user.created", None, serde_json::json!({}));
@@ -318,7 +352,14 @@ mod tests {
     async fn emit_re_emit_same_event_id_is_idempotent() {
         let db = ControlDb::new(test_pool().await).await.unwrap();
         let tenant = seed_tenant(&db, "acme").await;
-        seed_webhook(&db, tenant, "https://h1.example/hook", &["user.created"], true).await;
+        seed_webhook(
+            &db,
+            tenant,
+            "https://h1.example/hook",
+            &["user.created"],
+            true,
+        )
+        .await;
 
         let sink = WebhookEventSink::new(db.pool().clone(), tenant);
         let event = AuthEvent::new("user.created", None, serde_json::json!({}));
@@ -326,14 +367,25 @@ mod tests {
         sink.emit(&event).await;
 
         let rows = deliveries_for_tenant(&db, tenant).await;
-        assert_eq!(rows.len(), 1, "(webhook_id, event_id) UNIQUE makes re-emit a no-op");
+        assert_eq!(
+            rows.len(),
+            1,
+            "(webhook_id, event_id) UNIQUE makes re-emit a no-op"
+        );
     }
 
     #[tokio::test]
     async fn emit_payload_round_trips_event_fields() {
         let db = ControlDb::new(test_pool().await).await.unwrap();
         let tenant = seed_tenant(&db, "acme").await;
-        seed_webhook(&db, tenant, "https://h1.example/hook", &["user.created"], true).await;
+        seed_webhook(
+            &db,
+            tenant,
+            "https://h1.example/hook",
+            &["user.created"],
+            true,
+        )
+        .await;
 
         let sink = WebhookEventSink::new(db.pool().clone(), tenant);
         let event = AuthEvent::new("user.created", None, serde_json::json!({"k": "v"}));
@@ -358,8 +410,22 @@ mod tests {
         let db = ControlDb::new(test_pool().await).await.unwrap();
         let tenant_a = seed_tenant(&db, "acme").await;
         let tenant_b = seed_tenant(&db, "globex").await;
-        seed_webhook(&db, tenant_a, "https://a.example/hook", &["user.created"], true).await;
-        seed_webhook(&db, tenant_b, "https://b.example/hook", &["user.created"], true).await;
+        seed_webhook(
+            &db,
+            tenant_a,
+            "https://a.example/hook",
+            &["user.created"],
+            true,
+        )
+        .await;
+        seed_webhook(
+            &db,
+            tenant_b,
+            "https://b.example/hook",
+            &["user.created"],
+            true,
+        )
+        .await;
 
         let factory = WebhookEventSinkFactory::new(db.pool().clone());
         let sink_for_a = factory.for_tenant(tenant_a);
@@ -369,6 +435,38 @@ mod tests {
         let a_rows = deliveries_for_tenant(&db, tenant_a).await;
         let b_rows = deliveries_for_tenant(&db, tenant_b).await;
         assert_eq!(a_rows.len(), 1);
-        assert!(b_rows.is_empty(), "tenant_b should not see tenant_a's events");
+        assert!(
+            b_rows.is_empty(),
+            "tenant_b should not see tenant_a's events"
+        );
+    }
+
+    #[tokio::test]
+    async fn emit_swallows_pool_failure_so_auth_path_is_unaffected() {
+        // Closes the EventSink contract: emit() returns () even when the
+        // underlying control-DB write fails. Otherwise a webhook
+        // bookkeeping issue could roll back or block the auth operation
+        // that produced the event.
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tenant = seed_tenant(&db, "acme").await;
+        seed_webhook(
+            &db,
+            tenant,
+            "https://h1.example/hook",
+            &["user.created"],
+            true,
+        )
+        .await;
+
+        // Build a sink against a clone of the pool, then close the original
+        // — sqlx pool semantics mean any further query will return a
+        // closed-pool error.
+        let sink = WebhookEventSink::new(db.pool().clone(), tenant);
+        db.pool().close().await;
+
+        let event = AuthEvent::new("user.created", None, serde_json::json!({}));
+        // The .await here must complete cleanly. A panic or a hang would
+        // be a regression of the contract.
+        sink.emit(&event).await;
     }
 }

@@ -738,4 +738,192 @@ mod tests {
         .unwrap();
         assert_eq!(delivered, 20, "all 20 deliveries should reach delivered");
     }
+
+    // -- Gap-filling regressions (7xw.2.4) ---------------------------------
+    //
+    // Each of the following targets a behavior the production code has but
+    // the original test set did not exercise:
+    //
+    // - past-due `next_retry_at` triggers re-claim (the OR branch in the
+    //   claim WHERE clause)
+    // - signature is HMAC over the actual transmitted body (closes the
+    //   sign/verify contract round-trip)
+    // - webhook deletion between claim and fetch flips delivery to `failed`
+    //   instead of looping (the `None` arm in `claim_due_batch`)
+    // - shutdown signal terminates `run()` promptly (the
+    //   `tokio::select!` shutdown branch)
+    // - pool failure inside `WebhookEventSink::emit` is logged and
+    //   swallowed — the auth path never sees the error
+
+    #[tokio::test]
+    async fn claim_due_batch_picks_up_rows_with_past_next_retry_at() {
+        // The claim WHERE clause is `next_retry_at IS NULL OR next_retry_at
+        // <= now`. The other claim test only exercises NULL + future; this
+        // one covers the past branch — a row that failed earlier and is now
+        // due for retry should be picked up.
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tenant = seed_tenant(&db, "acme").await;
+        let webhook_id = seed_webhook(&db, tenant, "https://example/hook", "s").await;
+
+        // Pending row with next_retry_at one second ago — should claim.
+        let due_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO webhook_deliveries \
+                 (id, tenant_id, webhook_id, event_id, event_type, payload, status, attempts, next_retry_at) \
+             VALUES (?, ?, ?, 'evt', 'user.created', '{}', 'pending', 1, \
+                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second'))",
+        )
+        .bind(due_id.as_bytes().as_ref())
+        .bind(tenant.as_bytes())
+        .bind(&webhook_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        let worker = WebhookWorker::new(db.pool().clone(), small_config());
+        let claims = worker.claim_due_batch().await.unwrap();
+        assert_eq!(
+            claims.len(),
+            1,
+            "past-due row should claim via the `next_retry_at <= now` branch"
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatched_signature_verifies_against_transmitted_body() {
+        // Catches the bug class "signed material doesn't match POST body".
+        // The 200 happy-path test only checks the header *shape*; this test
+        // captures the actual transmitted body and runs core::webhook_sig::
+        // verify_payload against it with the seeded secret. A regression
+        // that swapped HMAC inputs or signed a different blob would still
+        // produce a `t=…,v1=…` header but fail this assertion.
+        let server = MockServer::start().await;
+        let captured: Arc<Mutex<Option<(String, Vec<u8>)>>> = Arc::new(Mutex::new(None));
+        {
+            let captured = captured.clone();
+            Mock::given(method("POST"))
+                .and(path("/hook"))
+                .respond_with(move |req: &wiremock::Request| {
+                    let sig = req
+                        .headers
+                        .get("x-allowthem-signature")
+                        .map(|v| v.to_str().unwrap().to_owned())
+                        .unwrap_or_default();
+                    *captured.lock().unwrap() = Some((sig, req.body.clone()));
+                    ResponseTemplate::new(200)
+                })
+                .mount(&server)
+                .await;
+        }
+
+        let secret = "round-trip-secret";
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tenant = seed_tenant(&db, "acme").await;
+        let url = format!("{}/hook", server.uri());
+        let webhook_id = seed_webhook(&db, tenant, &url, secret).await;
+        let _delivery_id = insert_pending(&db, tenant, &webhook_id, 0).await;
+
+        let worker = WebhookWorker::new(db.pool().clone(), small_config());
+        let claim = worker
+            .claim_due_batch()
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        dispatch_and_record(db.pool(), &worker.http, claim).await;
+
+        let (sig, body) = captured.lock().unwrap().clone().expect("request captured");
+        // verify_payload uses the same scheme as sign_payload; round-trip
+        // succeeds iff the worker signed the exact bytes it sent and used
+        // the configured secret.
+        let now = Utc::now().timestamp();
+        allowthem_core::webhook_sig::verify_payload(secret.as_bytes(), &body, &sig, now, 60)
+            .expect("signature should verify against the transmitted body and seeded secret");
+    }
+
+    #[tokio::test]
+    async fn claim_marks_failed_when_subscription_deleted_between_claim_and_fetch() {
+        // Exercises the `None` arm in `claim_due_batch`'s post-claim fetch:
+        // if `tenant_webhooks` row is gone (operator deleted between this
+        // delivery being inserted and being claimed) the delivery flips to
+        // `failed` rather than looping forever.
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let tenant = seed_tenant(&db, "acme").await;
+        let webhook_id = seed_webhook(&db, tenant, "https://example/hook", "s").await;
+        let delivery_id = insert_pending(&db, tenant, &webhook_id, 0).await;
+
+        // Delete the parent webhook *before* claim. ON DELETE CASCADE on
+        // webhook_deliveries.webhook_id would normally drop the row too;
+        // disable foreign keys for this single statement so we can simulate
+        // the brief race between claim and fetch.
+        //
+        // `PRAGMA foreign_keys` is connection-scoped, so all three
+        // statements must share one connection — running them through the
+        // pool would land on different connections and the cascade fires.
+        let mut conn = db.pool().acquire().await.unwrap();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM tenant_webhooks WHERE id = ?")
+            .bind(&webhook_id)
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        drop(conn);
+
+        let worker = WebhookWorker::new(db.pool().clone(), small_config());
+        let claims = worker.claim_due_batch().await.unwrap();
+        assert!(
+            claims.is_empty(),
+            "claim_due_batch should not return rows whose subscription is gone"
+        );
+
+        let (status, _attempts, _code, _next) = delivery_row(&db, &delivery_id).await;
+        assert_eq!(
+            status, "failed",
+            "delivery should be marked failed so it isn't claimed again"
+        );
+
+        // And confirm: a second claim returns nothing — no infinite loop.
+        let again = worker.claim_due_batch().await.unwrap();
+        assert!(again.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_terminates_promptly_on_shutdown_signal() {
+        // Exercises the `tokio::select!` shutdown branches in `run()`. The
+        // worker should observe the `watch::Sender::send(true)` and exit
+        // within a couple of poll intervals, not stay alive indefinitely.
+        let db = ControlDb::new(test_pool().await).await.unwrap();
+        let cfg = WebhookWorkerConfig {
+            poll_interval: Duration::from_millis(50),
+            batch_size: 8,
+            concurrency: 4,
+            request_timeout: Duration::from_secs(1),
+        };
+        let worker = WebhookWorker::new(db.pool().clone(), cfg);
+        let (tx, rx) = watch::channel(false);
+
+        let handle = tokio::spawn(async move {
+            worker.run(rx).await;
+        });
+
+        // Let the loop tick at least once so we know it is parked on the
+        // poll-interval select arm.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(!handle.is_finished(), "worker should still be running");
+
+        let _ = tx.send(true);
+        let result = tokio::time::timeout(Duration::from_millis(500), handle).await;
+        assert!(
+            result.is_ok(),
+            "worker did not exit within 500 ms of shutdown signal"
+        );
+    }
 }
