@@ -473,6 +473,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn record_active_concurrent_fires_count_distinct_users_correctly() {
+        // Regression for the §2.3 transaction-boundary decision. N concurrent
+        // record_active calls overlapping users for the same (tenant, period)
+        // must produce mau_count == distinct user count (not N), and exactly
+        // one tenant_active_users row per distinct user.
+        //
+        // Uses an explicit busy_timeout so the test is deterministic even on
+        // slow CI; SQLite serialises writers and would otherwise return
+        // "database is locked" with the test_pool() default of 0.
+        use std::str::FromStr;
+
+        let opts = sqlx::sqlite::SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .pragma("foreign_keys", "ON")
+            .busy_timeout(std::time::Duration::from_secs(5));
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        let control_db = Arc::new(ControlDb::new(pool).await.unwrap());
+        let (_plan_id, tenant_id) =
+            seed_plan_and_tenant(control_db.pool(), 1_000).await;
+        let sink = Arc::new(MauSink::new(control_db.clone()));
+
+        // 10 distinct users, each fired 5 times → 50 spawns, expect mau_count
+        // == 10 because the per-user (tenant, user, period) triple dedupes.
+        let users: Vec<UserId> = (0..10).map(|_| UserId::new()).collect();
+        let at = march_first();
+        let mut handles = Vec::with_capacity(50);
+        for _ in 0..5 {
+            for u in &users {
+                let sink = sink.clone();
+                let u = *u;
+                handles.push(tokio::spawn(async move {
+                    sink.record_active(tenant_id, u, at).await
+                }));
+            }
+        }
+        for h in handles {
+            h.await.unwrap().unwrap();
+        }
+
+        let mau: i64 = sqlx::query_scalar(
+            "SELECT mau_count FROM tenant_usage WHERE tenant_id = ?1",
+        )
+        .bind(tenant_id.as_bytes())
+        .fetch_one(control_db.pool())
+        .await
+        .unwrap();
+        assert_eq!(mau, 10, "mau_count must equal distinct user count");
+
+        let active_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1",
+        )
+        .bind(tenant_id.as_bytes())
+        .fetch_one(control_db.pool())
+        .await
+        .unwrap();
+        assert_eq!(
+            active_count, 10,
+            "tenant_active_users must have one row per distinct user"
+        );
+    }
+
+    #[tokio::test]
+    async fn record_active_returns_error_for_missing_tenant() {
+        // record_active against a tenant_id that has no row in `tenants` must
+        // surface an FK violation as Err — not panic. This is the input
+        // shape the production tokio::spawn path warn-logs and drops.
+        let pool = test_pool().await;
+        let control_db = Arc::new(ControlDb::new(pool).await.unwrap());
+        let sink = MauSink::new(control_db);
+
+        let phantom_tenant = TenantId::new();
+        let result = sink
+            .record_active(phantom_tenant, UserId::new(), march_first())
+            .await;
+
+        assert!(
+            matches!(result, Err(SaasError::Db(_))),
+            "expected SaasError::Db on FK violation, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn prune_old_active_users_does_not_touch_tenant_usage() {
         let (sink, tenant_id) = make_sink(100).await;
         let pool = sink.control_db.pool().clone();
