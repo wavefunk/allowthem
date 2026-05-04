@@ -7,6 +7,7 @@ pub mod authorization;
 pub mod csrf;
 pub mod db;
 pub mod email;
+pub mod email_config;
 pub mod email_render;
 pub mod email_smtp;
 pub mod email_verification;
@@ -45,6 +46,10 @@ pub use auth_client::{AuthClient, AuthFuture, EmbeddedAuthClient};
 pub use csrf::{derive_csrf_token, verify_csrf_token};
 pub use db::Db;
 pub use email::{EmailMessage, EmailSender, EmailTemplate, LogEmailSender, NoopEmailSender};
+pub use email_config::{
+    EmailConfig, EmailConfigMode, ManagedOverride, SetEmailConfig, SmtpOverride, SmtpTlsMode,
+    WebhookOverride,
+};
 pub use email_render::{EmailBranding, RenderedEmail, render as render_email};
 pub use email_smtp::{SmtpConfig, SmtpEmailSender, SmtpTls};
 pub use email_webhook::{WebhookEmailConfig, WebhookEmailSender};
