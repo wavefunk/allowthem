@@ -163,13 +163,11 @@ use crate::error::AuthError;
 /// |-----------------|------------------------------|
 /// | `Google`        | [`crate::social_google::GoogleSocialProvider`] |
 /// | `Github`        | [`crate::social_github::GitHubSocialProvider`] |
-/// | `CustomOidc`    | `Err` — lands in **7m5.3**   |
+/// | `CustomOidc`    | [`crate::social_oidc::CustomOidcSocialProvider`] |
 /// | `Apple`/`Microsoft` | `Err` — deferred         |
 ///
-/// **`async fn` rationale**: the `CustomOidc` branch (7m5.3) needs to `await`
-/// an OIDC discovery fetch at construction time. Declaring `async fn` now means
-/// 7m5.3 can add the real impl without changing the public signature or all
-/// existing call sites.
+/// **`async fn` rationale**: the `CustomOidc` branch needs to `await` an OIDC
+/// discovery fetch at construction time.
 pub async fn build_social_provider(
     config: SocialProviderConfig,
 ) -> Result<Box<dyn SocialProvider>, AuthError> {
@@ -180,8 +178,8 @@ pub async fn build_social_provider(
         ProviderType::Github => Ok(Box::new(crate::social_github::GitHubSocialProvider::new(
             config,
         )?)),
-        ProviderType::CustomOidc => Err(AuthError::Validation(
-            "custom_oidc provider not yet supported (epic 7m5.3)".into(),
+        ProviderType::CustomOidc => Ok(Box::new(
+            crate::social_oidc::CustomOidcSocialProvider::new(config).await?,
         )),
         ProviderType::Apple | ProviderType::Microsoft => Err(AuthError::Validation(format!(
             "provider type {:?} not yet supported",
@@ -977,20 +975,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_social_provider_rejects_custom_oidc_with_validation_error() {
+    async fn build_social_provider_rejects_custom_oidc_with_missing_config() {
+        // config: None → CustomOidcSocialProvider::new returns Validation("requires a config object")
         let cfg = make_config(ProviderType::CustomOidc, vec!["openid".into()]);
-        // Box<dyn SocialProvider> doesn't impl Debug, so use match instead of unwrap_err.
         let err = match build_social_provider(cfg).await {
             Err(e) => e,
             Ok(_) => panic!("expected Err, got Ok"),
         };
-        match err {
-            AuthError::Validation(msg) => {
-                assert!(msg.contains("custom_oidc"), "got: {msg}");
-                assert!(msg.contains("7m5.3"), "got: {msg}");
-            }
-            other => panic!("expected Validation, got {other:?}"),
-        }
+        assert!(
+            matches!(err, AuthError::Validation(ref m) if m.contains("config")),
+            "got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_social_provider_dispatches_to_custom_oidc() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let base = server.uri();
+        Mock::given(method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "authorization_endpoint": format!("{base}/authorize"),
+                "token_endpoint": format!("{base}/token"),
+                "userinfo_endpoint": format!("{base}/userinfo"),
+            })))
+            .mount(&server)
+            .await;
+
+        use crate::types::SocialProviderId;
+        let cfg = SocialProviderConfig {
+            id: SocialProviderId::new(),
+            provider_type: ProviderType::CustomOidc,
+            display_name: "Test OIDC".into(),
+            client_id: "cid".into(),
+            client_secret: "sec".into(),
+            scopes: vec!["openid".into(), "email".into()],
+            enabled: true,
+            priority: 0,
+            config: Some(serde_json::json!({
+                "discovery_url": format!("{base}/.well-known/openid-configuration")
+            })),
+        };
+        let provider = build_social_provider(cfg).await.unwrap();
+        assert_eq!(provider.provider_type(), ProviderType::CustomOidc);
     }
 
     #[tokio::test]
