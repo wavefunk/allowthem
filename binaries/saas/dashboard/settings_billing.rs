@@ -2,11 +2,10 @@
 //!
 //! Routes:
 //! - `GET  /t/{slug}/settings/billing`          — RequireTenantMember
-//! - `POST /t/{slug}/settings/billing/upgrade`  — RequireTenantOwner (501 stub)
+//! - `POST /t/{slug}/settings/billing/upgrade`  — RequireTenantOwner (coming soon)
 
 use axum::Router;
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use minijinja::context;
@@ -143,15 +142,24 @@ pub async fn show(
 
 pub async fn upgrade(
     RequireTenantOwner(scope): RequireTenantOwner,
-    State(_state): State<DashboardRouterState>,
-) -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Html(format!(
-            "<p>Stripe Checkout glue lands with Epic eua. \
-             <a href=\"/t/{}/settings/billing\">← Back to billing</a></p>",
-            scope.tenant.slug
-        )),
-    )
-        .into_response()
+    State(state): State<DashboardRouterState>,
+) -> Result<Response, BrowserError> {
+    let path = format!("/t/{}/settings/billing", scope.tenant.slug);
+    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
+    let tmpl = state
+        .templates
+        .get_template("_partials/_coming_soon.html")
+        .map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! {
+            status_session => scope.user.email.as_str(),
+            tenant => tenant_ctx(&scope.tenant),
+            nav_sections => nav,
+            role => role_str(scope.role),
+            title => "Plan Upgrade",
+            epic_ref => "eua",
+            description => "Subscription management and plan upgrades are coming soon.",
+        })
+        .map_err(BrowserError::from)?;
+    Ok(Html(body).into_response())
 }
