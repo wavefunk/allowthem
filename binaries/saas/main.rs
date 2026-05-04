@@ -176,15 +176,46 @@ async fn main() -> Result<()> {
         seen_times: Arc::new(DashMap::new()),
         dashboard_handle: Some(dashboard_ath),
     };
-    let dns_resolver = Arc::new(HickoryDnsResolver::new().map_err(|e| eyre::eyre!("{e}"))?);
+    let dns_resolver: Arc<dyn allowthem_saas::DnsResolver> =
+        Arc::new(HickoryDnsResolver::new().map_err(|e| eyre::eyre!("{e}"))?);
     let manage_state = ManageState::new(
         control_db.clone(),
         handle_cache.clone(),
         tenant_data_dir.clone(),
         tenant_config.clone(),
         60,
-        dns_resolver,
+        dns_resolver.clone(),
     );
+
+    // Spawn the hourly domain verification sweep. Mirrors the MAU pruner
+    // pattern: skip the immediate-fire tick so we don't hit DNS at boot.
+    // Graceful shutdown is not yet wired (eua.2 plan §2.6).
+    {
+        let sweep_resolver = dns_resolver.clone();
+        let sweep_db = control_db.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+            tick.tick().await; // skip the immediate-fire boot tick
+            loop {
+                tick.tick().await;
+                match allowthem_saas::dns::run_one_sweep(
+                    sweep_resolver.as_ref(),
+                    &sweep_db,
+                    100,
+                )
+                .await
+                {
+                    Ok(stats) => tracing::info!(
+                        processed = stats.processed,
+                        verified = stats.verified,
+                        failed = stats.failed,
+                        "domain sweep complete"
+                    ),
+                    Err(e) => tracing::warn!(error = %e, "domain sweep failed"),
+                }
+            }
+        });
+    }
 
     let auth_routes = AllRoutesBuilder::new()
         .templates(build_default_browser_env())
@@ -228,6 +259,7 @@ async fn main() -> Result<()> {
     let dashboard_router_state = dashboard::state::DashboardRouterState::from_signup(
         signup_state.clone(),
         slug_cache.clone(),
+        dns_resolver,
     );
     let dashboard_pages = dashboard::dashboard_pages_router(dashboard_router_state).layer(
         axum::middleware::from_fn_with_state(router_state, tenant_router_middleware),

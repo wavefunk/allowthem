@@ -91,6 +91,9 @@ const SETTINGS_EMAIL_HTML: &str = include_str!("templates/settings/email.html");
 const SETTINGS_SOCIAL_HTML: &str = include_str!("templates/settings/social.html");
 const SETTINGS_DOMAIN_HTML: &str = include_str!("templates/settings/domain.html");
 
+// Custom domain settings page (38y.1).
+const SETTINGS_DOMAINS_HTML: &str = include_str!("templates/settings/domains.html");
+
 pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     let mut env = Environment::new();
 
@@ -236,6 +239,8 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
         .expect("settings/social.html");
     env.add_template_owned("settings/domain.html", SETTINGS_DOMAIN_HTML)
         .expect("settings/domain.html");
+    env.add_template_owned("settings/domains.html", SETTINGS_DOMAINS_HTML)
+        .expect("settings/domains.html");
 
     // Super-admin panel (99c.6).
     env.add_template_owned("admin/overview.html", ADMIN_OVERVIEW_HTML)

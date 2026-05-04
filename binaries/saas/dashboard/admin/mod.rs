@@ -157,7 +157,11 @@ pub(crate) mod tests {
             };
 
             let slug_cache = SlugCache::new(10, 60);
-            let state = DashboardRouterState::from_signup(signup_state, slug_cache);
+            let state = DashboardRouterState::from_signup(
+                signup_state,
+                slug_cache,
+                std::sync::Arc::new(allowthem_saas::dns::MockDnsResolver::new()),
+            );
 
             // Build the admin router (handlers are stubs until Steps 7-12).
             let app = Router::new()

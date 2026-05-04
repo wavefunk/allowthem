@@ -4,7 +4,6 @@
 //!   GET /t/{slug}/settings/webhooks
 //!   GET /t/{slug}/settings/email
 //!   GET /t/{slug}/settings/social
-//!   GET /t/{slug}/settings/domain
 
 use axum::extract::State;
 use axum::response::{Html, IntoResponse, Response};
@@ -39,13 +38,6 @@ const SOCIAL_WIREFRAME: &str = "\
 │ [ ] Google      Client ID: [___________]    │
 │ [ ] GitHub      Client ID: [___________]    │
 │ [ ] Microsoft   Client ID: [___________]    │
-└─────────────────────────────────────────────┘";
-
-const DOMAIN_WIREFRAME: &str = "\
-┌─ Custom domain ─────────────────────────────┐
-│ Current:  auth.acme.example.com             │
-│ Custom:   [auth.acme.com       ]  Verify    │
-│ Status:   ● Pending DNS propagation         │
 └─────────────────────────────────────────────┘";
 
 // ---------------------------------------------------------------------------
@@ -153,24 +145,3 @@ pub async fn social(
     .map(IntoResponse::into_response)
 }
 
-pub async fn domain(
-    State(state): State<DashboardRouterState>,
-    RequireTenantMember(scope): RequireTenantMember,
-) -> Result<Response, BrowserError> {
-    let path = format!("/t/{}/settings/domain", scope.tenant.slug);
-    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-    render(
-        &state,
-        "settings/domain.html",
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            nav_sections => nav,
-            role => role_str(&scope),
-            title => "Custom Domain",
-            epic_ref => "38y",
-            description => "Point your own domain at the auth surface for a branded login experience.",
-            wireframe => DOMAIN_WIREFRAME,
-        },
-    )
-    .map(IntoResponse::into_response)
-}

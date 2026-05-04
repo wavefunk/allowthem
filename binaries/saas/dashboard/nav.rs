@@ -76,7 +76,7 @@ pub fn tenant_nav_items(slug: &str, current_path: &str, role: TenantRole) -> Vec
             item("Webhooks", p("/settings/webhooks"), !writer, true),
             item("Email", p("/settings/email"), !writer, true),
             item("Social providers", p("/settings/social"), !writer, true),
-            item("Custom domain", p("/settings/domain"), !writer, true),
+            item("Custom domain", p("/settings/domains"), !writer, false),
         ],
     };
 
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn coming_soon_flag_set_on_stubs() {
         let sections = tenant_nav_items("acme", "/t/acme/audit", TenantRole::Owner);
-        let stubs = ["Webhooks", "Email", "Social providers", "Custom domain"];
+        let stubs = ["Webhooks", "Email", "Social providers"];
         for label in stubs {
             let item = sections[1]
                 .items

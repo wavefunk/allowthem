@@ -21,6 +21,7 @@ pub mod quickstart_cache;
 pub mod roles;
 pub mod settings_api_keys;
 pub mod settings_billing;
+pub mod settings_domains;
 pub mod settings_general;
 pub mod settings_team;
 pub mod signup;
@@ -111,11 +112,12 @@ pub fn dashboard_pages_router(state: state::DashboardRouterState) -> Router {
         .merge(settings_team::team_routes())
         .merge(settings_api_keys::api_key_routes())
         .merge(settings_billing::billing_routes())
+        // 38y.1 custom domain settings (implemented).
+        .merge(settings_domains::domain_routes())
         // 99c.5 stub pages (coming-soon).
         .route("/t/{slug}/settings/webhooks", get(stubs::webhooks))
         .route("/t/{slug}/settings/email", get(stubs::email))
         .route("/t/{slug}/settings/social", get(stubs::social))
-        .route("/t/{slug}/settings/domain", get(stubs::domain))
         // 99c.5 invite accept flow (anonymous-allowed; outside /t/{slug}).
         .merge(invite::invite_routes())
         // 99c.6 super-admin panel.

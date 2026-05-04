@@ -1,0 +1,120 @@
+{# settings/domains.html — custom domain management (38y.1).
+   Expected context:
+   - tenant.{name, slug}
+   - nav_sections
+   - csrf_token: String
+   - domains: Vec<DomainEntry>  — {id, domain, status, status_label, verified_at, last_error, created_at}
+   - dns_target: String         — the CNAME value the user should point at
+   - error: String              — non-empty → show inline error banner
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}Custom Domain — {{ tenant.name }}{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">{{ tenant.name }} · SETTINGS · CUSTOM DOMAIN</div>
+{% endblock %}
+
+{% block dashboard_content %}
+  <div class="wf-panel" style="margin:16px 24px 0">
+    <div class="wf-panel-head">
+      <div class="wf-panel-title">Custom Domain</div>
+    </div>
+    <div class="wf-panel-body">
+
+      {# ── DNS instructions ── #}
+      <div style="margin-bottom:24px;">
+        <p style="margin:0 0 8px;font-size:14px;">
+          To use a custom domain, add a <strong>CNAME</strong> record in your DNS provider
+          pointing to:
+        </p>
+        <code class="wf-code-block">{{ dns_target }}</code>
+        <p class="wf-hint" style="margin-top:6px;font-size:12px;color:var(--wf-text-muted)">
+          DNS propagation can take up to 48 hours. Use the Verify button once the record is live.
+        </p>
+      </div>
+
+      {# ── Error banner ── #}
+      {% if error %}
+        <div class="wf-alert err" style="margin-bottom:16px;">
+          <span class="wf-bar"></span>
+          <div>{{ error }}</div>
+          <span></span>
+        </div>
+      {% endif %}
+
+      {# ── Existing domains ── #}
+      {% if domains %}
+        <table class="wf-table" style="margin-bottom:24px;">
+          <thead>
+            <tr>
+              <th>Domain</th>
+              <th>Status</th>
+              <th>Verified at</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in domains %}
+              <tr>
+                <td><code>{{ d.domain }}</code></td>
+                <td>
+                  <span class="wf-badge
+                    {%- if d.status == "verified" or d.status == "active" %} ok
+                    {%- elif d.status == "failed" %} err
+                    {%- else %} muted
+                    {%- endif %}">{{ d.status_label }}</span>
+                  {% if d.last_error %}
+                    <span class="wf-hint" style="font-size:11px;color:var(--wf-text-muted);display:block;margin-top:2px;">
+                      {{ d.last_error }}
+                    </span>
+                  {% endif %}
+                </td>
+                <td style="color:var(--wf-text-muted);font-size:13px;">
+                  {{ d.verified_at | default(value="—") }}
+                </td>
+                <td style="white-space:nowrap;">
+                  <form method="post"
+                        action="/t/{{ tenant.slug }}/settings/domains/{{ d.id }}/verify"
+                        style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                    <button type="submit" class="wf-btn sm">Verify</button>
+                  </form>
+                  <form method="post"
+                        action="/t/{{ tenant.slug }}/settings/domains/{{ d.id }}/delete"
+                        style="display:inline;margin-left:6px;"
+                        onsubmit="return confirm('Remove {{ d.domain }}?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                    <button type="submit" class="wf-btn sm danger">Remove</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p style="color:var(--wf-text-muted);font-size:14px;margin-bottom:24px;">
+          No custom domains registered yet.
+        </p>
+      {% endif %}
+
+      {# ── Add new domain ── #}
+      <form method="post"
+            action="/t/{{ tenant.slug }}/settings/domains"
+            style="max-width:480px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <div class="wf-form-row">
+          <label>
+            Add custom domain
+            <input type="text" name="domain" placeholder="auth.example.com"
+                   autocomplete="off" spellcheck="false" />
+          </label>
+        </div>
+        <div style="margin-top:12px;">
+          <button type="submit" class="wf-btn primary">Register domain</button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+{% endblock %}

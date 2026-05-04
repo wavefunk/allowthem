@@ -110,6 +110,7 @@ impl Fixture {
         let dashboard_router_state = crate::dashboard::state::DashboardRouterState::from_signup(
             signup_state.clone(),
             slug_cache.clone(),
+            Arc::new(allowthem_saas::dns::MockDnsResolver::new()),
         );
         let dashboard_pages =
             crate::dashboard::dashboard_pages_router(dashboard_router_state).layer(
@@ -2123,7 +2124,8 @@ async fn last_owner_demote_via_http_shows_error() {
     );
 }
 
-/// All four stub settings pages must return 200 and contain "Coming soon".
+/// Stub settings pages (webhooks, email, social) return 200 with "Coming soon".
+/// The custom-domain page has graduated from stub to a real page (38y.1).
 #[tokio::test]
 async fn stub_pages_return_200_with_coming_soon() {
     let fx = Fixture::new().await;
@@ -2133,7 +2135,6 @@ async fn stub_pages_return_200_with_coming_soon() {
         "/t/acme/settings/webhooks",
         "/t/acme/settings/email",
         "/t/acme/settings/social",
-        "/t/acme/settings/domain",
     ];
 
     for path in &stub_paths {
@@ -2149,6 +2150,19 @@ async fn stub_pages_return_200_with_coming_soon() {
             "stub page {path} must contain 'Coming soon'"
         );
     }
+}
+
+/// The custom-domain settings page (38y.1) returns 200 and shows the domains UI.
+#[tokio::test]
+async fn domains_settings_page_returns_200() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = get_authed(&fx, "/t/acme/settings/domains", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Custom Domain"), "page should render domain settings");
+    assert!(body.contains("CNAME"), "page should include DNS instructions");
 }
 
 /// Authz smoke: viewers can read roles/permissions but not write; admins

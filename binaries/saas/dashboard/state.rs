@@ -9,7 +9,7 @@ use minijinja::Environment;
 use tokio::sync::RwLock;
 
 use allowthem_core::{AllowThem, EmailSender};
-use allowthem_saas::{ControlDb, HandleCache, SlugCache, TenantBuilderConfig};
+use allowthem_saas::{ControlDb, DnsResolver, HandleCache, SlugCache, TenantBuilderConfig};
 
 use super::QuickstartCache;
 
@@ -81,6 +81,8 @@ pub struct DashboardRouterState {
     /// Cached filesystem stats for the tenant data dir (super-admin
     /// health page). 60s refresh window, populated lazily on first GET.
     pub fs_stats_cache: FsStatsCache,
+    /// DNS resolver used by the custom-domain verification handler.
+    pub dns_resolver: Arc<dyn DnsResolver>,
 }
 
 impl DashboardRouterState {
@@ -88,7 +90,11 @@ impl DashboardRouterState {
     /// tenant router middleware. The slug cache lives in
     /// `TenantRouterState`; the super-admin health page needs read access
     /// to its `entry_count`, so we plumb a clone in here.
-    pub fn from_signup(s: SignupState, slug_cache: SlugCache) -> Self {
+    pub fn from_signup(
+        s: SignupState,
+        slug_cache: SlugCache,
+        dns_resolver: Arc<dyn DnsResolver>,
+    ) -> Self {
         Self {
             ath: s.ath,
             control_db: s.control_db,
@@ -101,6 +107,7 @@ impl DashboardRouterState {
             is_production: s.is_production,
             base_domain: s.base_domain,
             fs_stats_cache: Arc::new(RwLock::new(None)),
+            dns_resolver,
         }
     }
 }
