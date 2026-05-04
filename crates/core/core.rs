@@ -27,6 +27,7 @@ pub mod permissions;
 pub mod roles;
 pub mod sessions;
 pub mod signing_keys;
+pub mod social_github;
 pub mod social_google;
 mod social_provider_encrypt;
 pub mod social_providers;
@@ -64,6 +65,7 @@ pub use sessions::{
 pub use signing_keys::{
     JwkEntry, JwkSet, OidcDiscovery, SigningKey, build_discovery, build_jwks, decrypt_private_key,
 };
+pub use social_github::GitHubSocialProvider;
 pub use social_google::GoogleSocialProvider;
 pub use social_providers::{
     ProviderType, SocialProvider, SocialProviderConfig, SocialProviderRow, SocialUserInfo,
