@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::extract::{Extension, Query};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -7,14 +5,8 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use allowthem_core::AllowThem;
 use allowthem_core::types::Email;
-use allowthem_core::{AllowThem, EmailSender};
-
-#[derive(Clone)]
-struct PasswordResetConfig {
-    email_sender: Arc<dyn EmailSender>,
-    base_url: String,
-}
 
 /// Create a router with password reset JSON API handlers.
 ///
@@ -25,28 +17,23 @@ struct PasswordResetConfig {
 /// - `GET /api/reset-password?token=...` — validates a reset token
 /// - `POST /api/reset-password` — executes the password reset
 ///
-/// The caller provides an `EmailSender` for delivering reset emails and a
-/// `base_url` used to construct the reset link in the email.
+/// The configured `AllowThem` handle (from extensions) must have
+/// `email_sender` and `base_url` set for `forgot_password` to deliver email.
 ///
 /// Mount into your app:
 /// ```ignore
-/// let reset_routes = password_reset_routes(sender, base_url);
+/// let reset_routes = password_reset_routes();
 /// let app = Router::new()
 ///     .merge(reset_routes)
 ///     .with_state(ath);
 /// ```
-pub fn password_reset_routes(email_sender: Arc<dyn EmailSender>, base_url: String) -> Router<()> {
-    let config = PasswordResetConfig {
-        email_sender,
-        base_url,
-    };
+pub fn password_reset_routes() -> Router<()> {
     Router::new()
         .route("/api/forgot-password", post(forgot_password))
         .route(
             "/api/reset-password",
             get(validate_reset).post(execute_reset),
         )
-        .layer(Extension(config))
 }
 
 #[derive(Deserialize)]
@@ -60,7 +47,6 @@ struct ForgotPasswordBody {
 /// This prevents email enumeration attacks.
 async fn forgot_password(
     Extension(ath): Extension<AllowThem>,
-    Extension(config): Extension<PasswordResetConfig>,
     Json(body): Json<ForgotPasswordBody>,
 ) -> (StatusCode, Json<Value>) {
     let email = match Email::new(body.email) {
@@ -75,11 +61,7 @@ async fn forgot_password(
         }
     };
 
-    if let Err(err) = ath
-        .db()
-        .send_password_reset(&email, &config.base_url, &*config.email_sender)
-        .await
-    {
+    if let Err(err) = ath.send_password_reset_email(&email).await {
         tracing::error!("password reset email error: {err}");
     }
 
@@ -164,12 +146,13 @@ mod tests {
     async fn test_app() -> (AllowThem, Router) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
+            .base_url("https://example.com")
+            .email_sender(Box::new(LogEmailSender))
             .build()
             .await
             .unwrap();
 
-        let sender: Arc<dyn EmailSender> = Arc::new(LogEmailSender);
-        let routes = password_reset_routes(sender, "https://example.com".into());
+        let routes = password_reset_routes();
         let app = routes.layer(axum::middleware::from_fn_with_state(
             ath.clone(),
             crate::cors::inject_ath_into_extensions,

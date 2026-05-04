@@ -21,20 +21,29 @@ const REQUIRED_PAGE: &[&str] = &[
 ];
 
 /// Classes that every auth partial (HTMX fragment) must contain.
-const REQUIRED_PARTIAL: &[&str] = &[
-    "wf-auth-form",
-    "wf-auth-top",
-    "wf-auth-wrap",
-];
+const REQUIRED_PARTIAL: &[&str] = &["wf-auth-form", "wf-auth-top", "wf-auth-wrap"];
 
 /// Substrings that must never appear in rendered auth output.
 const FORBIDDEN: &[&str] = &[
-    "bg-gray-", "bg-red-", "bg-green-", "bg-yellow-",
-    "bg-white", "bg-blue-",
-    "text-gray-", "text-blue-", "text-white",
-    "min-h-screen", "max-w-sm", "max-w-md", "focus:ring-",
-    "at-btn-primary", "at-input-focus", "at-link",
-    "at-auth-shell", "at-form-pane", "at-form-wrap",
+    "bg-gray-",
+    "bg-red-",
+    "bg-green-",
+    "bg-yellow-",
+    "bg-white",
+    "bg-blue-",
+    "text-gray-",
+    "text-blue-",
+    "text-white",
+    "min-h-screen",
+    "max-w-sm",
+    "max-w-md",
+    "focus:ring-",
+    "at-btn-primary",
+    "at-input-focus",
+    "at-link",
+    "at-auth-shell",
+    "at-form-pane",
+    "at-form-wrap",
     "class=\"wf-splash\"",
     "class=\"wf-splash ",
     "border-radius",
@@ -103,7 +112,10 @@ fn mfa_setup_ctx() -> Value {
 }
 
 fn mfa_recovery_ctx() -> Value {
-    ctx(&[("recovery_codes", Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]))])
+    ctx(&[(
+        "recovery_codes",
+        Value::from(vec!["AAAA-BBBB", "CCCC-DDDD"]),
+    )])
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -123,7 +135,10 @@ fn assert_page(name: &str, context: Value) {
         assert!(html.contains(needle), "{name}: missing required `{needle}`");
     }
     for needle in FORBIDDEN {
-        assert!(!html.contains(needle), "{name}: contains forbidden `{needle}`");
+        assert!(
+            !html.contains(needle),
+            "{name}: contains forbidden `{needle}`"
+        );
     }
 }
 
@@ -133,7 +148,10 @@ fn assert_partial(name: &str, context: Value) {
         assert!(html.contains(needle), "{name}: missing required `{needle}`");
     }
     for needle in FORBIDDEN {
-        assert!(!html.contains(needle), "{name}: contains forbidden `{needle}`");
+        assert!(
+            !html.contains(needle),
+            "{name}: contains forbidden `{needle}`"
+        );
     }
 }
 
@@ -268,10 +286,7 @@ fn accent_forgot_password() {
 
 #[test]
 fn accent_reset_password() {
-    assert_accent(
-        "reset_password.html",
-        ctx(&[("token", Value::from("tok"))]),
-    );
+    assert_accent("reset_password.html", ctx(&[("token", Value::from("tok"))]));
 }
 
 #[test]
@@ -352,16 +367,28 @@ fn login_uses_design_system_form_components() {
     assert!(html.contains("wf-field"), "login: missing wf-field wrapper");
     assert!(html.contains("wf-input"), "login: missing wf-input");
     assert!(html.contains("wf-label"), "login: missing wf-label");
-    assert!(html.contains("wf-btn primary"), "login: missing primary button");
+    assert!(
+        html.contains("wf-btn primary"),
+        "login: missing primary button"
+    );
     assert!(html.contains("wf-tabs"), "login: missing wf-tabs switcher");
 }
 
 #[test]
 fn register_uses_design_system_form_components() {
     let html = render("_partials/_auth_main_register.html", register_ctx());
-    assert!(html.contains("wf-field"), "register: missing wf-field wrapper");
+    assert!(
+        html.contains("wf-field"),
+        "register: missing wf-field wrapper"
+    );
     assert!(html.contains("wf-input"), "register: missing wf-input");
     assert!(html.contains("wf-label"), "register: missing wf-label");
-    assert!(html.contains("wf-btn primary"), "register: missing primary button");
-    assert!(html.contains("wf-tabs"), "register: missing wf-tabs switcher");
+    assert!(
+        html.contains("wf-btn primary"),
+        "register: missing primary button"
+    );
+    assert!(
+        html.contains("wf-tabs"),
+        "register: missing wf-tabs switcher"
+    );
 }

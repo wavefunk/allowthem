@@ -84,6 +84,12 @@ pub struct TenantRouterState {
     pub tenant_data_dir: PathBuf,
     pub config: Arc<TenantBuilderConfig>,
     pub seen_times: Arc<DashMap<TenantId, Instant>>,
+    /// When `Some`, requests for the root domain (`<base_domain>` exactly)
+    /// get this handle inserted into request extensions before falling
+    /// through to the next layer. Used so the shared auth routes can serve
+    /// the dashboard from `dashboard.db` without per-handler branching.
+    /// `None` is the default for tests and any non-SaaS embedding.
+    pub dashboard_handle: Option<AllowThem>,
 }
 
 pub async fn tenant_router_middleware(
@@ -103,7 +109,12 @@ pub async fn tenant_router_middleware(
     let base_domain = &state.config.base_domain;
     let slug = match parse_slug(&host, base_domain) {
         Some(SlugOrRoot::Slug(s)) => s,
-        Some(SlugOrRoot::Root) => return next.run(request).await,
+        Some(SlugOrRoot::Root) => {
+            if let Some(ref dh) = state.dashboard_handle {
+                request.extensions_mut().insert(dh.clone());
+            }
+            return next.run(request).await;
+        }
         None => return StatusCode::NOT_FOUND.into_response(),
     };
 
@@ -175,11 +186,12 @@ pub(crate) async fn build_handle(
         .tenant_by_id_raw(tenant_id.as_bytes())
         .await?
         .ok_or(SaasError::TenantNotFound)?;
-    build_handle_with_path(&tenant.db_path, &tenant_data_dir, &config, slug).await
+    build_handle_with_path(&tenant.db_path, tenant_id, &tenant_data_dir, &config, slug).await
 }
 
-async fn build_handle_with_path(
+pub async fn build_handle_with_path(
     db_file: &str,
+    tenant_id: TenantId,
     tenant_data_dir: &std::path::Path,
     config: &TenantBuilderConfig,
     slug: &str,
@@ -196,12 +208,59 @@ async fn build_handle_with_path(
         .await
         .map_err(|e| SaasError::ProvisionFailed(e.to_string()))?;
 
-    allowthem_core::AllowThemBuilder::with_pool(pool)
+    // No `cookie_domain` — host-only cookies satisfy the `__Host-` prefix
+    // (see `crates/core/sessions.rs:313`). Cookie name + Secure attribute
+    // are picked per environment via `tenant_cookie_name`.
+    let mut builder = allowthem_core::AllowThemBuilder::with_pool(pool.clone())
         .mfa_key(config.mfa_key)
         .signing_key(config.signing_key)
         .csrf_key(config.csrf_key)
         .base_url(format!("https://{slug}.{}", config.base_domain))
-        .cookie_domain(format!(".{slug}.{}", config.base_domain))
+        .cookie_name(crate::tenants::tenant_cookie_name(config.is_production))
+        .cookie_secure(config.is_production);
+
+    // Prefer the per-tenant email factory when present; fall back to the
+    // shared sender for embedded/test paths that haven't migrated. The
+    // factory needs the tenant pool because it reads `allowthem_email_config`
+    // and decrypts secrets with the deployment's mfa_key.
+    if let Some(factory) = &config.email_sender_factory {
+        let sender = factory
+            .for_tenant(tenant_id, &pool)
+            .await
+            .map_err(|e| SaasError::ProvisionFailed(e.to_string()))?;
+        builder = builder.email_sender(Box::new(sender));
+    } else if let Some(sender) = &config.email_sender {
+        builder = builder.email_sender(Box::new(sender.clone()));
+    }
+
+    // Prefer the per-tenant factory when present; fall back to the shared
+    // sink for embedded/test paths that haven't migrated to the factory.
+    if let Some(factory) = &config.event_sink_factory {
+        let sink = factory.for_tenant(tenant_id);
+        builder = builder.event_sink(Box::new(sink));
+    } else if let Some(sink) = &config.event_sink {
+        builder = builder.event_sink(Box::new(sink.clone()));
+    }
+
+    if let Some(mau_sink) = &config.mau_sink {
+        let mau_sink = mau_sink.clone();
+        let cb: allowthem_core::OnUserActive = std::sync::Arc::new(move |user_id, ts| {
+            let mau_sink = mau_sink.clone();
+            tokio::spawn(async move {
+                if let Err(e) = mau_sink.record_active(tenant_id, user_id, ts).await {
+                    tracing::warn!(
+                        tenant_id = %tenant_id.as_uuid(),
+                        user_id = %user_id,
+                        error = %e,
+                        "MauSink::record_active failed"
+                    );
+                }
+            });
+        });
+        builder = builder.on_user_active(cb);
+    }
+
+    builder
         .build()
         .await
         .map_err(|e| SaasError::ProvisionFailed(e.to_string()))
@@ -257,7 +316,7 @@ pub async fn pre_warm(
                 let slug = tenant.slug.clone();
                 let result = cache
                     .get_or_init(tenant_id, async move {
-                        build_handle_with_path(&db_file, &dir, &cfg, &slug).await
+                        build_handle_with_path(&db_file, tenant_id, &dir, &cfg, &slug).await
                     })
                     .await;
                 if let Err(e) = result {
@@ -418,8 +477,15 @@ mod tests {
                 signing_key: [0u8; 32],
                 csrf_key: [0u8; 32],
                 base_domain: "example.com".into(),
+                is_production: false,
+                email_sender: None,
+                event_sink: None,
+                event_sink_factory: None,
+                mau_sink: None,
+                email_sender_factory: None,
             }),
             seen_times: Arc::new(DashMap::new()),
+            dashboard_handle: None,
         }
     }
 
@@ -518,5 +584,318 @@ mod tests {
             10,
         )
         .await;
+    }
+
+    // -- Root-branch dashboard handle injection (99c.1 Task 4) -----------------
+
+    /// Build the middleware as a tower-style closure and run a single request
+    /// through it, returning whether `Extension<AllowThem>` was visible to the
+    /// inner handler.
+    async fn root_request_sees_extension(state: TenantRouterState, host: &str) -> bool {
+        use axum::Router;
+        use axum::body::Body;
+        use axum::http::header;
+        use axum::middleware::from_fn_with_state;
+        use axum::routing::get;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tower::ServiceExt;
+
+        let observed = Arc::new(AtomicBool::new(false));
+        let observed_for_handler = observed.clone();
+
+        let app = Router::new()
+            .route(
+                "/",
+                get(move |req: Request<Body>| {
+                    let observed = observed_for_handler.clone();
+                    async move {
+                        if req.extensions().get::<AllowThem>().is_some() {
+                            observed.store(true, Ordering::SeqCst);
+                        }
+                        StatusCode::OK
+                    }
+                }),
+            )
+            .layer(from_fn_with_state(state, tenant_router_middleware));
+
+        let req = Request::builder()
+            .uri("/")
+            .header(header::HOST, host)
+            .body(Body::empty())
+            .unwrap();
+        let _resp = app.oneshot(req).await.unwrap();
+        observed.load(Ordering::SeqCst)
+    }
+
+    async fn make_dashboard_handle() -> AllowThem {
+        allowthem_core::AllowThemBuilder::new("sqlite::memory:")
+            .mfa_key([0u8; 32])
+            .signing_key([0u8; 32])
+            .csrf_key([0u8; 32])
+            .base_url("https://example.com")
+            .cookie_secure(false)
+            .build()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn root_branch_injects_dashboard_handle_when_set() {
+        let dh = make_dashboard_handle().await;
+        let mut state = make_state().await;
+        state.dashboard_handle = Some(dh);
+        assert!(root_request_sees_extension(state, "example.com").await);
+    }
+
+    #[tokio::test]
+    async fn root_branch_no_injection_when_none() {
+        let state = make_state().await;
+        assert!(!root_request_sees_extension(state, "example.com").await);
+    }
+
+    // -- on_user_active wiring for MAU counting (eua.2) ------------------------
+
+    fn mau_test_builder_config(mau_sink: Option<Arc<crate::mau::MauSink>>) -> TenantBuilderConfig {
+        TenantBuilderConfig {
+            mfa_key: [1u8; 32],
+            signing_key: [2u8; 32],
+            csrf_key: [3u8; 32],
+            base_domain: "test.local".into(),
+            is_production: false,
+            email_sender: None,
+            event_sink: None,
+            event_sink_factory: None,
+            mau_sink,
+            email_sender_factory: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn build_handle_with_path_registers_mau_callback_when_sink_present() {
+        use allowthem_core::types::UserId;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = make_state().await;
+        let mau_sink = Arc::new(crate::mau::MauSink::new(state.control_db.clone()));
+
+        // Provision a tenant — creates the SQLite file `build_handle_with_path`
+        // will reopen below. The `mau_sink` on this provisioning config is
+        // ignored (provision_tenant builds its own handle inline); the sink
+        // wiring under test is the build_handle_with_path call afterwards.
+        let provision_config = mau_test_builder_config(None);
+        let provisioned = state
+            .control_db
+            .provision_tenant(
+                "Mau Co".into(),
+                "mauco".into(),
+                "owner@mauco.test".into(),
+                dir.path(),
+                &provision_config,
+            )
+            .await
+            .expect("provision_tenant");
+        let tenant_id = TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
+
+        // Build a fresh handle wired with the MAU sink.
+        let wired_config = mau_test_builder_config(Some(mau_sink.clone()));
+        let ath = build_handle_with_path(
+            &provisioned.tenant.db_path,
+            tenant_id,
+            dir.path(),
+            &wired_config,
+            "mauco",
+        )
+        .await
+        .expect("build_handle_with_path");
+
+        // Fire the callback synthetically. The closure spawns a task that
+        // writes to the control DB; poll until the row appears.
+        let cb = ath
+            .on_user_active()
+            .expect("on_user_active must be registered when mau_sink is set");
+        let user_id = UserId::new();
+        cb(user_id, chrono::Utc::now());
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1")
+                    .bind(tenant_id.as_bytes())
+                    .fetch_one(state.control_db.pool())
+                    .await
+                    .unwrap();
+            if count == 1 {
+                break;
+            }
+            if std::time::Instant::now() > deadline {
+                panic!("MAU row never appeared in tenant_active_users");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn build_handle_with_path_no_callback_when_sink_absent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = make_state().await;
+
+        let config = mau_test_builder_config(None);
+        let provisioned = state
+            .control_db
+            .provision_tenant(
+                "Plain Co".into(),
+                "plainco".into(),
+                "owner@plainco.test".into(),
+                dir.path(),
+                &config,
+            )
+            .await
+            .expect("provision_tenant");
+        let tenant_id = TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
+
+        let ath = build_handle_with_path(
+            &provisioned.tenant.db_path,
+            tenant_id,
+            dir.path(),
+            &config,
+            "plainco",
+        )
+        .await
+        .expect("build_handle_with_path");
+
+        assert!(
+            ath.on_user_active().is_none(),
+            "no callback should be registered when mau_sink is None"
+        );
+    }
+
+    // -- email_sender_factory wiring (c8m.3 Task 5) ----------------------------
+
+    /// Stub `EmailSenderFactory` that captures the `tenant_id` it was called
+    /// with. Used to verify `build_handle_with_path` routes through the
+    /// factory (and not the shared `email_sender` fallback) when both are
+    /// present.
+    struct StubEmailFactory {
+        captured: Arc<std::sync::Mutex<Option<TenantId>>>,
+    }
+
+    /// Sentinel sender — never sends; presence of this type is the
+    /// "factory path was chosen" signal in the wiring test.
+    struct SentinelEmailSender;
+
+    impl allowthem_core::EmailSender for SentinelEmailSender {
+        fn send<'a>(
+            &'a self,
+            _message: &'a allowthem_core::email::EmailMessage,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), allowthem_core::error::AuthError>>
+                    + Send
+                    + 'a>,
+        > {
+            Box::pin(std::future::ready(Ok(())))
+        }
+    }
+
+    impl crate::managed_email::EmailSenderFactory for StubEmailFactory {
+        fn for_tenant<'a>(
+            &'a self,
+            tenant_id: TenantId,
+            _tenant_pool: &'a sqlx::SqlitePool,
+        ) -> allowthem_core::auth_client::AuthFuture<'a, Arc<dyn allowthem_core::EmailSender>>
+        {
+            let captured = self.captured.clone();
+            Box::pin(async move {
+                *captured.lock().unwrap() = Some(tenant_id);
+                Ok(Arc::new(SentinelEmailSender) as Arc<dyn allowthem_core::EmailSender>)
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn build_handle_with_path_uses_email_sender_factory_when_set() {
+        // Plan c8m.3 §6 explicitly lists this as the integration test for
+        // Task 5. Asserts that when both `email_sender` and
+        // `email_sender_factory` are set, the factory wins — and that it
+        // is invoked with the supplied tenant_id (so per-tenant resolution
+        // actually receives the correct id).
+        use allowthem_core::email::{EmailMessage, EmailTemplate};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = make_state().await;
+        let captured: Arc<std::sync::Mutex<Option<TenantId>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let factory = Arc::new(StubEmailFactory {
+            captured: captured.clone(),
+        });
+
+        // Set both fields so the precedence assertion is meaningful: the
+        // shared sender is a real LogEmailSender; the factory yields a
+        // SentinelEmailSender. Either could win in principle; `Some(factory)
+        // wins` is the contract under test.
+        let provision_config = TenantBuilderConfig {
+            mfa_key: [1u8; 32],
+            signing_key: [2u8; 32],
+            csrf_key: [3u8; 32],
+            base_domain: "test.local".into(),
+            is_production: false,
+            email_sender: Some(Arc::new(allowthem_core::LogEmailSender)),
+            event_sink: None,
+            event_sink_factory: None,
+            mau_sink: None,
+            email_sender_factory: None,
+        };
+
+        let provisioned = state
+            .control_db
+            .provision_tenant(
+                "Email Co".into(),
+                "emailco".into(),
+                "owner@emailco.test".into(),
+                dir.path(),
+                &provision_config,
+            )
+            .await
+            .expect("provision_tenant");
+        let tenant_id = TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
+
+        let wired_config = TenantBuilderConfig {
+            email_sender_factory: Some(factory.clone()),
+            ..provision_config
+        };
+        let ath = build_handle_with_path(
+            &provisioned.tenant.db_path,
+            tenant_id,
+            dir.path(),
+            &wired_config,
+            "emailco",
+        )
+        .await
+        .expect("build_handle_with_path");
+
+        // The factory should have been invoked with our tenant_id at handle
+        // build time — not deferred to first send.
+        let observed = captured.lock().unwrap().clone();
+        assert_eq!(
+            observed,
+            Some(tenant_id),
+            "EmailSenderFactory::for_tenant must run with the supplied tenant_id"
+        );
+
+        // Sanity: send an email through the handle. Our SentinelEmailSender
+        // returns Ok immediately; LogEmailSender would also return Ok, so
+        // this isn't the discriminating signal — but it ensures the
+        // returned sender is actually wired through (not dropped silently).
+        ath.email_sender()
+            .send(&EmailMessage {
+                to: "user@example.com".into(),
+                subject: "x".into(),
+                template: EmailTemplate::PasswordReset {
+                    url: "https://x".into(),
+                    username: "user".into(),
+                },
+            })
+            .await
+            .expect("send via factory-resolved sender");
     }
 }

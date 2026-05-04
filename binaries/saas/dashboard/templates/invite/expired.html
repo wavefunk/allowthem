@@ -1,0 +1,15 @@
+{# invite/expired.html — shown when the invite token is not found or expired. #}
+{% extends "_partials/_auth_shell.html" %}
+
+{% block title %}Invite expired{% endblock %}
+
+{% block auth_main %}
+  <div class="wf-auth-wrap">
+    <h1 class="wf-auth-title">Invite not found</h1>
+    <p class="wf-auth-sub">
+      This invite link has expired or has already been used.
+      Ask the workspace owner to send a new one.
+    </p>
+    <p class="wf-auth-sub"><a href="/">Go home</a></p>
+  </div>
+{% endblock %}

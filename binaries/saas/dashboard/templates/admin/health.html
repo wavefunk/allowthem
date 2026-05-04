@@ -1,0 +1,61 @@
+{# admin/health.html — super-admin platform health page (Step 12 of 99c.6).
+
+   Expected context:
+   - nav_sections: Vec<NavSection>
+   - total_bytes: u64 — total size of tenant data dir
+   - top_files: Vec<(String, u64)> — top-10 largest files (stem, bytes)
+   - slug_cache_entries: u64 — slug cache entry count
+   - handle_cache_entries: u64 — handle cache entry count
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}Admin — Health{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">ADMIN · HEALTH</div>
+{% endblock %}
+
+{% block dashboard_content %}
+  {# ---- Cache stats ---- #}
+  <div style="display:flex; gap:16px; flex-wrap:wrap; margin:16px 24px 0;">
+    <div class="wf-panel" style="flex:1; min-width:160px; padding:16px;">
+      <div class="wf-caption">Slug cache entries</div>
+      <div style="font-size:1.8rem; font-weight:700;">{{ slug_cache_entries }}</div>
+    </div>
+    <div class="wf-panel" style="flex:1; min-width:160px; padding:16px;">
+      <div class="wf-caption">Handle cache entries</div>
+      <div style="font-size:1.8rem; font-weight:700;">{{ handle_cache_entries }}</div>
+    </div>
+    <div class="wf-panel" style="flex:1; min-width:160px; padding:16px;">
+      <div class="wf-caption">Tenant data dir (bytes)</div>
+      <div style="font-size:1.8rem; font-weight:700;">{{ total_bytes }}</div>
+    </div>
+  </div>
+
+  {# ---- Top files by size ---- #}
+  {% if top_files %}
+    <div class="wf-panel" style="margin:16px 24px 0;">
+      <div class="wf-panel-head"><div class="wf-panel-title">Largest tenant databases</div></div>
+      <div class="wf-tablewrap">
+        <div class="wf-tablescroll">
+          <table class="wf-table">
+            <thead>
+              <tr>
+                <th>Tenant (stem)</th>
+                <th>Size (bytes)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for file in top_files %}
+                <tr>
+                  <td>{{ file.0 }}</td>
+                  <td>{{ file.1 }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

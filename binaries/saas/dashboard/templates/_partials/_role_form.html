@@ -1,0 +1,27 @@
+{# _role_form.html — shared name + description fields for role create/edit.
+   Expected context:
+   - name: String        — pre-filled value
+   - description: String — pre-filled value
+   - error: String       — non-empty → show inline error
+#}
+{% if error %}
+  <div class="wf-alert err" style="margin-bottom:12px;">
+    <span class="wf-bar"></span>
+    <div>{{ error }}</div>
+    <span></span>
+  </div>
+{% endif %}
+<div class="wf-form-row">
+  <label>
+    Name
+    <input type="text" name="name" value="{{ name }}" maxlength="80"
+           placeholder="e.g. editor" required />
+  </label>
+</div>
+<div class="wf-form-row">
+  <label>
+    Description
+    <input type="text" name="description" value="{{ description }}"
+           placeholder="Optional description" />
+  </label>
+</div>

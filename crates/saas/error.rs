@@ -14,6 +14,26 @@ pub enum SaasError {
     SlugChangeAfterFirstLogin,
     #[error("provisioning failed: {0}")]
     ProvisionFailed(String),
+    #[error("invalid tenant role: {0}")]
+    InvalidRole(String),
+    #[error("member already exists for that email")]
+    MemberAlreadyExists,
+    #[error("invite token not found or expired")]
+    InviteNotFoundOrExpired,
+    #[error("member not found")]
+    MemberNotFound,
+    #[error("cannot demote the only remaining owner")]
+    CannotDemoteLastOwner,
+    #[error("cannot remove the only remaining owner")]
+    CannotRemoveLastOwner,
+    #[error("domain already exists")]
+    DomainAlreadyExists,
+    #[error("domain not found")]
+    DomainNotFound,
+    #[error("invalid domain: {0}")]
+    DomainInvalid(&'static str),
+    #[error("dns error: {0}")]
+    Dns(String),
     #[error(transparent)]
     Auth(#[from] AuthError),
     #[error(transparent)]

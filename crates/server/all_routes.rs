@@ -5,7 +5,7 @@ use std::sync::Arc;
 use axum::Router;
 use minijinja::Environment;
 
-use allowthem_core::{AllowThem, AuthEventSender, EmailSender, OAuthProvider};
+use allowthem_core::{AllowThem, LifecycleEventSender, OAuthProvider};
 
 use crate::browser_templates::build_default_browser_env;
 
@@ -52,12 +52,12 @@ pub struct AllRoutesBuilder {
     templates: Option<Arc<Environment<'static>>>,
     is_production: bool,
     base_url: Option<String>,
-    email_sender: Option<Arc<dyn EmailSender>>,
 
     // Login-specific
     max_login_attempts: u32,
     rate_limit_window_secs: u64,
     oauth_providers_list: Option<Vec<String>>,
+    login_overrides: Option<crate::login_routes::LoginOverrides>,
 
     // OAuth-specific
     oauth_provider_impls: Option<HashMap<String, Box<dyn OAuthProvider>>>,
@@ -69,7 +69,7 @@ pub struct AllRoutesBuilder {
     custom_fields_schema: Option<serde_json::Value>,
 
     // Event publishing (optional)
-    events_tx: Option<AuthEventSender>,
+    events_tx: Option<LifecycleEventSender>,
 
     // Route selection
     routes: HashSet<RouteGroup>,
@@ -94,10 +94,10 @@ impl AllRoutesBuilder {
             templates: None,
             is_production: false,
             base_url: None,
-            email_sender: None,
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             oauth_providers_list: None,
+            login_overrides: None,
             oauth_provider_impls: None,
             mfa_issuer: None,
             custom_fields_schema: None,
@@ -126,16 +126,11 @@ impl AllRoutesBuilder {
         self
     }
 
-    pub fn email_sender(mut self, sender: Arc<dyn EmailSender>) -> Self {
-        self.email_sender = Some(sender);
-        self
-    }
-
     /// Attach a channel sender that receives lifecycle events (register, etc.).
     ///
     /// See `docs/superpowers/specs/2026-04-20-lifecycle-events-design.md` for
     /// the delivery contract. Called at most once; subsequent calls overwrite.
-    pub fn events(mut self, tx: AuthEventSender) -> Self {
+    pub fn events(mut self, tx: LifecycleEventSender) -> Self {
         self.events_tx = Some(tx);
         self
     }
@@ -166,6 +161,11 @@ impl AllRoutesBuilder {
 
     pub fn oauth_providers_list(mut self, providers: Vec<String>) -> Self {
         self.oauth_providers_list = Some(providers);
+        self
+    }
+
+    pub fn login_overrides(mut self, overrides: crate::login_routes::LoginOverrides) -> Self {
+        self.login_overrides = Some(overrides);
         self
     }
 
@@ -295,12 +295,6 @@ impl AllRoutesBuilder {
             ));
         }
 
-        if self.selected(RouteGroup::PasswordReset) && self.email_sender.is_none() {
-            return Err(AllRoutesError::MissingConfig(
-                "email_sender required when password_reset routes are selected".into(),
-            ));
-        }
-
         if self.selected(RouteGroup::Mfa) && self.mfa_issuer.is_none() {
             return Err(AllRoutesError::MissingConfig(
                 "mfa_issuer required when mfa routes are selected".into(),
@@ -347,6 +341,7 @@ impl AllRoutesBuilder {
                 self.max_login_attempts,
                 self.rate_limit_window_secs,
                 oauth_providers_list.clone(),
+                self.login_overrides.take(),
             ));
         }
 
@@ -394,14 +389,10 @@ impl AllRoutesBuilder {
         }
 
         if self.selected(RouteGroup::PasswordReset) {
-            let email_sender = self.email_sender.clone().expect("validated above");
-            let base_url = self.base_url.clone().expect("validated above");
             csrf_protected = csrf_protected.merge(
                 crate::password_reset_page_routes::password_reset_page_routes(
                     templates.clone(),
                     is_production,
-                    email_sender,
-                    base_url,
                 ),
             );
         }
@@ -466,12 +457,7 @@ impl AllRoutesBuilder {
         non_csrf = non_csrf.merge(oidc_final);
 
         if self.selected(RouteGroup::PasswordReset) {
-            let email_sender = self.email_sender.take().expect("validated above");
-            let base_url = self.base_url.expect("validated above");
-            non_csrf = non_csrf.merge(crate::password_reset_routes::password_reset_routes(
-                email_sender,
-                base_url,
-            ));
+            non_csrf = non_csrf.merge(crate::password_reset_routes::password_reset_routes());
         }
 
         let default_branding = self.default_branding.take();
@@ -533,19 +519,6 @@ mod tests {
         let result = AllRoutesBuilder::new()
             .base_url("http://localhost")
             .oauth()
-            .build(&ath);
-        assert!(matches!(result, Err(AllRoutesError::MissingConfig(_))));
-    }
-
-    #[tokio::test]
-    async fn build_fails_password_reset_without_email_sender() {
-        let ath = AllowThemBuilder::new("sqlite::memory:")
-            .build()
-            .await
-            .unwrap();
-        let result = AllRoutesBuilder::new()
-            .base_url("http://localhost")
-            .password_reset()
             .build(&ath);
         assert!(matches!(result, Err(AllRoutesError::MissingConfig(_))));
     }

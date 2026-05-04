@@ -11,7 +11,7 @@ use crate::types::User;
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum AuthEvent {
+pub enum LifecycleEvent {
     Registered(RegisteredEvent),
 }
 
@@ -67,8 +67,8 @@ impl EventContext {
     }
 }
 
-pub type AuthEventSender = mpsc::UnboundedSender<AuthEvent>;
-pub type AuthEventReceiver = mpsc::UnboundedReceiver<AuthEvent>;
+pub type LifecycleEventSender = mpsc::UnboundedSender<LifecycleEvent>;
+pub type LifecycleEventReceiver = mpsc::UnboundedReceiver<LifecycleEvent>;
 
 #[cfg(test)]
 mod tests {
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn registered_event_constructs_and_clones() {
-        let event = AuthEvent::Registered(RegisteredEvent::new(
+        let event = LifecycleEvent::Registered(RegisteredEvent::new(
             sample_user(),
             RegistrationSource::Password,
             EventContext::new(

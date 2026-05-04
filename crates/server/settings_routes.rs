@@ -63,8 +63,7 @@ fn render_settings(
     csrf_token: &str,
     ctx: &SettingsContext,
 ) -> Result<Html<String>, BrowserError> {
-    let shell = ShellContext::new(ctx.is_admin, "/settings", "allowthem")
-        .with_session(&ctx.email);
+    let shell = ShellContext::new(ctx.is_admin, "/settings", "allowthem").with_session(&ctx.email);
     crate::browser_templates::render(
         &config.templates,
         "settings.html",
@@ -233,7 +232,7 @@ async fn post_settings(
 
     // 3. Update email if changed
     if email != user.email {
-        match ath.db().update_user_email(user.id, email).await {
+        match ath.update_user_email(user.id, email).await {
             Ok(()) => {}
             Err(AuthError::Conflict(ref msg)) if msg.contains("email") => {
                 let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
@@ -263,7 +262,7 @@ async fn post_settings(
     let current_username = user.username.as_ref().map(|u| u.as_str());
     let new_username = username.as_ref().map(|u| u.as_str());
     if current_username != new_username {
-        match ath.db().update_user_username(user.id, username).await {
+        match ath.update_user_username(user.id, username).await {
             Ok(()) => {}
             Err(AuthError::Conflict(ref msg)) if msg.contains("username") => {
                 let (oauth_accounts, mfa_enabled, mfa_recovery_remaining) =
@@ -414,12 +413,11 @@ async fn post_change_password(
     }
 
     // 4. Update password
-    ath.db()
-        .update_user_password(user.id, &form.new_password)
+    ath.update_user_password(user.id, &form.new_password)
         .await?;
 
     // 5. Invalidate all sessions + create fresh one
-    ath.db().delete_user_sessions(&user.id).await?;
+    ath.delete_user_sessions(&user.id).await?;
 
     let token = allowthem_core::generate_token();
     let token_hash = allowthem_core::hash_token(&token);

@@ -422,9 +422,7 @@ async fn post_regenerate_recovery_codes(
 
     let has_mfa = ath.db().has_mfa_enabled(user.id).await?;
     if !has_mfa {
-        return Ok(
-            (StatusCode::SEE_OTHER, [(LOCATION, "/settings".to_string())]).into_response(),
-        );
+        return Ok((StatusCode::SEE_OTHER, [(LOCATION, "/settings".to_string())]).into_response());
     }
 
     let recovery_codes = ath.regenerate_recovery_codes(user.id).await?;
@@ -643,6 +641,14 @@ async fn post_mfa_challenge(
     ath.db()
         .create_session(user_id, token_hash, ip.as_deref(), ua, expires_at)
         .await?;
+
+    ath.notify_user_active(user_id);
+    ath.emit_event(allowthem_core::AuthEvent::new(
+        "session.created",
+        Some(user_id),
+        serde_json::json!({ "user_id": user_id }),
+    ))
+    .await;
 
     let cookie = ath.session_cookie(&token);
 
@@ -1132,7 +1138,10 @@ mod tests {
         // Verify old codes are no longer valid
         for old_code in &old_codes {
             let valid = ath.verify_recovery_code(user_id, old_code).await.unwrap();
-            assert!(!valid, "old recovery code must be invalidated after regeneration");
+            assert!(
+                !valid,
+                "old recovery code must be invalidated after regeneration"
+            );
         }
     }
 
@@ -1257,7 +1266,8 @@ mod tests {
             is_production: false,
             base_url: "http://127.0.0.1:3100".into(),
         };
-        let totp = "otpauth://totp/allowthem:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=allowthem";
+        let totp =
+            "otpauth://totp/allowthem:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=allowthem";
         let html = render_mfa_setup_fragment(
             &config,
             "csrf-tok",

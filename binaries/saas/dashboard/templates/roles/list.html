@@ -1,0 +1,71 @@
+{# roles/list.html — tenant role directory.
+   Expected context:
+   - tenant.{name, slug}
+   - role: "owner" | "admin" | "viewer"
+   - nav_sections
+   - csrf_token: String
+   - roles: Vec<{id, name, description, permission_count}>
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}Roles — {{ tenant.name }}{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">{{ tenant.name }} · ROLES</div>
+{% endblock %}
+
+{% block dashboard_content %}
+  <div class="wf-panel" style="margin:16px 24px 0">
+    <div class="wf-panel-head">
+      <div class="wf-panel-title">Roles ({{ roles | length }})</div>
+      {% if role == "owner" or role == "admin" %}
+        <a class="wf-btn primary sm" href="/t/{{ tenant.slug }}/roles/new">+ New role</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if roles %}
+    <div class="wf-tablewrap">
+      <div class="wf-tablescroll">
+        <table class="wf-table sticky">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Description</th>
+              <th>Permissions</th>
+              {% if role == "owner" or role == "admin" %}
+                <th>Actions</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in roles %}
+              <tr>
+                <td>
+                  <a class="wf-link" href="/t/{{ tenant.slug }}/roles/{{ r.id }}">
+                    {{ r.name }}
+                  </a>
+                </td>
+                <td>{{ r.description or "—" }}</td>
+                <td>{{ r.permission_count }}</td>
+                {% if role == "owner" or role == "admin" %}
+                  <td>
+                    <form method="post"
+                          action="/t/{{ tenant.slug }}/roles/{{ r.id }}/delete"
+                          style="display:inline"
+                          onsubmit="return confirm('Delete role {{ r.name }}?')">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                      <button type="submit" class="wf-btn sm err">Delete</button>
+                    </form>
+                  </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <p class="wf-empty" style="margin:12px 24px;">No roles yet.</p>
+  {% endif %}
+{% endblock %}

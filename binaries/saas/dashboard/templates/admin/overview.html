@@ -1,0 +1,162 @@
+{# admin/overview.html — super-admin tenant overview (Step 7 of 99c.6).
+
+   Expected context:
+   - nav_sections: Vec<NavSection>
+   - tenants: Vec<TenantOverviewRow>
+   - total: u32
+   - page, total_pages: u32
+   - active_count, suspended_count, new_30d, dormant_count: i64
+   - by_plan: Vec<(String, i64)>
+   - plans: Vec<TenantPlan>
+   - q, status, plan, sort, dir: filter echo values
+   - has_filters: bool
+   - csrf_token: str
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}Admin — Tenants{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs">ADMIN · TENANTS</div>
+{% endblock %}
+
+{% block dashboard_content %}
+  {# ---- Stats cards ---- #}
+  <div style="display:flex; gap:16px; flex-wrap:wrap; margin:16px 24px 0;">
+    <div class="wf-panel" style="flex:1; min-width:140px; padding:16px;">
+      <div class="wf-caption">Active</div>
+      <div style="font-size:1.8rem; font-weight:700;">{{ active_count }}</div>
+    </div>
+    <div class="wf-panel" style="flex:1; min-width:140px; padding:16px;">
+      <div class="wf-caption">Suspended</div>
+      <div style="font-size:1.8rem; font-weight:700;">{{ suspended_count }}</div>
+    </div>
+    <div class="wf-panel" style="flex:1; min-width:140px; padding:16px;">
+      <div class="wf-caption">New (30d)</div>
+      <div style="font-size:1.8rem; font-weight:700;">{{ new_30d }}</div>
+    </div>
+    <div class="wf-panel" style="flex:1; min-width:140px; padding:16px;">
+      <div class="wf-caption">Dormant (90d)</div>
+      <div style="font-size:1.8rem; font-weight:700;">{{ dormant_count }}</div>
+    </div>
+  </div>
+
+  {# ---- Filter form ---- #}
+  <div class="wf-panel" style="margin:16px 24px 0;">
+    <form method="get" action="/admin"
+          style="display:flex; gap:12px; flex-wrap:wrap; padding:12px 16px;">
+      <label>
+        Search
+        <input type="text" name="q" value="{{ q }}" placeholder="name or slug" />
+      </label>
+      <label>
+        Status
+        <select name="status">
+          <option value="" {% if status == "" %}selected{% endif %}>Any</option>
+          <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+          <option value="suspended" {% if status == "suspended" %}selected{% endif %}>Suspended</option>
+          <option value="deleted" {% if status == "deleted" %}selected{% endif %}>Deleted</option>
+        </select>
+      </label>
+      <label>
+        Plan
+        <select name="plan">
+          <option value="" {% if plan == "" %}selected{% endif %}>Any</option>
+          {% for p in plans %}
+            <option value="{{ p.name }}" {% if plan == p.name %}selected{% endif %}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Sort
+        <select name="sort">
+          <option value="name" {% if sort == "name" %}selected{% endif %}>Name</option>
+          <option value="slug" {% if sort == "slug" %}selected{% endif %}>Slug</option>
+          <option value="status" {% if sort == "status" %}selected{% endif %}>Status</option>
+          <option value="plan" {% if sort == "plan" %}selected{% endif %}>Plan</option>
+          <option value="mau" {% if sort == "mau" %}selected{% endif %}>MAU</option>
+          <option value="created_at" {% if sort == "created_at" %}selected{% endif %}>Created</option>
+        </select>
+      </label>
+      <label>
+        Dir
+        <select name="dir">
+          <option value="asc" {% if dir == "asc" %}selected{% endif %}>↑ Asc</option>
+          <option value="desc" {% if dir == "desc" %}selected{% endif %}>↓ Desc</option>
+        </select>
+      </label>
+      <div style="display:flex; gap:8px; align-items:flex-end;">
+        <button type="submit" class="wf-btn primary sm">Filter</button>
+        {% if has_filters %}
+          <a class="wf-btn sm" href="/admin">Reset</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+
+  {# ---- Tenant table ---- #}
+  {% if tenants %}
+    <div class="wf-tablewrap">
+      <div class="wf-tablescroll">
+        <table class="wf-table sticky">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Slug</th>
+              <th>Owner</th>
+              <th>Status</th>
+              <th>Plan</th>
+              <th>MAU</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in tenants %}
+              <tr>
+                <td>
+                  <a class="wf-link" href="/admin/tenants/{{ t.id_str }}">{{ t.name }}</a>
+                </td>
+                <td>{{ t.slug }}</td>
+                <td>{{ t.owner_email }}</td>
+                <td>
+                  {% if t.status == "active" %}
+                    <span class="wf-tag ok">Active</span>
+                  {% elif t.status == "suspended" %}
+                    <span class="wf-tag warn">Suspended</span>
+                  {% else %}
+                    <span class="wf-tag bad">Deleted</span>
+                  {% endif %}
+                </td>
+                <td>{{ t.plan_name }}</td>
+                <td>{{ t.mau_count }}</td>
+                <td>{{ t.created_at }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="wf-pager" style="display:flex; justify-content:space-between; align-items:center; padding:12px 24px;">
+      <span>Page {{ page }} of {{ total_pages }} — {{ total }} tenants</span>
+      <span style="display:flex; gap:8px;">
+        {% if page > 1 %}
+          <a class="wf-btn sm"
+             href="/admin?q={{ q }}&status={{ status }}&plan={{ plan }}&sort={{ sort }}&dir={{ dir }}&page={{ page - 1 }}">
+            ← Previous
+          </a>
+        {% endif %}
+        {% if page < total_pages %}
+          <a class="wf-btn sm"
+             href="/admin?q={{ q }}&status={{ status }}&plan={{ plan }}&sort={{ sort }}&dir={{ dir }}&page={{ page + 1 }}">
+            Next →
+          </a>
+        {% endif %}
+      </span>
+    </div>
+  {% else %}
+    <p class="wf-empty" style="margin:12px 24px;">
+      {% if has_filters %}No tenants match these filters.{% else %}No tenants yet.{% endif %}
+    </p>
+  {% endif %}
+{% endblock %}

@@ -14,7 +14,7 @@ use serde_json::json;
 use allowthem_core::oauth::{generate_pkce_verifier, pkce_challenge};
 use allowthem_core::types::Email;
 use allowthem_core::{
-    AllowThem, AuthError, AuthEvent, AuthEventSender, EventContext, OAuthAccountInfo,
+    AllowThem, AuthError, EventContext, LifecycleEvent, LifecycleEventSender, OAuthAccountInfo,
     OAuthProvider, RegisteredEvent, RegistrationSource,
 };
 use allowthem_core::{generate_token, hash_token, parse_session_cookie};
@@ -25,7 +25,7 @@ use crate::events::{client_ip, publish};
 struct OAuthConfig {
     providers: Arc<HashMap<String, Box<dyn OAuthProvider>>>,
     base_url: String,
-    events_tx: Option<AuthEventSender>,
+    events_tx: Option<LifecycleEventSender>,
 }
 
 /// Validate a post-login redirect to prevent open redirects.
@@ -276,7 +276,7 @@ async fn callback(
                             }
                         };
                         publish(config.events_tx.as_ref(), || {
-                            AuthEvent::Registered(RegisteredEvent::new(
+                            LifecycleEvent::Registered(RegisteredEvent::new(
                                 new_user.clone(),
                                 RegistrationSource::OAuth {
                                     provider: provider_name.clone(),
@@ -292,6 +292,17 @@ async fn callback(
                                 ),
                             ))
                         });
+                        ath.emit_event(allowthem_core::AuthEvent::new(
+                            "user.created",
+                            Some(new_user.id),
+                            serde_json::json!({
+                                "user_id": new_user.id,
+                                "email": new_user.email,
+                                "source": "oauth",
+                                "provider": provider_name,
+                            }),
+                        ))
+                        .await;
                         new_user
                     }
                     Err(e) => {
@@ -337,7 +348,7 @@ async fn callback(
                     }
                 };
                 publish(config.events_tx.as_ref(), || {
-                    AuthEvent::Registered(RegisteredEvent::new(
+                    LifecycleEvent::Registered(RegisteredEvent::new(
                         new_user.clone(),
                         RegistrationSource::OAuth {
                             provider: provider_name.clone(),
@@ -353,6 +364,17 @@ async fn callback(
                         ),
                     ))
                 });
+                ath.emit_event(allowthem_core::AuthEvent::new(
+                    "user.created",
+                    Some(new_user.id),
+                    serde_json::json!({
+                        "user_id": new_user.id,
+                        "email": new_user.email,
+                        "source": "oauth",
+                        "provider": provider_name,
+                    }),
+                ))
+                .await;
                 new_user
             }
         }
@@ -381,6 +403,14 @@ async fn callback(
         )
             .into_response();
     }
+
+    ath.notify_user_active(user.id);
+    ath.emit_event(allowthem_core::AuthEvent::new(
+        "session.created",
+        Some(user.id),
+        serde_json::json!({ "user_id": user.id }),
+    ))
+    .await;
 
     let cookie = ath.session_cookie(&token);
     let redirect_to = state_info.post_login_redirect.as_deref().unwrap_or("/");
@@ -593,7 +623,7 @@ async fn list_linked_providers(
 pub fn oauth_routes(
     providers: HashMap<String, Box<dyn OAuthProvider>>,
     base_url: String,
-    events_tx: Option<AuthEventSender>,
+    events_tx: Option<LifecycleEventSender>,
 ) -> Router<()> {
     let config = OAuthConfig {
         providers: Arc::new(providers),
@@ -1147,7 +1177,7 @@ mod tests {
     // Lifecycle event tests
     // ---------------------------------------------------------------------------
 
-    async fn test_app_with_events() -> (AllowThem, Router, allowthem_core::AuthEventReceiver) {
+    async fn test_app_with_events() -> (AllowThem, Router, allowthem_core::LifecycleEventReceiver) {
         let ath = AllowThemBuilder::new("sqlite::memory:")
             .cookie_secure(false)
             .build()
@@ -1188,7 +1218,7 @@ mod tests {
             .expect("channel sender still alive");
 
         match event {
-            AuthEvent::Registered(e) => {
+            LifecycleEvent::Registered(e) => {
                 assert_eq!(e.user.email.as_str(), "oauth@example.com");
                 match e.source {
                     RegistrationSource::OAuth { provider } => assert_eq!(provider, "mock"),

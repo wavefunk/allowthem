@@ -26,7 +26,7 @@ async fn handler(Extension(ath): Extension<AllowThem>, headers: HeaderMap) -> Re
 
         match ath.db().lookup_session(token).await {
             Ok(Some(session)) => {
-                if let Err(e) = ath.db().delete_session(token).await {
+                if let Err(e) = ath.delete_session(token).await {
                     tracing::error!(error = %e, "failed to delete session on logout");
                 }
                 if let Err(e) = ath

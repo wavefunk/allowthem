@@ -55,8 +55,7 @@ mod tests {
 
     #[test]
     fn with_session_sets_status() {
-        let s = ShellContext::new(false, "/settings", "allowthem")
-            .with_session("user@example.com");
+        let s = ShellContext::new(false, "/settings", "allowthem").with_session("user@example.com");
         assert_eq!(s.status_session.as_deref(), Some("user@example.com"));
     }
 }

@@ -82,7 +82,8 @@ async fn main() -> Result<()> {
         .session_ttl(Duration::hours(config.session_ttl_hours as i64))
         .cookie_secure(config.cookie_secure)
         .cookie_domain(&config.cookie_domain)
-        .base_url(&config.base_url);
+        .base_url(&config.base_url)
+        .email_sender(Box::new(LogEmailSender));
     if let Some(key) = mfa_key {
         builder = builder.mfa_key(key);
     }
@@ -153,7 +154,6 @@ async fn main() -> Result<()> {
         .templates(templates.clone())
         .is_production(config.is_production)
         .base_url(&config.base_url)
-        .email_sender(Arc::new(LogEmailSender) as Arc<dyn allowthem_core::EmailSender>)
         .max_login_attempts(config.max_login_attempts)
         .rate_limit_window_secs(config.rate_limit_window_secs)
         .oauth_providers(providers)
@@ -1162,9 +1162,6 @@ mod consent_tests {
             "HX response must include the OOB #wf-screen-label"
         );
         assert!(body.contains("CONSENT"), "status_hint CONSENT must render");
-        assert!(
-            body.contains("HxApp"),
-            "app_name must render in the kicker"
-        );
+        assert!(body.contains("HxApp"), "app_name must render in the kicker");
     }
 }

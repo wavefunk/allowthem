@@ -66,7 +66,6 @@ pub(crate) async fn revoke(
 ) -> Result<StatusCode, ManageError> {
     let sid = parse_session_id(&session_id)?;
     let deleted = ath
-        .db()
         .delete_session_by_id(sid)
         .await
         .map_err(map_auth_error)?;
@@ -128,8 +127,15 @@ mod tests {
                 signing_key: [0u8; 32],
                 csrf_key: [0u8; 32],
                 base_domain: "test.example.com".into(),
+                is_production: false,
+                email_sender: None,
+                event_sink: None,
+                event_sink_factory: None,
+                mau_sink: None,
+                email_sender_factory: None,
             }),
             1000,
+            Arc::new(crate::dns::MockDnsResolver::new()),
         )
     }
 

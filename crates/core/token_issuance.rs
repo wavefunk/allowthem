@@ -12,6 +12,7 @@ use crate::applications::CreateApplicationParams;
 use crate::authorization::hash_authorization_code;
 use crate::db::Db;
 use crate::error::AuthError;
+use crate::handle::OnUserActive;
 use crate::signing_keys::SigningKey;
 #[cfg(test)]
 use crate::types::ClientType;
@@ -356,6 +357,7 @@ pub async fn exchange_authorization_code(
     issuer: &str,
     signing_key: &SigningKey,
     private_key_pem: &str,
+    on_user_active: Option<&OnUserActive>,
 ) -> Result<TokenResponse, TokenError> {
     // 1. Hash the presented code and look it up
     let code_hash = hash_authorization_code(code);
@@ -477,6 +479,18 @@ pub async fn exchange_authorization_code(
     )
     .await
     .map_err(|e| TokenError::ServerError(e.to_string()))?;
+
+    // 13. Fire active-user callback (MAU tracking). Errors/panics are swallowed.
+    if let Some(cb) = on_user_active {
+        let now = Utc::now();
+        let user_id = auth_code.user_id;
+        let cb = cb.clone();
+        if let Err(_payload) =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || cb(user_id, now)))
+        {
+            tracing::error!(user_id = %user_id, "on_user_active callback panicked");
+        }
+    }
 
     Ok(TokenResponse {
         access_token,
@@ -912,6 +926,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -945,6 +960,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -959,6 +975,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -979,6 +996,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -999,6 +1017,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -1019,6 +1038,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -1098,6 +1118,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -1146,6 +1167,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap_err();
@@ -1220,6 +1242,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1246,6 +1269,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1276,6 +1300,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1308,6 +1333,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1336,6 +1362,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1363,6 +1390,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1399,6 +1427,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1433,6 +1462,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1464,6 +1494,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1498,6 +1529,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1560,6 +1592,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1597,6 +1630,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1629,6 +1663,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1658,6 +1693,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1690,6 +1726,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1734,6 +1771,7 @@ mod tests {
             ISSUER,
             &key,
             &pem,
+            None,
         )
         .await
         .unwrap();
@@ -1770,6 +1808,126 @@ mod tests {
         assert!(
             second_stored.revoked_at.is_some(),
             "second token must be revoked"
+        );
+    }
+
+    // -- on_user_active callback tests ------------------------------------------
+
+    #[tokio::test]
+    async fn on_user_active_fires_on_exchange_authorization_code() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: crate::handle::OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        exchange_authorization_code(
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
+            Some(&cb),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            1,
+            "callback must fire exactly once after successful code exchange"
+        );
+    }
+
+    #[tokio::test]
+    async fn on_user_active_no_fire_on_exchange_authorization_code_failure() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: crate::handle::OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let db = test_db().await;
+        let (app, key, pem, _raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        // Use a completely invalid code — exchange must fail.
+        let result = exchange_authorization_code(
+            &db,
+            "invalid_code_xyz",
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
+            Some(&cb),
+        )
+        .await;
+
+        assert!(result.is_err(), "exchange with invalid code must fail");
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            0,
+            "callback must not fire when exchange fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn on_user_active_no_fire_on_exchange_refresh_token() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let cb: crate::handle::OnUserActive = Arc::new(move |_uid, _ts| {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let db = test_db().await;
+        let (app, key, pem, raw_code, verifier, redirect_uri) = setup_exchange(&db).await;
+
+        // First exchange to get a refresh token (callback wired — counter becomes 1).
+        let initial = exchange_authorization_code(
+            &db,
+            &raw_code,
+            &redirect_uri,
+            &verifier,
+            &app,
+            ISSUER,
+            &key,
+            &pem,
+            Some(&cb),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            1,
+            "sanity: auth code fires"
+        );
+
+        // Refresh is a passive event — counter must stay at 1.
+        exchange_refresh_token(&db, &initial.refresh_token, None, &app, ISSUER, &key, &pem)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            1,
+            "refresh_token grant must not fire callback"
         );
     }
 }

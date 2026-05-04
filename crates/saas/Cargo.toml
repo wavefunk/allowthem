@@ -30,7 +30,14 @@ sha2.workspace = true
 base64ct.workspace = true
 rand.workspace = true
 governor.workspace = true
+hickory-resolver.workspace = true
+reqwest.workspace = true
+hex.workspace = true
+
+[features]
+test-util = []
 
 [dev-dependencies]
 tokio.workspace = true
 tempfile = "3.8"
+wiremock = "0.6"

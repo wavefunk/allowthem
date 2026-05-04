@@ -1,6 +1,6 @@
 use axum::extract::{Path, Query, State};
-use axum::http::header::COOKIE;
 use axum::http::HeaderMap;
+use axum::http::header::COOKIE;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, Router};
@@ -83,8 +83,8 @@ pub async fn list(
         result.total.div_ceil(PAGE_SIZE)
     };
 
-    let shell = ShellContext::new(true, "/admin/sessions", "allowthem")
-        .with_session(user.email.as_str());
+    let shell =
+        ShellContext::new(true, "/admin/sessions", "allowthem").with_session(user.email.as_str());
     let html = crate::templates::render(
         &state.templates,
         "admin/sessions_list.html",
@@ -121,7 +121,7 @@ pub async fn revoke(
     _csrf: CsrfToken,
     Form(form): Form<RevokeForm>,
 ) -> Result<Response, AppError> {
-    let deleted = state.ath.db().delete_session_by_id(id).await?;
+    let deleted = state.ath.delete_session_by_id(id).await?;
     if !deleted {
         return Err(AppError::Auth(allowthem_core::AuthError::NotFound));
     }

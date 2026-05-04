@@ -721,6 +721,7 @@ async fn test_migrations_create_all_tables() {
             "allowthem_audit_log",
             "allowthem_authorization_codes",
             "allowthem_consents",
+            "allowthem_email_config",
             "allowthem_email_verification_tokens",
             "allowthem_invitations",
             "allowthem_mfa_challenges",
@@ -735,6 +736,7 @@ async fn test_migrations_create_all_tables() {
             "allowthem_roles",
             "allowthem_sessions",
             "allowthem_signing_keys",
+            "allowthem_social_providers",
             "allowthem_user_permissions",
             "allowthem_user_roles",
             "allowthem_users",
@@ -3332,4 +3334,97 @@ async fn get_user_includes_custom_data() {
         fetched.custom_data,
         Some(serde_json::json!({"org": "wavefunk"}))
     );
+}
+
+// ---------------------------------------------------------------------------
+// count_users_for_application
+// ---------------------------------------------------------------------------
+
+async fn seed_app(db: &Db, name: &str) -> Application {
+    let (app, _secret) = db
+        .create_application(CreateApplicationParams {
+            name: name.to_string(),
+            client_type: ClientType::Confidential,
+            redirect_uris: vec!["https://example.com/callback".to_string()],
+            is_trusted: false,
+            created_by: None,
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+        })
+        .await
+        .expect("seed_app");
+    app
+}
+
+async fn seed_user_for_consent(db: &Db, email_str: &str) -> UserId {
+    let email = Email::new_unchecked(email_str.to_string());
+    db.create_user(email, "password123", None, None)
+        .await
+        .expect("seed_user")
+        .id
+}
+
+async fn insert_consent(db: &Db, user_id: UserId, application_id: ApplicationId) {
+    let id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT OR IGNORE INTO allowthem_consents (id, user_id, application_id) \
+         VALUES (?, ?, ?)",
+    )
+    .bind(id.to_string())
+    .bind(user_id)
+    .bind(application_id)
+    .execute(db.pool())
+    .await
+    .expect("insert_consent");
+}
+
+#[tokio::test]
+async fn count_users_for_application_zero_when_no_consents() {
+    let db = test_db().await;
+    let app = seed_app(&db, "Acme").await;
+    let n = db
+        .count_users_for_application(app.id)
+        .await
+        .expect("count_users_for_application");
+    assert_eq!(n, 0);
+}
+
+#[tokio::test]
+async fn count_users_for_application_counts_distinct_consents() {
+    let db = test_db().await;
+    let app = seed_app(&db, "Acme").await;
+    let u1 = seed_user_for_consent(&db, "a@example.com").await;
+    let u2 = seed_user_for_consent(&db, "b@example.com").await;
+    insert_consent(&db, u1, app.id).await;
+    insert_consent(&db, u2, app.id).await;
+    // Re-insert u1 — UNIQUE(user_id, application_id) dedupes; count stays 2.
+    insert_consent(&db, u1, app.id).await;
+
+    let n = db
+        .count_users_for_application(app.id)
+        .await
+        .expect("count_users_for_application");
+    assert_eq!(n, 2);
+}
+
+#[tokio::test]
+async fn count_users_for_application_isolates_per_app() {
+    let db = test_db().await;
+    let a = seed_app(&db, "A").await;
+    let b = seed_app(&db, "B").await;
+    let user = seed_user_for_consent(&db, "u@example.com").await;
+    insert_consent(&db, user, a.id).await;
+
+    assert_eq!(db.count_users_for_application(a.id).await.unwrap(), 1);
+    assert_eq!(db.count_users_for_application(b.id).await.unwrap(), 0);
 }

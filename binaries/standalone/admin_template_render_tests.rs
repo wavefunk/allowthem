@@ -436,14 +436,8 @@ fn welcome_template_renders() {
         .unwrap()
         .render(context! { is_production => false })
         .unwrap();
-    assert!(
-        body.contains("allowthem"),
-        "welcome: missing app name"
-    );
-    assert!(
-        body.contains("Log in"),
-        "welcome: missing login link"
-    );
+    assert!(body.contains("allowthem"), "welcome: missing app name");
+    assert!(body.contains("Log in"), "welcome: missing login link");
     assert!(
         body.contains("Create account"),
         "welcome: missing register link"
@@ -458,10 +452,7 @@ fn terms_template_renders() {
         .unwrap()
         .render(context! { is_production => false })
         .unwrap();
-    assert!(
-        body.contains("Terms of Service"),
-        "terms: missing heading"
-    );
+    assert!(body.contains("Terms of Service"), "terms: missing heading");
 }
 
 #[test]
@@ -472,8 +463,5 @@ fn privacy_template_renders() {
         .unwrap()
         .render(context! { is_production => false })
         .unwrap();
-    assert!(
-        body.contains("Privacy Policy"),
-        "privacy: missing heading"
-    );
+    assert!(body.contains("Privacy Policy"), "privacy: missing heading");
 }

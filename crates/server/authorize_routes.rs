@@ -1,8 +1,8 @@
+use axum::Form;
 use axum::extract::Extension;
 use axum::http::header::COOKIE;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Form;
 use serde::Deserialize;
 use url::Url;
 
@@ -663,7 +663,10 @@ mod tests {
         let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let body = read_body_html(resp).await;
-        assert!(body.contains("missing client_id"), "expected error message in HTML body");
+        assert!(
+            body.contains("missing client_id"),
+            "expected error message in HTML body"
+        );
     }
 
     #[tokio::test]
@@ -682,7 +685,10 @@ mod tests {
         let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let body = read_body_html(resp).await;
-        assert!(body.contains("unknown client_id"), "expected error message in HTML body");
+        assert!(
+            body.contains("unknown client_id"),
+            "expected error message in HTML body"
+        );
     }
 
     #[tokio::test]
@@ -702,7 +708,10 @@ mod tests {
         let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let body = read_body_html(resp).await;
-        assert!(body.contains("redirect_uri not registered"), "expected error message in HTML body");
+        assert!(
+            body.contains("redirect_uri not registered"),
+            "expected error message in HTML body"
+        );
     }
 
     // Redirect error tests (steps 4-7)
@@ -900,7 +909,10 @@ mod tests {
         let resp = expect_redirect(check_authorization(&ath, &HeaderMap::new(), &params).await);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let body = read_body_html(resp).await;
-        assert!(body.contains("application is inactive"), "expected error message in HTML body");
+        assert!(
+            body.contains("application is inactive"),
+            "expected error message in HTML body"
+        );
     }
 
     // Wrong code_challenge_method redirects with error
@@ -1084,6 +1096,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let body = read_body_html(resp).await;
-        assert!(body.contains("unknown client_id"), "expected error message in HTML body");
+        assert!(
+            body.contains("unknown client_id"),
+            "expected error message in HTML body"
+        );
     }
 }

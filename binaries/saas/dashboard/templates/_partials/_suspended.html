@@ -1,0 +1,22 @@
+{# _suspended.html — rendered when a tenant's status is 'suspended'.
+   Expected context:
+   - tenant.{name, slug}    — the suspended workspace (optional).
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block dashboard_content %}
+  <div class="wf-panel wf-pad-5" style="text-align:center; max-width:48rem; margin:4rem auto;">
+    <h1>Workspace suspended</h1>
+    <p class="wf-mt-3">
+      {% if tenant and tenant.name %}
+        The workspace <strong>{{ tenant.name }}</strong> can't be managed right now.
+      {% else %}
+        This workspace can't be managed right now.
+      {% endif %}
+    </p>
+    <p class="wf-mt-3">
+      Contact <a class="wf-link" href="mailto:support@allowthem.io">support@allowthem.io</a>
+      for help.
+    </p>
+  </div>
+{% endblock %}

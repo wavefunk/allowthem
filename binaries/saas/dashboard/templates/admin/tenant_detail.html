@@ -1,0 +1,103 @@
+{# admin/tenant_detail.html — super-admin tenant detail page (Step 8 of 99c.6).
+
+   Expected context:
+   - nav_sections: Vec<NavSection>
+   - tenant: Tenant (id, name, slug, owner_email, status, db_path, created_at, updated_at)
+   - tenant_uuid: String (hyphenated UUID for links/forms)
+   - plan: Option<TenantPlan>
+   - current_plan_id_hex: String
+   - all_plans: Vec<PlanView> (id_hex, name, price_cents, mau_limit)
+   - usage: PeriodAggregate
+   - info, error: flash message strings
+   - csrf_token: str
+#}
+{% extends "_partials/_dashboard_shell.html" %}
+
+{% block title %}Admin — {{ tenant.name }}{% endblock %}
+
+{% block dashboard_breadcrumbs %}
+  <div class="wf-crumbs"><a href="/admin">Tenants</a> · {{ tenant.name }}</div>
+{% endblock %}
+
+{% block dashboard_content %}
+  {% if info %}
+    <div class="wf-alert ok" style="margin:16px 24px 0;">{{ info }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="wf-alert bad" style="margin:16px 24px 0;">{{ error }}</div>
+  {% endif %}
+
+  {# ---- Tenant info card ---- #}
+  <div class="wf-panel" style="margin:16px 24px 0; padding:16px;">
+    <div class="wf-panel-head">
+      <div class="wf-panel-title">{{ tenant.name }}</div>
+      <div>
+        {% if tenant.status == "active" %}
+          <span class="wf-tag ok">Active</span>
+        {% elif tenant.status == "suspended" %}
+          <span class="wf-tag warn">Suspended</span>
+        {% else %}
+          <span class="wf-tag bad">Deleted</span>
+        {% endif %}
+      </div>
+    </div>
+    <dl style="display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; margin-top:12px;">
+      <div><dt class="wf-caption">Slug</dt><dd>{{ tenant.slug }}</dd></div>
+      <div><dt class="wf-caption">Owner</dt><dd>{{ tenant.owner_email }}</dd></div>
+      <div><dt class="wf-caption">Plan</dt><dd>{{ plan.name if plan else "—" }}</dd></div>
+      <div><dt class="wf-caption">Current MAU</dt><dd>{{ usage.total_mau }}</dd></div>
+      <div><dt class="wf-caption">Created</dt><dd>{{ tenant.created_at }}</dd></div>
+      <div><dt class="wf-caption">Last seen</dt><dd>{{ tenant.last_seen_at or "—" }}</dd></div>
+    </dl>
+  </div>
+
+  {# ---- Actions ---- #}
+  <div class="wf-panel" style="margin:16px 24px 0; padding:16px;">
+    <div class="wf-panel-head"><div class="wf-panel-title">Actions</div></div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+
+      {% if tenant.status == "active" %}
+        <form method="post" action="/admin/tenants/{{ tenant_uuid }}/suspend">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="wf-btn warn sm" type="submit">Suspend</button>
+        </form>
+      {% elif tenant.status == "suspended" %}
+        <form method="post" action="/admin/tenants/{{ tenant_uuid }}/unsuspend">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="wf-btn ok sm" type="submit">Reactivate</button>
+        </form>
+      {% endif %}
+
+      {% if tenant.status != "deleted" %}
+        <form method="post" action="/admin/tenants/{{ tenant_uuid }}/delete"
+              onsubmit="return confirm('Permanently delete this tenant?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="wf-btn bad sm" type="submit">Delete</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---- Change plan ---- #}
+  {% if all_plans %}
+    <div class="wf-panel" style="margin:16px 24px 0; padding:16px;">
+      <div class="wf-panel-head"><div class="wf-panel-title">Change Plan</div></div>
+      <form method="post" action="/admin/tenants/{{ tenant_uuid }}/change-plan"
+            style="display:flex; gap:12px; align-items:flex-end; margin-top:12px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <label>
+          Plan
+          <select name="plan_id">
+            {% for p in all_plans %}
+              <option value="{{ p.id_hex }}"
+                {% if current_plan_id_hex == p.id_hex %}selected{% endif %}>
+                {{ p.name }} (${{ p.price_cents // 100 }}/mo)
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="wf-btn primary sm" type="submit">Update Plan</button>
+      </form>
+    </div>
+  {% endif %}
+{% endblock %}

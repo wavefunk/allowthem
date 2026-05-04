@@ -1,0 +1,14 @@
+{# _quickstart_snippet_curl.html — works today; no SDK required. #}
+<p class="wf-snippet-banner">
+  Works today against any allowthem tenant.
+</p>
+<pre class="wf-code"><code># Discover the OIDC config
+curl {{ issuer }}/.well-known/openid-configuration
+
+# Exchange an authorization code for tokens (after running the user
+# through /authorize and capturing the code on your callback)
+curl -X POST {{ issuer }}/oauth/token \
+  -u '{{ client_id }}:{{ client_secret }}' \
+  -d 'grant_type=authorization_code' \
+  -d 'code=&lt;CODE_FROM_REDIRECT&gt;' \
+  -d 'redirect_uri={{ redirect_uri }}'  # TODO: replace with your real redirect URI</code></pre>

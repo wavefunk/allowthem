@@ -6,7 +6,9 @@
      oauth_providers, is_production
 #}
 {% import "_partials/_auth_macros.html" as auth %}
-{%- if client_id -%}
+{%- if signup_url -%}
+  {%- set register_href = signup_url -%}
+{%- elif client_id -%}
   {%- set register_href = "/register?client_id=" ~ client_id -%}
 {%- else -%}
   {%- set register_href = "/register" -%}
@@ -24,7 +26,7 @@
     <p class="wf-auth-sub">Welcome back.</p>
 
     <div class="wf-mt-5">
-      {{ auth.tabs(active="signin") }}
+      {{ auth.tabs(active="signin", signup_href=register_href) }}
     </div>
 
     {% if error %}
@@ -62,6 +64,6 @@
 
     {{ auth.oauth_grid(oauth_providers, next=next) }}
 
-    {{ auth.terms_footer() }}
+    {{ auth.terms_footer(terms_url=terms_url, privacy_url=privacy_url) }}
   </div>
 </main>

@@ -5,9 +5,8 @@ use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 use crate::db::Db;
-use crate::email::{EmailMessage, EmailSender};
 use crate::error::AuthError;
-use crate::types::{Email, UserId, VerificationTokenId};
+use crate::types::{UserId, VerificationTokenId};
 
 const VERIFICATION_TTL_HOURS: i64 = 24;
 
@@ -87,45 +86,13 @@ impl Db {
 
         Ok(true)
     }
-
-    pub async fn send_verification_email(
-        &self,
-        user_id: UserId,
-        email: &Email,
-        base_url: &str,
-        sender: &dyn EmailSender,
-    ) -> Result<(), AuthError> {
-        let raw_token = self.create_email_verification(user_id).await?;
-
-        let verify_url = format!("{}/auth/verify-email?token={}", base_url, raw_token);
-        let body = format!(
-            "Please verify your email address by clicking the link below:\n\n{}\n\nThis link expires in {} hours.",
-            verify_url, VERIFICATION_TTL_HOURS,
-        );
-        let html = format!(
-            "<p>Please verify your email address. <a href=\"{}\">Click here to verify</a>.</p>\
-             <p>This link expires in {} hours.</p>",
-            verify_url, VERIFICATION_TTL_HOURS,
-        );
-
-        let message = EmailMessage {
-            to: email.as_str(),
-            subject: "Verify your email address",
-            body: &body,
-            html: Some(&html),
-        };
-
-        sender
-            .send(message)
-            .await
-            .map_err(|e| AuthError::Email(e.to_string()))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::db::Db;
     use crate::email::LogEmailSender;
+    use crate::handle::AllowThemBuilder;
     use crate::types::Email;
 
     async fn test_db() -> Db {
@@ -207,12 +174,20 @@ mod tests {
 
     #[tokio::test]
     async fn send_verification_email_succeeds() {
-        let db = test_db().await;
-        let (user_id, email) = make_user(&db).await;
-        let sender = LogEmailSender;
-        let result = db
-            .send_verification_email(user_id, &email, "https://example.com", &sender)
-            .await;
-        assert!(result.is_ok());
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .base_url("https://example.com")
+            .email_sender(Box::new(LogEmailSender))
+            .build()
+            .await
+            .expect("build AllowThem");
+        let email = Email::new("verify@example.com".to_string()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email.clone(), "test-password", None, None)
+            .await
+            .expect("create user");
+        let result = ath.send_verification_email(user.id, &email).await;
+        assert!(result.is_ok(), "send_verification_email must succeed");
     }
 }

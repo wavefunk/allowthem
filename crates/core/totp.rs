@@ -441,6 +441,7 @@ impl Db {
     }
 }
 
+use crate::event_sink::AuthEvent;
 use crate::handle::AllowThem;
 
 impl AllowThem {
@@ -458,7 +459,14 @@ impl AllowThem {
     }
 
     pub async fn enable_mfa(&self, user_id: UserId, code: &str) -> Result<Vec<String>, AuthError> {
-        self.db().enable_mfa(user_id, code, self.mfa_key()?).await
+        let codes = self.db().enable_mfa(user_id, code, self.mfa_key()?).await?;
+        self.emit_event(AuthEvent::new(
+            "mfa.enrolled",
+            Some(user_id),
+            serde_json::json!({ "user_id": user_id }),
+        ))
+        .await;
+        Ok(codes)
     }
 
     pub async fn verify_totp(&self, user_id: UserId, code: &str) -> Result<bool, AuthError> {
@@ -470,7 +478,14 @@ impl AllowThem {
     }
 
     pub async fn disable_mfa(&self, user_id: UserId) -> Result<(), AuthError> {
-        self.db().disable_mfa(user_id).await
+        self.db().disable_mfa(user_id).await?;
+        self.emit_event(AuthEvent::new(
+            "mfa.removed",
+            Some(user_id),
+            serde_json::json!({ "user_id": user_id }),
+        ))
+        .await;
+        Ok(())
     }
 
     pub async fn verify_recovery_code(

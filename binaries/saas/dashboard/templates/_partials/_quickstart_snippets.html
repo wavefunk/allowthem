@@ -1,0 +1,37 @@
+{# _quickstart_snippets.html — tabbed integration snippets.
+   Tabs use radio-input progressive enhancement (no JS). #}
+<section class="wf-card wf-pad-5 wf-mt-6">
+  <h2>Integrate</h2>
+  <p class="wf-auth-sub">
+    The <code>curl</code> flow works against any allowthem tenant today. The
+    SDK snippets are the shape of the API; <code>@allowthem/js</code> and
+    the standalone <code>allowthem-client</code> crate ship with Epic h6d.
+  </p>
+
+  <div class="wf-tabs wf-mt-5">
+    <input type="radio" name="qs-tab" id="qs-tab-curl" checked>
+    <label for="qs-tab-curl">curl</label>
+
+    <input type="radio" name="qs-tab" id="qs-tab-browser">
+    <label for="qs-tab-browser">Browser (JS/TS)</label>
+
+    <input type="radio" name="qs-tab" id="qs-tab-server">
+    <label for="qs-tab-server">Server (JS/TS)</label>
+
+    <input type="radio" name="qs-tab" id="qs-tab-rust">
+    <label for="qs-tab-rust">Rust</label>
+
+    <div class="wf-tab-panel" data-tab="curl">
+      {% include "_partials/_quickstart_snippet_curl.html" %}
+    </div>
+    <div class="wf-tab-panel" data-tab="browser">
+      {% include "_partials/_quickstart_snippet_browser.html" %}
+    </div>
+    <div class="wf-tab-panel" data-tab="server">
+      {% include "_partials/_quickstart_snippet_server.html" %}
+    </div>
+    <div class="wf-tab-panel" data-tab="rust">
+      {% include "_partials/_quickstart_snippet_rust.html" %}
+    </div>
+  </div>
+</section>

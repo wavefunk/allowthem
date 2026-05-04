@@ -43,6 +43,9 @@ struct LoginConfig {
     max_login_attempts: u32,
     rate_limit_window_secs: u64,
     oauth_providers: Vec<String>,
+    signup_url: Option<String>,
+    terms_url: Option<String>,
+    privacy_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -100,6 +103,9 @@ fn render_login_form(
             client_id => client_id.map(|c| c.as_str()),
             oauth_providers => &config.oauth_providers,
             is_production => config.is_production,
+            signup_url => &config.signup_url,
+            terms_url => &config.terms_url,
+            privacy_url => &config.privacy_url,
             ..branding_context(branding),
         },
     )
@@ -124,6 +130,9 @@ fn render_login_fragment(
         client_id => client_id.map(|c| c.as_str()),
         oauth_providers => &config.oauth_providers,
         is_production => config.is_production,
+        signup_url => &config.signup_url,
+        terms_url => &config.terms_url,
+        privacy_url => &config.privacy_url,
         page_title => "Log in — allowthem",
         status_hint => "SIGN IN",
         ..branding_context(branding),
@@ -312,6 +321,8 @@ async fn post_login(
                     )
                     .await;
 
+                ath.notify_user_active(user.id);
+
                 let dest = form.next.as_deref().map(validate_next).unwrap_or("/");
                 Ok((
                     StatusCode::SEE_OTHER,
@@ -380,13 +391,25 @@ async fn post_login(
     }
 }
 
+pub struct LoginOverrides {
+    pub signup_url: Option<String>,
+    pub terms_url: Option<String>,
+    pub privacy_url: Option<String>,
+}
+
 pub fn login_routes(
     templates: Arc<Environment<'static>>,
     is_production: bool,
     max_login_attempts: u32,
     rate_limit_window_secs: u64,
     oauth_providers: Vec<String>,
+    overrides: Option<LoginOverrides>,
 ) -> Router<()> {
+    let ov = overrides.unwrap_or(LoginOverrides {
+        signup_url: None,
+        terms_url: None,
+        privacy_url: None,
+    });
     let cfg = LoginConfig {
         templates,
         is_production,
@@ -394,6 +417,9 @@ pub fn login_routes(
         max_login_attempts,
         rate_limit_window_secs,
         oauth_providers,
+        signup_url: ov.signup_url,
+        terms_url: ov.terms_url,
+        privacy_url: ov.privacy_url,
     };
     Router::new()
         .route("/login", get(get_login).post(post_login))
@@ -429,6 +455,9 @@ mod tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             oauth_providers: Vec::new(),
+            signup_url: None,
+            terms_url: None,
+            privacy_url: None,
         };
         (ath, config)
     }
@@ -440,6 +469,7 @@ mod tests {
             config.max_login_attempts,
             config.rate_limit_window_secs,
             config.oauth_providers.clone(),
+            None,
         )
         .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))))
@@ -1050,6 +1080,9 @@ mod tests {
             max_login_attempts: 10,
             rate_limit_window_secs: 900,
             oauth_providers: Vec::new(),
+            signup_url: None,
+            terms_url: None,
+            privacy_url: None,
         };
 
         // Create user and enable MFA

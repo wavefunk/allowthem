@@ -18,6 +18,19 @@ pub struct SaasConfig {
     pub mfa_key_hex: String,
     pub signing_key_hex: String,
     pub csrf_key_hex: String,
+    /// Months of `tenant_active_users` history to retain. Older rows are
+    /// pruned daily. `tenant_usage` (the billing source of truth) is never
+    /// pruned. Default: 3.
+    pub mau_retention_months: u32,
+    /// Optional Postmark "Server" token. When set, the SaaS binary installs
+    /// a `ManagedEmailSenderFactory` so each tenant handle dispatches its
+    /// email path per-tenant (managed / SMTP / webhook). When unset, the
+    /// binary keeps the existing `LogEmailSender` shared sender (dev path).
+    pub postmark_server_token: Option<String>,
+    /// Local part of the default managed-sender From-address. Combined
+    /// with `base_domain` to form `<local>@mail.<base_domain>`. Default
+    /// `"noreply"`.
+    pub email_default_from_local_part: String,
 }
 
 impl Default for SaasConfig {
@@ -33,6 +46,9 @@ impl Default for SaasConfig {
             mfa_key_hex: String::new(),
             signing_key_hex: String::new(),
             csrf_key_hex: String::new(),
+            mau_retention_months: 3,
+            postmark_server_token: None,
+            email_default_from_local_part: "noreply".to_owned(),
         }
     }
 }
@@ -58,6 +74,9 @@ mod tests {
         assert!(!cfg.is_production);
         assert!(cfg.control_plane_db.is_empty());
         assert!(cfg.mfa_key_hex.is_empty());
+        assert_eq!(cfg.mau_retention_months, 3);
+        assert!(cfg.postmark_server_token.is_none());
+        assert_eq!(cfg.email_default_from_local_part, "noreply");
     }
 
     #[test]

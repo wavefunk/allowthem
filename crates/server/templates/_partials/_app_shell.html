@@ -51,6 +51,7 @@
         "mb    mb";
       height: 100vh;
     }
+    .wf-app > .wf-shell      { grid-column: 1 / -1; grid-row: 1 / 3; }
     .wf-app > .wf-sidebar    { grid-area: side; }
     .wf-app > .wf-main       { grid-area: main; overflow: auto; }
     .wf-app > .wf-modeline   { grid-area: ml; }
@@ -67,7 +68,7 @@
   <div class="wf-shell">
     <aside class="wf-sidebar" aria-label="primary navigation">
       <div class="wf-brand">
-        <a href="/" class="wf-brand-name" style="text-decoration:none;color:inherit">{{ (shell.application_name if shell is defined else app_name) or application_name or "allowthem" }}</a>
+        <a href="{% if tenant and tenant.slug %}/t/{{ tenant.slug }}/applications{% else %}/{% endif %}" class="wf-brand-name" style="text-decoration:none;color:inherit">{{ (shell.application_name if shell is defined else app_name) or application_name or "allowthem" }}</a>
       </div>
       <nav class="wf-nav-list">
         {% block sidebar_nav %}{% include "_partials/_sidebar_nav.html" %}{% endblock %}

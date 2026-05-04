@@ -5,7 +5,6 @@ use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 use crate::db::Db;
-use crate::email::{EmailMessage, EmailSender};
 use crate::error::AuthError;
 use crate::password::hash_password;
 use crate::types::{Email, ResetTokenId, UserId};
@@ -152,44 +151,32 @@ impl Db {
 
         Ok(true)
     }
+}
 
-    /// Send a password reset email for the given address.
+use crate::event_sink::AuthEvent;
+use crate::handle::AllowThem;
+
+impl AllowThem {
+    /// Validate and consume a password-reset token, setting a new password.
     ///
-    /// Calls `create_password_reset` to generate a token. If the email exists,
-    /// constructs a reset URL using `base_url` and delivers it via `sender`.
-    /// If the email does not exist, returns `Ok(())` silently (no enumeration).
-    pub async fn send_password_reset(
+    /// Emits `password.reset` on success. Returns `Ok(true)` if the token was
+    /// valid and the password was updated, `Ok(false)` if the token was
+    /// invalid or already used.
+    pub async fn consume_password_reset(
         &self,
-        email: &Email,
-        base_url: &str,
-        sender: &dyn EmailSender,
-    ) -> Result<(), AuthError> {
-        let raw_token = match self.create_password_reset(email).await? {
-            None => return Ok(()),
-            Some(t) => t,
-        };
-
-        let reset_url = format!("{}/auth/reset-password?token={}", base_url, raw_token);
-        let body = format!(
-            "You requested a password reset. Click the link below to set a new password:\n\n{}\n\nThis link expires in {} minutes.",
-            reset_url, RESET_TTL_MINUTES,
-        );
-        let html = format!(
-            "<p>You requested a password reset. <a href=\"{}\">Click here to set a new password</a>.</p><p>This link expires in {} minutes.</p>",
-            reset_url, RESET_TTL_MINUTES,
-        );
-
-        let message = EmailMessage {
-            to: email.as_str(),
-            subject: "Reset your password",
-            body: &body,
-            html: Some(&html),
-        };
-
-        sender
-            .send(message)
-            .await
-            .map_err(|e| AuthError::Email(e.to_string()))
+        raw_token: &str,
+        new_password: &str,
+    ) -> Result<bool, AuthError> {
+        let ok = self.db().execute_reset(raw_token, new_password).await?;
+        if ok {
+            self.emit_event(AuthEvent::new(
+                "password.reset",
+                None,
+                serde_json::json!({}),
+            ))
+            .await;
+        }
+        Ok(ok)
     }
 }
 
@@ -205,6 +192,7 @@ pub fn reset_expires_at(from: DateTime<Utc>) -> DateTime<Utc> {
 mod tests {
     use crate::db::Db;
     use crate::email::LogEmailSender;
+    use crate::handle::AllowThemBuilder;
     use crate::types::Email;
 
     async fn test_db() -> Db {
@@ -304,30 +292,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_password_reset_succeeds_for_known_email() {
-        let db = test_db().await;
-        let email = make_user(&db).await;
-        let sender = LogEmailSender;
-        let result = db
-            .send_password_reset(&email, "https://example.com", &sender)
-            .await;
+    async fn send_password_reset_email_succeeds_for_known_email() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .base_url("https://example.com")
+            .email_sender(Box::new(LogEmailSender))
+            .build()
+            .await
+            .expect("build AllowThem");
+        let email = Email::new("reset@example.com".to_string()).unwrap();
+        ath.db()
+            .create_user(email.clone(), "initial-password", None, None)
+            .await
+            .expect("create user");
+        let result = ath.send_password_reset_email(&email).await;
         assert!(
             result.is_ok(),
-            "send_password_reset must succeed for known email"
+            "send_password_reset_email must succeed for known email"
         );
     }
 
     #[tokio::test]
-    async fn send_password_reset_is_silent_for_unknown_email() {
-        let db = test_db().await;
+    async fn send_password_reset_email_is_silent_for_unknown_email() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .base_url("https://example.com")
+            .email_sender(Box::new(LogEmailSender))
+            .build()
+            .await
+            .expect("build AllowThem");
         let email = Email::new("ghost@example.com".to_string()).unwrap();
-        let sender = LogEmailSender;
-        let result = db
-            .send_password_reset(&email, "https://example.com", &sender)
-            .await;
+        let result = ath.send_password_reset_email(&email).await;
         assert!(
             result.is_ok(),
-            "send_password_reset must not error for unknown email"
+            "send_password_reset_email must not error for unknown email"
         );
     }
 }

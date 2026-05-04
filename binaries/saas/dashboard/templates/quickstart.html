@@ -1,0 +1,21 @@
+{# quickstart.html — once-only secret display + integration snippets.
+   Until 99c.3 ships `_dashboard_shell.html`, extend the bare app shell. #}
+{% extends "_partials/_app_shell.html" %}
+
+{% block title %}Quickstart — Allowthem{% endblock %}
+
+{% block content %}
+<div class="wf-quickstart">
+  {% include "_partials/_quickstart_credentials.html" %}
+  {% include "_partials/_quickstart_snippets.html" %}
+
+  <form method="post"
+        action="/quickstart/{{ token }}/dismiss"
+        class="wf-mt-6">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="wf-btn wf-btn-primary">
+      I've saved my credentials
+    </button>
+  </form>
+</div>
+{% endblock %}

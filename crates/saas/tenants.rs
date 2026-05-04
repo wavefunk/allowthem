@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
@@ -6,14 +7,15 @@ use uuid::Uuid;
 
 use allowthem_core::applications::CreateApplicationParams;
 use allowthem_core::types::ClientType;
-use allowthem_core::{AllowThem, ClientSecret};
+use allowthem_core::{AllowThem, ClientSecret, EmailSender, EventSink};
 
 use crate::control_db::ControlDb;
 use crate::error::{SaasError, map_slug_conflict};
+use crate::mau::MauSink;
 use crate::router::is_reserved_slug;
 
 /// Validates slug format per spec §4 step 1: ^[a-z][a-z0-9-]{2,39}$
-pub(crate) fn validate_slug(slug: &str) -> Result<(), SaasError> {
+pub fn validate_slug(slug: &str) -> Result<(), SaasError> {
     if is_reserved_slug(slug) {
         return Err(SaasError::SlugReserved);
     }
@@ -96,12 +98,157 @@ impl From<Uuid> for TenantId {
     }
 }
 
+/// UUIDv7-backed identifier for a `tenant_members` row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MemberId(Uuid);
+
+impl MemberId {
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+
+    /// Raw 16-byte payload suitable for binding to a SQLite BLOB column.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl Default for MemberId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<Uuid> for MemberId {
+    fn from(u: Uuid) -> Self {
+        Self(u)
+    }
+}
+
+/// UUIDv7-backed identifier for a `tenant_plans` row. Plans are seeded
+/// (no `new()` — the IDs come from the seed migration), so unlike
+/// [`MemberId`] there's no constructor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PlanId(Uuid);
+
+impl PlanId {
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl From<Uuid> for PlanId {
+    fn from(u: Uuid) -> Self {
+        Self(u)
+    }
+}
+
+/// One row of `tenant_members`. Mirrors the BLOB-as-`Vec<u8>` convention
+/// used by [`Tenant`]; call [`Self::id_as_member_id`] to unpack into a
+/// typed handle.
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct TenantMember {
+    pub id: Vec<u8>,
+    pub tenant_id: Vec<u8>,
+    pub email: String,
+    pub role: crate::control_db::TenantRole,
+    pub invited_at: DateTime<Utc>,
+    pub accepted_at: Option<DateTime<Utc>>,
+    /// Unix seconds; `NULL` once the invite has been accepted (and the
+    /// hash is also cleared then).
+    pub invite_token_expires_at: Option<i64>,
+}
+
+impl TenantMember {
+    pub fn id_as_member_id(&self) -> Option<MemberId> {
+        Uuid::from_slice(&self.id).ok().map(MemberId::from)
+    }
+
+    pub fn tenant_id_as_tenant_id(&self) -> Option<TenantId> {
+        Uuid::from_slice(&self.tenant_id).ok().map(TenantId::from)
+    }
+}
+
+/// One row of `tenant_plans`. Read-only at v1 (plans are seeded by a
+/// migration). `features` is the raw JSON string from the column;
+/// callers parse on demand.
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct TenantPlan {
+    pub id: Vec<u8>,
+    pub name: String,
+    pub mau_limit: i64,
+    pub price_cents: i64,
+    pub features: String,
+}
+
+impl TenantPlan {
+    pub fn id_as_plan_id(&self) -> Option<PlanId> {
+        Uuid::from_slice(&self.id).ok().map(PlanId::from)
+    }
+}
+
 /// SaaS-wide keys and base domain needed when building a tenant AllowThem handle.
 pub struct TenantBuilderConfig {
     pub mfa_key: [u8; 32],
     pub signing_key: [u8; 32],
     pub csrf_key: [u8; 32],
     pub base_domain: String,
+    /// Drives the cookie name + Secure attribute for tenant sessions.
+    /// `__Host-` requires Secure → requires HTTPS, so dev (HTTP localhost)
+    /// uses the plain name and `Secure=false`.
+    pub is_production: bool,
+    /// Optional email sender shared across all tenant handles built from this
+    /// config. When `None` the handle falls back to `NoopEmailSender` with a
+    /// startup warning. Set to `Some` in production and in any integration test
+    /// that exercises email flows.
+    pub email_sender: Option<Arc<dyn EmailSender>>,
+    /// Optional event sink. When `None` the handle uses `NoopEventSink` (silent).
+    /// Set to `Some(Arc::new(LoggingEventSink))` in dev, or a real sink in production.
+    ///
+    /// Prefer `event_sink_factory` for any sink that needs the tenant id (e.g.
+    /// the SaaS webhook sink). When both are set, the handle-builder uses the
+    /// factory and ignores `event_sink`.
+    pub event_sink: Option<Arc<dyn EventSink>>,
+    /// Optional per-tenant event-sink factory. When `Some`, the handle-builder
+    /// calls `factory.for_tenant(tenant_id)` once per tenant `AllowThem`
+    /// build and binds the resulting sink to that tenant. Required for
+    /// webhook delivery (epic 7xw.2) where the sink scopes its
+    /// `tenant_webhooks` lookup by tenant id.
+    pub event_sink_factory: Option<Arc<dyn crate::webhook_sink::EventSinkFactory>>,
+    /// Optional MAU sink. When `Some`, every tenant `AllowThem` handle is built
+    /// with an `on_user_active` callback that forwards events to this sink for
+    /// control-plane MAU counting. `None` disables MAU tracking (e.g. embedded
+    /// mode tests, or unit tests that don't exercise login flows).
+    pub mau_sink: Option<Arc<MauSink>>,
+    /// Optional per-tenant email-sender factory. When `Some`, the handle-builder
+    /// calls `factory.for_tenant(tenant_id, &pool).await` once per tenant
+    /// `AllowThem` build and binds the resolved sender to that tenant. The
+    /// resolved sender takes precedence over `email_sender`. Use in SaaS-mode
+    /// binaries; embedded integrators leave this `None` and rely on the
+    /// simpler shared `email_sender` path.
+    pub email_sender_factory: Option<Arc<dyn crate::managed_email::EmailSenderFactory>>,
+}
+
+/// Cookie name for tenant sessions.
+///
+/// Production uses the `__Host-` prefix, which forbids the `Domain` attribute
+/// and requires `Secure` — both already true under SaaS deployment via Caddy
+/// (per parent spec §6.2). Dev uses the plain name to keep the local HTTP
+/// workflow friction-free.
+pub fn tenant_cookie_name(is_production: bool) -> &'static str {
+    if is_production {
+        "__Host-allowthem_session"
+    } else {
+        "allowthem_session"
+    }
 }
 
 /// Result of a successful `provision_tenant` call.
@@ -301,6 +448,21 @@ impl ControlDb {
             ));
         }
 
+        // Step 3b: Insert the owner row in the same transaction so a tenant
+        // is never persisted without an owner. This is the "join key" the
+        // dashboard uses to authorize a logged-in user against tenants they
+        // own. UUIDv7 for monotonic id without an extra index.
+        let member_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO tenant_members (id, tenant_id, email, role, accepted_at) \
+             VALUES (?1, ?2, ?3, 'owner', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        )
+        .bind(member_id.as_bytes().as_slice())
+        .bind(tenant_id.as_bytes())
+        .bind(&owner_email)
+        .execute(&mut *tx)
+        .await?;
+
         // Step 4: Create SQLite file. Guard auto-deletes on drop unless disarmed.
         // Declaration order is load-bearing (§0.4): file_guard must be declared before ath
         // so Rust's reverse drop order closes the pool before deleting the file on unwind.
@@ -318,12 +480,16 @@ impl ControlDb {
             .map_err(|e| SaasError::ProvisionFailed(e.to_string()))?;
 
         // Steps 5+6: Build handle — AllowThemBuilder::build() runs core migrations via Db::new.
+        // No `cookie_domain` — host-only cookies satisfy the `__Host-` prefix
+        // (see crates/core/sessions.rs:313). Tenant sessions are bound to the
+        // exact `<slug>.<base_domain>` host the issuing request hit.
         let ath = allowthem_core::AllowThemBuilder::with_pool(pool)
             .mfa_key(config.mfa_key)
             .signing_key(config.signing_key)
             .csrf_key(config.csrf_key)
             .base_url(format!("https://{}.{}", slug, config.base_domain))
-            .cookie_domain(format!(".{}.{}", slug, config.base_domain))
+            .cookie_name(tenant_cookie_name(config.is_production))
+            .cookie_secure(config.is_production)
             .build()
             .await
             .map_err(|e| SaasError::ProvisionFailed(e.to_string()))?;
@@ -416,6 +582,37 @@ impl ControlDb {
 mod tests {
     use super::*;
     use crate::control_db::tests::test_pool;
+
+    #[test]
+    fn member_id_roundtrips_through_uuid() {
+        let id = MemberId::new();
+        assert_eq!(id.as_bytes().len(), 16);
+        let copy = MemberId::from(*id.as_uuid());
+        assert_eq!(copy, id);
+    }
+
+    #[test]
+    fn plan_id_roundtrips_through_uuid() {
+        let uuid = Uuid::now_v7();
+        let pid = PlanId::from(uuid);
+        assert_eq!(pid.as_uuid(), &uuid);
+    }
+
+    #[test]
+    fn tenant_role_str_round_trip() {
+        use std::str::FromStr;
+        for role in [
+            crate::control_db::TenantRole::Owner,
+            crate::control_db::TenantRole::Admin,
+            crate::control_db::TenantRole::Viewer,
+        ] {
+            assert_eq!(
+                crate::control_db::TenantRole::from_str(role.as_str()).unwrap(),
+                role
+            );
+        }
+        assert!(crate::control_db::TenantRole::from_str("guest").is_err());
+    }
 
     async fn test_db() -> ControlDb {
         let pool = test_pool().await;
@@ -534,7 +731,61 @@ mod tests {
             signing_key: [2u8; 32],
             csrf_key: [3u8; 32],
             base_domain: "test.local".into(),
+            is_production: false,
+            email_sender: None,
+            event_sink: None,
+            event_sink_factory: None,
+            mau_sink: None,
+            email_sender_factory: None,
         }
+    }
+
+    #[test]
+    fn tenant_cookie_name_prod_uses_host_prefix() {
+        assert_eq!(tenant_cookie_name(true), "__Host-allowthem_session");
+    }
+
+    #[test]
+    fn tenant_cookie_name_dev_drops_prefix() {
+        assert_eq!(tenant_cookie_name(false), "allowthem_session");
+    }
+
+    #[tokio::test]
+    async fn provision_prod_handle_emits_host_prefixed_cookie() {
+        let db = test_db().await;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = TenantBuilderConfig {
+            is_production: true,
+            ..test_builder_config()
+        };
+
+        let result = db
+            .provision_tenant(
+                "Prod Co".into(),
+                "prodco".into(),
+                "owner@prodco.com".into(),
+                dir.path(),
+                &config,
+            )
+            .await
+            .expect("provision_tenant");
+
+        // Build a cookie value via the new tenant handle; assert __Host- prefix,
+        // Secure flag, and absence of Domain attribute.
+        let token = allowthem_core::sessions::generate_token();
+        let cookie = result.ath.session_cookie(&token);
+        assert!(
+            cookie.starts_with("__Host-allowthem_session="),
+            "expected __Host-allowthem_session prefix, got: {cookie}"
+        );
+        assert!(
+            cookie.contains("; Secure"),
+            "Secure flag required for __Host-: {cookie}"
+        );
+        assert!(
+            !cookie.contains("Domain="),
+            "no Domain= attribute allowed for __Host-: {cookie}"
+        );
     }
 
     #[tokio::test]
@@ -572,6 +823,22 @@ mod tests {
             .fetch_one(result.ath.db().pool())
             .await
             .expect("db ping");
+
+        // tenant_members owner row was inserted in the same control-plane tx.
+        let (role, accepted_at): (String, Option<String>) = sqlx::query_as(
+            "SELECT role, accepted_at FROM tenant_members \
+             WHERE tenant_id = ?1 AND email = ?2",
+        )
+        .bind(tenant.id.as_slice())
+        .bind(&tenant.owner_email)
+        .fetch_one(db.pool())
+        .await
+        .expect("owner member row");
+        assert_eq!(role, "owner");
+        assert!(
+            accepted_at.is_some(),
+            "owner accepted_at must be set on signup-time provisioning"
+        );
     }
 
     #[tokio::test]
@@ -603,6 +870,51 @@ mod tests {
             .expect("expected error");
 
         assert!(matches!(err, SaasError::SlugTaken));
+    }
+
+    #[tokio::test]
+    async fn provision_rolls_back_owner_member_on_file_failure() {
+        // If the SQLite file open fails after the tenants/tenant_members
+        // INSERTs, the control-plane transaction must be rolled back so the
+        // tenants table doesn't carry an orphan row and tenant_members has
+        // no leftover owner pointing at a non-existent tenant.
+        let db = test_db().await;
+        let config = test_builder_config();
+
+        // Use a regular file as the "directory" — SqlitePool::connect_with
+        // will fail because joining a filename onto a regular file produces
+        // an invalid path.
+        let bad = tempfile::NamedTempFile::new().expect("tempfile");
+        let bad_dir = bad.path();
+
+        let result = db
+            .provision_tenant(
+                "Atomic".into(),
+                "atomic".into(),
+                "owner@atomic.com".into(),
+                bad_dir,
+                &config,
+            )
+            .await;
+        assert!(result.is_err(), "expected provision failure");
+
+        let tenants_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenants")
+            .fetch_one(db.pool())
+            .await
+            .expect("count tenants");
+        assert_eq!(
+            tenants_count, 0,
+            "tenants row must be rolled back on file-open failure"
+        );
+
+        let members_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenant_members")
+            .fetch_one(db.pool())
+            .await
+            .expect("count members");
+        assert_eq!(
+            members_count, 0,
+            "tenant_members owner row must be rolled back on file-open failure"
+        );
     }
 
     #[tokio::test]

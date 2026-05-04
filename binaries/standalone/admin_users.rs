@@ -77,8 +77,8 @@ pub async fn detail(
         .find(|e| matches!(e.event_type, allowthem_core::AuditEvent::Login))
         .map(|e| e.created_at.to_rfc3339());
 
-    let shell = ShellContext::new(true, "/admin/users", "allowthem")
-        .with_session(admin.email.as_str());
+    let shell =
+        ShellContext::new(true, "/admin/users", "allowthem").with_session(admin.email.as_str());
     let html = crate::templates::render(
         &state.templates,
         "admin/user_detail.html",
@@ -119,8 +119,8 @@ mod tests {
     #[test]
     fn user_detail_template_renders() {
         let env = crate::templates::build_template_env().expect("template env");
-        let shell = ShellContext::new(true, "/admin/users", "allowthem")
-            .with_session("admin@test.com");
+        let shell =
+            ShellContext::new(true, "/admin/users", "allowthem").with_session("admin@test.com");
         let tmpl = env.get_template("admin/user_detail.html").unwrap();
         let rendered = tmpl
             .render(context! {

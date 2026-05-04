@@ -11,7 +11,8 @@ use serde_json::json;
 use allowthem_core::password::verify_password;
 use allowthem_core::types::{ClientId, ClientType};
 use allowthem_core::{
-    AllowThem, AuthError, TokenError, exchange_authorization_code, exchange_refresh_token,
+    AllowThem, AuthError, OnUserActive, TokenError, exchange_authorization_code,
+    exchange_refresh_token,
 };
 
 // ---------------------------------------------------------------------------
@@ -200,6 +201,7 @@ async fn token(
                 private_key_pem,
                 &application,
                 issuer,
+                ath.on_user_active(),
             )
             .await
         }
@@ -225,6 +227,7 @@ async fn handle_authorization_code(
     private_key_pem: String,
     application: &allowthem_core::applications::Application,
     issuer: &str,
+    on_user_active: Option<&OnUserActive>,
 ) -> Response {
     let code = match params.code.as_deref() {
         Some(c) if !c.is_empty() => c,
@@ -260,6 +263,7 @@ async fn handle_authorization_code(
         issuer,
         &signing_key,
         &private_key_pem,
+        on_user_active,
     )
     .await
     {

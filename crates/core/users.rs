@@ -5,6 +5,8 @@ use serde_json::Value;
 
 use crate::db::Db;
 use crate::error::AuthError;
+use crate::event_sink::AuthEvent;
+use crate::handle::AllowThem;
 use crate::password::hash_password;
 use crate::types::{Email, User, UserId, Username};
 
@@ -33,6 +35,10 @@ pub struct SearchUsersParams<'a> {
     pub query: Option<&'a str>,
     pub is_active: Option<bool>,
     pub has_mfa: Option<bool>,
+    /// Optional filter on `email_verified`. `Some(true)` returns only users
+    /// with verified emails; `Some(false)` only unverified; `None` includes
+    /// both. Surfaced for the dashboard user-management page (99c.4).
+    pub email_verified: Option<bool>,
     pub limit: u32,
     pub offset: u32,
 }
@@ -97,6 +103,16 @@ impl UserCursor {
 }
 
 impl Db {
+    /// Count of all users in the tenant DB. Used by the SaaS super-admin
+    /// tenant detail panel (99c.6 §6.1).
+    pub async fn count_users(&self) -> Result<u64, AuthError> {
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_users")
+            .fetch_one(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+        Ok(n as u64)
+    }
+
     /// Create a user with email, plaintext password, optional username, and optional custom data.
     ///
     /// Hashes the password with Argon2id (via `password::hash_password`).
@@ -271,6 +287,30 @@ impl Db {
         Ok(())
     }
 
+    /// Update a user's `email_verified` flag. Also updates `updated_at`.
+    ///
+    /// Pool-level helper for callers that update verification status outside
+    /// the token-redemption transaction (e.g. the seed-admin CLI marking a
+    /// freshly created super-admin verified). The transactional update inside
+    /// `verify_email` keeps its inline `UPDATE` to stay atomic with the
+    /// "mark token used" write.
+    pub async fn set_email_verified(&self, id: UserId, verified: bool) -> Result<(), AuthError> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let result = sqlx::query(
+            "UPDATE allowthem_users SET email_verified = ?1, updated_at = ?2 WHERE id = ?3",
+        )
+        .bind(verified)
+        .bind(&now)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+        Ok(())
+    }
+
     /// Delete a user by ID. Cascades to sessions, user_roles, user_permissions.
     pub async fn delete_user(&self, id: UserId) -> Result<(), AuthError> {
         let result = sqlx::query("DELETE FROM allowthem_users WHERE id = ?")
@@ -379,6 +419,11 @@ impl Db {
             where_clauses.push(format!(
                 "{exists} (SELECT 1 FROM allowthem_mfa_secrets WHERE user_id = u.id AND enabled = 1)"
             ));
+        }
+
+        if let Some(verified) = params.email_verified {
+            where_clauses.push("u.email_verified = ?".into());
+            bind_values.push(if verified { "1".into() } else { "0".into() });
         }
 
         let where_sql = if where_clauses.is_empty() {
@@ -523,6 +568,108 @@ impl Db {
     }
 }
 
+// ─── AllowThem wrappers ───────────────────────────────────────────────────────
+
+impl AllowThem {
+    /// Create a user and emit a `user.created` event on success.
+    pub async fn create_user(
+        &self,
+        email: Email,
+        password: &str,
+        username: Option<Username>,
+        custom_data: Option<&Value>,
+    ) -> Result<User, AuthError> {
+        let user = self
+            .db()
+            .create_user(email, password, username, custom_data)
+            .await?;
+        self.emit_event(AuthEvent::new(
+            "user.created",
+            Some(user.id),
+            serde_json::json!({
+                "user_id": user.id,
+                "email": user.email,
+                "username": user.username,
+            }),
+        ))
+        .await;
+        Ok(user)
+    }
+
+    /// Update a user's email address and emit a `user.updated` event on success.
+    pub async fn update_user_email(&self, id: UserId, email: Email) -> Result<(), AuthError> {
+        self.db().update_user_email(id, email).await?;
+        self.emit_event(AuthEvent::new(
+            "user.updated",
+            Some(id),
+            serde_json::json!({ "user_id": id, "field": "email" }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    /// Update a user's username and emit a `user.updated` event on success.
+    pub async fn update_user_username(
+        &self,
+        id: UserId,
+        username: Option<Username>,
+    ) -> Result<(), AuthError> {
+        self.db().update_user_username(id, username).await?;
+        self.emit_event(AuthEvent::new(
+            "user.updated",
+            Some(id),
+            serde_json::json!({ "user_id": id, "field": "username" }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    /// Update a user's password and emit a `password.changed` event on success.
+    pub async fn update_user_password(
+        &self,
+        id: UserId,
+        new_password: &str,
+    ) -> Result<(), AuthError> {
+        self.db().update_user_password(id, new_password).await?;
+        self.emit_event(AuthEvent::new(
+            "password.changed",
+            Some(id),
+            serde_json::json!({ "user_id": id }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    /// Delete a user and emit a `user.deleted` event on success.
+    pub async fn delete_user(&self, id: UserId) -> Result<(), AuthError> {
+        self.db().delete_user(id).await?;
+        self.emit_event(AuthEvent::new(
+            "user.deleted",
+            Some(id),
+            serde_json::json!({ "user_id": id }),
+        ))
+        .await;
+        Ok(())
+    }
+
+    /// Set a user's active status and emit `user.blocked` or `user.unblocked`.
+    pub async fn update_user_active(&self, id: UserId, is_active: bool) -> Result<(), AuthError> {
+        self.db().update_user_active(id, is_active).await?;
+        let event_type = if is_active {
+            "user.unblocked"
+        } else {
+            "user.blocked"
+        };
+        self.emit_event(AuthEvent::new(
+            event_type,
+            Some(id),
+            serde_json::json!({ "user_id": id }),
+        ))
+        .await;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,6 +713,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_email_verified_toggles_flag() {
+        let ath = setup().await;
+        let db = ath.db();
+        let user = make_user(db, 99).await;
+        assert!(!user.email_verified);
+
+        db.set_email_verified(user.id, true).await.unwrap();
+        let after = db.get_user(user.id).await.unwrap();
+        assert!(after.email_verified);
+
+        db.set_email_verified(user.id, false).await.unwrap();
+        let after = db.get_user(user.id).await.unwrap();
+        assert!(!after.email_verified);
+    }
+
+    #[tokio::test]
+    async fn set_email_verified_unknown_id_returns_not_found() {
+        let ath = setup().await;
+        let db = ath.db();
+        let err = db
+            .set_email_verified(UserId::new(), true)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AuthError::NotFound));
+    }
+
+    #[tokio::test]
     async fn list_users_paginated_cursor_advances() {
         let ath = setup().await;
         let db = ath.db();
@@ -578,5 +752,88 @@ mod tests {
         let page2 = db.list_users_paginated(3, Some(&cursor)).await.unwrap();
         assert_eq!(page2.len(), 2);
         assert!(!page2.iter().any(|u| page1.iter().any(|v| v.id == u.id)));
+    }
+
+    fn unfiltered(limit: u32) -> SearchUsersParams<'static> {
+        SearchUsersParams {
+            query: None,
+            is_active: None,
+            has_mfa: None,
+            email_verified: None,
+            limit,
+            offset: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn search_users_filter_email_verified_true() {
+        let ath = setup().await;
+        let db = ath.db();
+        let u1 = make_user(db, 1).await;
+        let _u2 = make_user(db, 2).await;
+        db.set_email_verified(u1.id, true).await.unwrap();
+
+        let result = db
+            .search_users(SearchUsersParams {
+                email_verified: Some(true),
+                ..unfiltered(10)
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.users.len(), 1);
+        assert_eq!(result.users[0].id, u1.id);
+    }
+
+    #[tokio::test]
+    async fn search_users_filter_email_verified_false() {
+        let ath = setup().await;
+        let db = ath.db();
+        let u1 = make_user(db, 1).await;
+        let u2 = make_user(db, 2).await;
+        db.set_email_verified(u1.id, true).await.unwrap();
+
+        let result = db
+            .search_users(SearchUsersParams {
+                email_verified: Some(false),
+                ..unfiltered(10)
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.users[0].id, u2.id);
+    }
+
+    #[tokio::test]
+    async fn search_users_filter_email_verified_none_includes_both() {
+        let ath = setup().await;
+        let db = ath.db();
+        let u1 = make_user(db, 1).await;
+        let _u2 = make_user(db, 2).await;
+        db.set_email_verified(u1.id, true).await.unwrap();
+
+        let result = db.search_users(unfiltered(10)).await.unwrap();
+        assert_eq!(result.total, 2);
+        assert_eq!(result.users.len(), 2);
+    }
+
+    // count_users tests (99c.6 Step 2)
+
+    #[tokio::test]
+    async fn count_users_zero_on_empty_db() {
+        let ath = setup().await;
+        let n = ath.db().count_users().await.expect("count_users");
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn count_users_after_create() {
+        let ath = setup().await;
+        let db = ath.db();
+        make_user(db, 1).await;
+        make_user(db, 2).await;
+        make_user(db, 3).await;
+        let n = db.count_users().await.expect("count_users");
+        assert_eq!(n, 3);
     }
 }

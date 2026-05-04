@@ -603,6 +603,32 @@ impl Db {
         .map_err(AuthError::Database)
     }
 
+    /// Count of all applications in the tenant DB. Used by the SaaS
+    /// super-admin tenant detail panel (99c.6 §6.1).
+    pub async fn count_applications(&self) -> Result<u64, AuthError> {
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_applications")
+            .fetch_one(self.pool())
+            .await
+            .map_err(AuthError::Database)?;
+        Ok(n as u64)
+    }
+
+    /// Count of distinct users who have consented to this application.
+    ///
+    /// Backed by `allowthem_consents`, which has `UNIQUE(user_id,
+    /// application_id)`, so `COUNT(*)` is exactly the distinct-user count.
+    /// The semantic is "users who have authorized this app" — which is what
+    /// the SaaS dashboard surfaces as "Connected users."
+    pub async fn count_users_for_application(&self, id: ApplicationId) -> Result<u64, AuthError> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM allowthem_consents WHERE application_id = ?1")
+                .bind(id)
+                .fetch_one(self.pool())
+                .await
+                .map_err(AuthError::Database)?;
+        Ok(count as u64)
+    }
+
     /// List all applications ordered by `created_at ASC`.
     pub async fn list_applications(&self) -> Result<Vec<Application>, AuthError> {
         sqlx::query_as::<_, Application>(
@@ -1215,6 +1241,136 @@ mod tests {
             value.get("client_id").is_some(),
             "client_id must appear in serialized output"
         );
+    }
+
+    // count_users_for_application tests
+
+    #[tokio::test]
+    async fn count_users_for_application_returns_consent_count() {
+        let db = crate::db::Db::connect("sqlite::memory:")
+            .await
+            .expect("in-memory db");
+        let (app, _secret) = db
+            .create_application(CreateApplicationParams {
+                name: "Count Test".into(),
+                client_type: ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
+            .await
+            .expect("create_application");
+
+        let email1 = crate::Email::new("u1@test.com".into()).expect("email");
+        let email2 = crate::Email::new("u2@test.com".into()).expect("email");
+        let user1 = db
+            .create_user(email1, "pw", None, None)
+            .await
+            .expect("user1");
+        let user2 = db
+            .create_user(email2, "pw", None, None)
+            .await
+            .expect("user2");
+
+        let id1 = uuid::Uuid::new_v4();
+        let id2 = uuid::Uuid::new_v4();
+        sqlx::query(
+            "INSERT OR IGNORE INTO allowthem_consents (id, user_id, application_id) \
+             VALUES (?, ?, ?)",
+        )
+        .bind(id1.to_string())
+        .bind(user1.id)
+        .bind(app.id)
+        .execute(db.pool())
+        .await
+        .expect("insert consent 1");
+        sqlx::query(
+            "INSERT OR IGNORE INTO allowthem_consents (id, user_id, application_id) \
+             VALUES (?, ?, ?)",
+        )
+        .bind(id2.to_string())
+        .bind(user2.id)
+        .bind(app.id)
+        .execute(db.pool())
+        .await
+        .expect("insert consent 2");
+
+        let count = db.count_users_for_application(app.id).await.expect("count");
+        assert_eq!(count, 2, "expected 2 consented users");
+    }
+
+    #[tokio::test]
+    async fn count_users_is_zero_for_unknown_application() {
+        let db = crate::db::Db::connect("sqlite::memory:")
+            .await
+            .expect("in-memory db");
+        let unknown_id = ApplicationId::new();
+        let count = db
+            .count_users_for_application(unknown_id)
+            .await
+            .expect("count for unknown app");
+        assert_eq!(count, 0, "no consents for unknown application");
+    }
+
+    // count_applications tests (99c.6 Step 2)
+
+    async fn make_app(db: &crate::db::Db) -> Application {
+        let (app, _) = db
+            .create_application(CreateApplicationParams {
+                name: "Test App".into(),
+                client_type: crate::types::ClientType::Confidential,
+                redirect_uris: vec!["https://example.com/callback".into()],
+                is_trusted: false,
+                created_by: None,
+                logo_url: None,
+                primary_color: None,
+                accent_hex: None,
+                accent_ink: None,
+                forced_mode: None,
+                font_css_url: None,
+                font_family: None,
+                splash_text: None,
+                splash_image_url: None,
+                splash_primitive: None,
+                splash_url: None,
+                shader_cell_scale: None,
+            })
+            .await
+            .expect("create_application");
+        app
+    }
+
+    #[tokio::test]
+    async fn count_applications_zero_on_empty_db() {
+        let db = crate::db::Db::connect("sqlite::memory:")
+            .await
+            .expect("in-memory db");
+        let n = db.count_applications().await.expect("count_applications");
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn count_applications_after_create() {
+        let db = crate::db::Db::connect("sqlite::memory:")
+            .await
+            .expect("in-memory db");
+        make_app(&db).await;
+        make_app(&db).await;
+        make_app(&db).await;
+        let n = db.count_applications().await.expect("count_applications");
+        assert_eq!(n, 3);
     }
 
     #[cfg(test)]
