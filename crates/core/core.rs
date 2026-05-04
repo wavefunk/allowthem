@@ -26,6 +26,7 @@ pub mod sessions;
 pub mod signing_keys;
 mod social_provider_encrypt;
 pub mod email_render;
+pub mod email_smtp;
 pub mod social_providers;
 pub mod token_cleanup;
 pub mod token_issuance;
@@ -67,6 +68,7 @@ pub use token_issuance::{
     mint_id_token, verify_pkce_s256,
 };
 pub use email_render::{EmailBranding, RenderedEmail, render as render_email};
+pub use email_smtp::{SmtpConfig, SmtpEmailSender, SmtpTls};
 pub use types::*;
 pub use webhook_sig::{SigError, sign_payload, verify_payload};
 
