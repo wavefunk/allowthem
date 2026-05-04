@@ -27,7 +27,9 @@ pub use dns::{DnsError, DnsResolver, HickoryDnsResolver, SweepStats, verify_doma
 pub use domains::{DomainId, DomainStatus, TenantDomain, normalize_domain};
 pub use error::SaasError;
 pub use manage::{ManageState, manage_router};
-pub use managed_email::{ManagedEmailConfig, ManagedEmailSender};
+pub use managed_email::{
+    EmailSenderFactory, ManagedEmailConfig, ManagedEmailSender, ManagedEmailSenderFactory,
+};
 pub use mau::MauSink;
 pub use router::{
     RequireActiveTenant, TenantRouterState, build_handle_with_path, pre_warm,
