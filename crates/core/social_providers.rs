@@ -174,12 +174,12 @@ pub async fn build_social_provider(
     config: SocialProviderConfig,
 ) -> Result<Box<dyn SocialProvider>, AuthError> {
     match config.provider_type {
-        ProviderType::Google => Ok(Box::new(
-            crate::social_google::GoogleSocialProvider::new(config)?,
-        )),
-        ProviderType::Github => Ok(Box::new(
-            crate::social_github::GitHubSocialProvider::new(config)?,
-        )),
+        ProviderType::Google => Ok(Box::new(crate::social_google::GoogleSocialProvider::new(
+            config,
+        )?)),
+        ProviderType::Github => Ok(Box::new(crate::social_github::GitHubSocialProvider::new(
+            config,
+        )?)),
         ProviderType::CustomOidc => Err(AuthError::Validation(
             "custom_oidc provider not yet supported (epic 7m5.3)".into(),
         )),

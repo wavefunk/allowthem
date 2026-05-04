@@ -68,7 +68,7 @@ pub use signing_keys::{
 };
 pub use social_github::GitHubSocialProvider;
 pub use social_google::GoogleSocialProvider;
-pub use social_oidc::{CustomOidcSocialProvider, DiscoveryDoc, DISCOVERY_TTL};
+pub use social_oidc::{CustomOidcSocialProvider, DISCOVERY_TTL, DiscoveryDoc};
 pub use social_providers::{
     ProviderType, SocialProvider, SocialProviderConfig, SocialProviderRow, SocialUserInfo,
     build_social_provider,
