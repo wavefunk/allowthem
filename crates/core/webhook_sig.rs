@@ -104,14 +104,16 @@ mod tests {
 
     #[test]
     fn golden_value() {
-        // Pinned to catch accidental format drift.
-        let sig = sign_payload(SECRET, TS, BODY);
-        // Recompute inline for the pin — changing the algorithm breaks this.
-        let mut mac = <hmac::Hmac<sha2::Sha256>>::new_from_slice(SECRET).unwrap();
-        mac.update(format!("{TS}.").as_bytes());
-        mac.update(BODY);
-        let expected_hex = hex::encode(mac.finalize().into_bytes());
-        assert_eq!(sig, format!("t={TS},v1={expected_hex}"));
+        // Hard-pinned: catches drift in either the format or the algorithm
+        // (key derivation, separator byte, hash function). The previous
+        // version of this test recomputed the HMAC on both sides, which only
+        // pinned the wire format — swapping the `.` separator for any other
+        // byte still passed. This pin is the integration contract surfaced
+        // to webhook receivers.
+        assert_eq!(
+            sign_payload(SECRET, TS, BODY),
+            "t=1700000000,v1=87d3ed18b9b403e7da0fc3a3ae8b9394303805a049ea06f87c2ef4380b521fa9"
+        );
     }
 
     #[test]

@@ -196,6 +196,11 @@ mod tests {
         SmtpEmailSender::new_with_transport(stub, EmailBranding::default())
     }
 
+    fn make_sender_with_branding(branding: EmailBranding) -> SmtpEmailSender<AsyncStubTransport> {
+        let stub = AsyncStubTransport::new_ok();
+        SmtpEmailSender::new_with_transport(stub, branding)
+    }
+
     fn reset_message() -> EmailMessage {
         EmailMessage {
             to: "alice@example.com".to_owned(),
@@ -222,6 +227,52 @@ mod tests {
         assert!(raw.contains("Reset your password"));
         assert!(raw.contains("text/plain"));
         assert!(raw.contains("text/html"));
+    }
+
+    #[tokio::test]
+    async fn send_includes_subject_and_rendered_url_in_body() {
+        // Tightens the existing header-presence test: confirms the rendered
+        // template body (URL + username) actually reaches the transport,
+        // not just that *something* multipart was sent.
+        let sender = make_sender();
+        sender.send(&reset_message()).await.unwrap();
+
+        let msgs = sender.transport.messages().await;
+        let raw = &msgs[0].1;
+        assert!(raw.contains("Subject: Reset your password"));
+        // PasswordReset template renders the URL into both html and text.
+        // The raw multipart message body has the URL with `=` sequences
+        // possibly quoted-printable-encoded; assert on the host + path
+        // segment which survives encoding.
+        assert!(
+            raw.contains("example.com/reset"),
+            "rendered URL must reach the SMTP transport"
+        );
+        assert!(
+            raw.contains("alice"),
+            "rendered username must reach the SMTP transport"
+        );
+    }
+
+    #[tokio::test]
+    async fn branding_app_name_propagates_to_smtp_body() {
+        // Sender-level branding (§2.4) flows through email_render into the
+        // multipart body lettre hands to the transport. Operators rely on
+        // this so the receiving inbox shows the configured app name.
+        let branding = EmailBranding {
+            app_name: "Acme Inc".to_owned(),
+            logo_url: None,
+            footer_line: None,
+        };
+        let sender = make_sender_with_branding(branding);
+        sender.send(&reset_message()).await.unwrap();
+
+        let msgs = sender.transport.messages().await;
+        let raw = &msgs[0].1;
+        assert!(
+            raw.contains("Acme Inc"),
+            "branding.app_name must appear in the rendered body sent over SMTP"
+        );
     }
 
     #[tokio::test]

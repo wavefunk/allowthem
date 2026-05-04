@@ -341,4 +341,88 @@ mod tests {
         let err = sender.send(&password_reset_msg()).await.unwrap_err();
         assert!(matches!(err, AuthError::Email(_)));
     }
+
+    #[tokio::test]
+    async fn includes_template_header_and_full_payload_shape() {
+        // The plan §2.7 wire contract: integrators rely on the
+        // `X-Allowthem-Email-Template` header to dispatch by template
+        // (without parsing the body) and on `template_data` to re-render
+        // in their own engine. Pin both.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let sender = WebhookEmailSender::new(
+            WebhookEmailConfig {
+                webhook_url: format!("{}/hook", server.uri()),
+                signing_secret: None,
+                timeout: Duration::from_secs(5),
+            },
+            EmailBranding::default(),
+        )
+        .unwrap();
+
+        sender.send(&password_reset_msg()).await.unwrap();
+
+        let reqs = server.received_requests().await.unwrap();
+        let req = &reqs[0];
+        assert_eq!(
+            req.headers
+                .get("x-allowthem-email-template")
+                .expect("X-Allowthem-Email-Template header must be present")
+                .to_str()
+                .unwrap(),
+            "password_reset"
+        );
+
+        let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+        // template_data carries the structured fields as the original
+        // EmailTemplate variant — re-render fodder for integrators.
+        assert_eq!(
+            body["template_data"]["url"],
+            "https://app.example.com/reset?t=tok"
+        );
+        assert_eq!(body["template_data"]["username"], "alice");
+        assert_eq!(body["subject"], "Reset your password");
+    }
+
+    #[tokio::test]
+    async fn branding_app_name_appears_in_rendered_html() {
+        // Sender-level branding (§2.4) flows into the `rendered.html` body.
+        // Webhook integrators that present the pre-rendered email keep the
+        // configured app name without re-rendering.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let branding = EmailBranding {
+            app_name: "Acme Inc".to_owned(),
+            logo_url: None,
+            footer_line: None,
+        };
+        let sender = WebhookEmailSender::new(
+            WebhookEmailConfig {
+                webhook_url: format!("{}/hook", server.uri()),
+                signing_secret: None,
+                timeout: Duration::from_secs(5),
+            },
+            branding,
+        )
+        .unwrap();
+
+        sender.send(&password_reset_msg()).await.unwrap();
+
+        let reqs = server.received_requests().await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
+        let html = body["rendered"]["html"].as_str().unwrap();
+        assert!(
+            html.contains("Acme Inc"),
+            "branding.app_name must appear in rendered.html: {html}"
+        );
+    }
 }
