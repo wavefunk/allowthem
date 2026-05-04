@@ -48,9 +48,6 @@ pub use handle::{AllowThem, AllowThemBuilder, BuildError, LoginOutcome, OnUserAc
 pub use invitations::Invitation;
 pub use jwt::{Claims, JwtConfig, generate_token as generate_jwt, validate_token};
 pub use oauth::{OAuthAccountInfo, OAuthProvider, OAuthStateInfo, OAuthUserInfo};
-pub use social_providers::{
-    ProviderType, SocialProvider, SocialProviderConfig, SocialProviderRow, SocialUserInfo,
-};
 pub use oauth_github::GitHubProvider;
 pub use oauth_google::GoogleProvider;
 pub use sessions::{
@@ -58,6 +55,9 @@ pub use sessions::{
 };
 pub use signing_keys::{
     JwkEntry, JwkSet, OidcDiscovery, SigningKey, build_discovery, build_jwks, decrypt_private_key,
+};
+pub use social_providers::{
+    ProviderType, SocialProvider, SocialProviderConfig, SocialProviderRow, SocialUserInfo,
 };
 pub use token_issuance::{
     RefreshToken, TokenError, TokenResponse, compute_at_hash, exchange_authorization_code,
