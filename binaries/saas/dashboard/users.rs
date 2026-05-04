@@ -160,6 +160,7 @@ async fn list(
         .map_err(BrowserError::from)?;
     let body = tmpl
         .render(context! {
+            status_session => scope.user.email.as_str(),
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
             nav_sections => nav,
@@ -272,6 +273,7 @@ async fn detail(
         .map_err(BrowserError::from)?;
     let body = tmpl
         .render(context! {
+            status_session => scope.user.email.as_str(),
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
             nav_sections => nav,

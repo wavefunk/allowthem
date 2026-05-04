@@ -77,13 +77,16 @@ pub struct EmptyForm {}
 
 fn render(
     state: &DashboardRouterState,
+    session: &str,
     ctx: minijinja::value::Value,
 ) -> Result<Html<String>, BrowserError> {
     let tmpl = state
         .templates
         .get_template("settings/domains.html")
         .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! { status_session => session, ..ctx })
+        .map_err(BrowserError::from)?;
     Ok(Html(body))
 }
 
@@ -155,6 +158,7 @@ pub async fn show(
     let dns_tgt = dns_target(&scope.tenant.slug, &state.base_domain);
     render(
         &state,
+        scope.user.email.as_str(),
         page_ctx(
             &scope.tenant.slug,
             &scope.tenant.name,
@@ -183,6 +187,7 @@ pub async fn register(
             let entries = load_entries(&state, &tenant_id).await;
             return render(
                 &state,
+                scope.user.email.as_str(),
                 page_ctx(
                     &scope.tenant.slug,
                     &scope.tenant.name,
@@ -207,6 +212,7 @@ pub async fn register(
             let entries = load_entries(&state, &tenant_id).await;
             return render(
                 &state,
+                scope.user.email.as_str(),
                 page_ctx(
                     &scope.tenant.slug,
                     &scope.tenant.name,

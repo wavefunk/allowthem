@@ -10,7 +10,13 @@
   <span class="wf-ml-seg">{{ status_env | default("DEV") }}</span>
   <span class="wf-ml-fill" aria-hidden="true"></span>
   <span id="wf-screen-label" class="wf-ml-seg"></span>
-  <span class="wf-ml-seg">{{ (shell.status_session if shell is defined and shell.status_session) or status_session | default("ANON") }}</span>
+  {% set session_label = (shell.status_session if shell is defined and shell.status_session) or status_session %}
+  {% if session_label %}
+    <span class="wf-ml-seg">{{ session_label }}</span>
+    <a class="wf-ml-seg" href="/logout" title="Sign out" style="text-decoration:none;color:inherit;cursor:pointer">⏻</a>
+  {% else %}
+    <span class="wf-ml-seg">ANON</span>
+  {% endif %}
   <span class="wf-ml-seg"
         data-mode-toggle
         title="Toggle color mode"

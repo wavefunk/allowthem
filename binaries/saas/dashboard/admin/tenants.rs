@@ -90,13 +90,16 @@ fn saas_err(e: allowthem_saas::SaasError) -> BrowserError {
 fn render(
     state: &DashboardRouterState,
     name: &str,
+    session: &str,
     ctx: minijinja::value::Value,
 ) -> Result<Html<String>, BrowserError> {
     let tmpl = state
         .templates
         .get_template(name)
         .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! { status_session => session, ..ctx })
+        .map_err(BrowserError::from)?;
     Ok(Html(body))
 }
 
@@ -211,7 +214,7 @@ pub struct DetailQuery {
 // ---------------------------------------------------------------------------
 
 pub async fn overview(
-    RequireSuperAdmin(_scope): RequireSuperAdmin,
+    RequireSuperAdmin(scope): RequireSuperAdmin,
     Query(q): Query<OverviewQuery>,
     csrf: CsrfToken,
     State(state): State<DashboardRouterState>,
@@ -290,6 +293,7 @@ pub async fn overview(
     Ok(render(
         &state,
         "admin/overview.html",
+        scope.user.email.as_str(),
         context! {
             nav_sections => nav,
             tenants => tenant_views,
@@ -319,7 +323,7 @@ pub async fn overview(
 // ---------------------------------------------------------------------------
 
 pub async fn detail(
-    RequireSuperAdmin(_scope): RequireSuperAdmin,
+    RequireSuperAdmin(scope): RequireSuperAdmin,
     Path(id): Path<Uuid>,
     Query(q): Query<DetailQuery>,
     csrf: CsrfToken,
@@ -360,6 +364,7 @@ pub async fn detail(
     Ok(render(
         &state,
         "admin/tenant_detail.html",
+        scope.user.email.as_str(),
         context! {
             nav_sections => nav,
             tenant => &tenant,

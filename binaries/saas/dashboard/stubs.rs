@@ -47,13 +47,16 @@ const SOCIAL_WIREFRAME: &str = "\
 fn render(
     state: &DashboardRouterState,
     name: &str,
+    session: &str,
     ctx: minijinja::value::Value,
 ) -> Result<Html<String>, BrowserError> {
     let tmpl = state
         .templates
         .get_template(name)
         .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! { status_session => session, ..ctx })
+        .map_err(BrowserError::from)?;
     Ok(Html(body))
 }
 
@@ -87,6 +90,7 @@ pub async fn webhooks(
     render(
         &state,
         "settings/webhooks.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
@@ -110,6 +114,7 @@ pub async fn email(
     render(
         &state,
         "settings/email.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
@@ -132,6 +137,7 @@ pub async fn social(
     render(
         &state,
         "settings/social.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,

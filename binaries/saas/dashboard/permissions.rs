@@ -54,13 +54,16 @@ pub struct PermissionForm {
 fn render(
     state: &DashboardRouterState,
     name: &str,
+    session: &str,
     ctx: minijinja::value::Value,
 ) -> Result<Html<String>, BrowserError> {
     let tmpl = state
         .templates
         .get_template(name)
         .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! { status_session => session, ..ctx })
+        .map_err(BrowserError::from)?;
     Ok(Html(body))
 }
 
@@ -128,6 +131,7 @@ async fn list(
     render(
         &state,
         "permissions/list.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
@@ -149,6 +153,7 @@ async fn new_form(
     render(
         &state,
         "permissions/new.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
@@ -177,6 +182,7 @@ async fn create(
         return render(
             &state,
             "permissions/new.html",
+            scope.user.email.as_str(),
             context! {
                 tenant => tenant_ctx(&scope.tenant),
                 nav_sections => nav,
@@ -204,6 +210,7 @@ async fn create(
             return render(
                 &state,
                 "permissions/new.html",
+                scope.user.email.as_str(),
                 context! {
                     tenant => tenant_ctx(&scope.tenant),
                     nav_sections => nav,

@@ -35,13 +35,16 @@ pub fn billing_routes() -> Router<DashboardRouterState> {
 
 fn render(
     state: &DashboardRouterState,
+    session: &str,
     ctx: minijinja::value::Value,
 ) -> Result<Html<String>, BrowserError> {
     let tmpl = state
         .templates
         .get_template("settings/billing.html")
         .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! { status_session => session, ..ctx })
+        .map_err(BrowserError::from)?;
     Ok(Html(body))
 }
 
@@ -119,6 +122,7 @@ pub async fn show(
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
         &state,
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,

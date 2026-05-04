@@ -267,6 +267,7 @@ async fn list(
     let body = render(
         &state,
         "audit/list.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
@@ -380,13 +381,16 @@ fn build_csv(entries: &[AuditListEntry]) -> String {
 fn render(
     state: &DashboardRouterState,
     name: &str,
+    session: &str,
     ctx: minijinja::value::Value,
 ) -> Result<axum::response::Html<String>, BrowserError> {
     let tmpl = state
         .templates
         .get_template(name)
         .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! { status_session => session, ..ctx })
+        .map_err(BrowserError::from)?;
     Ok(axum::response::Html(body))
 }
 

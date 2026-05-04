@@ -26,7 +26,7 @@ fn saas_err(e: SaasError) -> BrowserError {
 }
 
 pub async fn page(
-    RequireSuperAdmin(_scope): RequireSuperAdmin,
+    RequireSuperAdmin(scope): RequireSuperAdmin,
     State(state): State<DashboardRouterState>,
 ) -> Result<Response, BrowserError> {
     let by_plan = state
@@ -53,6 +53,7 @@ pub async fn page(
         .map_err(BrowserError::from)?;
     let body = tmpl
         .render(context! {
+            status_session => scope.user.email.as_str(),
             nav_sections => nav,
             by_plan => by_plan,
             plans => plans,

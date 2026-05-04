@@ -122,6 +122,7 @@ async fn list(
     let html = render(
         &state,
         "applications/list.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
@@ -148,6 +149,7 @@ async fn new_form(
     Ok(render(
         &state,
         "applications/new.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
@@ -188,6 +190,7 @@ async fn detail(
     Ok(render(
         &state,
         "applications/detail.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
@@ -218,6 +221,7 @@ async fn edit_form(
     Ok(render(
         &state,
         "applications/edit.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
@@ -306,6 +310,7 @@ async fn create(
     let mut resp = render(
         &state,
         "applications/detail.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
@@ -409,6 +414,7 @@ async fn regenerate_secret(
     let mut resp = render(
         &state,
         "applications/detail.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
@@ -464,6 +470,7 @@ fn rerender_new(
     Ok(render(
         state,
         "applications/new.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(scope),
@@ -495,6 +502,7 @@ fn rerender_edit(
     Ok(render(
         state,
         "applications/edit.html",
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(scope),
@@ -548,13 +556,16 @@ fn cache_no_store(headers: &mut HeaderMap) {
 fn render(
     state: &DashboardRouterState,
     name: &str,
+    session: &str,
     ctx: minijinja::value::Value,
 ) -> Result<axum::response::Html<String>, BrowserError> {
     let tmpl = state
         .templates
         .get_template(name)
         .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! { status_session => session, ..ctx })
+        .map_err(BrowserError::from)?;
     Ok(axum::response::Html(body))
 }
 

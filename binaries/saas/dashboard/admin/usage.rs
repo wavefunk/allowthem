@@ -27,7 +27,7 @@ fn saas_err(e: SaasError) -> BrowserError {
 }
 
 pub async fn page(
-    RequireSuperAdmin(_scope): RequireSuperAdmin,
+    RequireSuperAdmin(scope): RequireSuperAdmin,
     State(state): State<DashboardRouterState>,
 ) -> Result<Response, BrowserError> {
     let current_period = Utc::now().format("%Y-%m").to_string();
@@ -52,6 +52,7 @@ pub async fn page(
         .map_err(BrowserError::from)?;
     let body = tmpl
         .render(context! {
+            status_session => scope.user.email.as_str(),
             nav_sections => nav,
             current => current,
             history => history,

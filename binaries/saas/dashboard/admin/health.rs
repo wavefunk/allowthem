@@ -60,7 +60,7 @@ fn compute_fs_stats(dir: &std::path::Path) -> FsStats {
 }
 
 pub async fn page(
-    RequireSuperAdmin(_scope): RequireSuperAdmin,
+    RequireSuperAdmin(scope): RequireSuperAdmin,
     State(state): State<DashboardRouterState>,
 ) -> Result<Response, BrowserError> {
     // Read fs_stats from cache or recompute.
@@ -94,6 +94,7 @@ pub async fn page(
         .map_err(BrowserError::from)?;
     let body = tmpl
         .render(context! {
+            status_session => scope.user.email.as_str(),
             nav_sections => nav,
             total_bytes => fs_stats.total_bytes,
             top_files => fs_stats.top,
