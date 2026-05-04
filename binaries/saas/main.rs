@@ -21,7 +21,8 @@ use allowthem_core::{LogEmailSender, LoggingEventSink};
 use allowthem_saas::control_db::ControlDb;
 use allowthem_saas::{
     DashboardState, HandleCache, ManageState, MauSink, SlugCache, TenantBuilderConfig,
-    TenantRouterState, manage_router, pre_warm, tenant_router_middleware,
+    TenantRouterState, WebhookEventSinkFactory, WebhookWorker, WebhookWorkerConfig, manage_router,
+    pre_warm, tenant_router_middleware,
 };
 use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 
@@ -76,11 +77,17 @@ async fn main() -> Result<()> {
         base_domain: cfg.base_domain.clone(),
         is_production: cfg.is_production,
         email_sender: Some(email_sender.clone()),
+        // Kept as a fallback so existing tests / embedded paths that don't
+        // wire the factory still see logging output. The factory below
+        // takes precedence at handle-build time when both are present.
         event_sink: Some(Arc::new(LoggingEventSink)),
-        // Factory wiring lives behind `LoggingEventSinkFactory` here as a
-        // placeholder. Task 6 swaps it for `WebhookEventSinkFactory` once
-        // the sink + worker land.
-        event_sink_factory: None,
+        // Per-tenant factory: every tenant `AllowThem` handle gets a sink
+        // bound to its tenant_id. The sink writes events into
+        // `webhook_deliveries`; the WebhookWorker spawned below drains that
+        // table and POSTs to subscribers.
+        event_sink_factory: Some(Arc::new(WebhookEventSinkFactory::new(
+            control_db.pool().clone(),
+        ))),
         mau_sink: Some(mau_sink.clone()),
     });
 
@@ -237,7 +244,7 @@ async fn main() -> Result<()> {
 
     if cfg.pre_migrate_count > 0 {
         pre_warm(
-            control_db,
+            control_db.clone(),
             &handle_cache,
             tenant_data_dir,
             tenant_config,
@@ -245,6 +252,20 @@ async fn main() -> Result<()> {
         )
         .await;
     }
+
+    // Background webhook delivery worker. Drains `webhook_deliveries` rows
+    // produced by the per-tenant `WebhookEventSink`. Lifetime is bounded by
+    // the watch channel below — `axum::serve`'s `with_graceful_shutdown`
+    // listens on the same `shutdown_signal()` future, so the worker exits
+    // shortly after axum starts draining.
+    let (webhook_shutdown_tx, webhook_shutdown_rx) = tokio::sync::watch::channel(false);
+    let webhook_worker = WebhookWorker::new(
+        control_db.pool().clone(),
+        WebhookWorkerConfig::default(),
+    );
+    let webhook_handle = tokio::spawn(async move {
+        webhook_worker.run(webhook_shutdown_rx).await;
+    });
 
     let listener = tokio::net::TcpListener::bind(cfg.listen).await?;
     tracing::info!("listening on {}", cfg.listen);
@@ -254,6 +275,12 @@ async fn main() -> Result<()> {
     )
     .with_graceful_shutdown(shutdown_signal())
     .await?;
+
+    // Axum has accepted the shutdown signal — tell the worker to stop and
+    // join, so we don't leave an orphaned task during the process tear-down.
+    let _ = webhook_shutdown_tx.send(true);
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), webhook_handle).await;
+
     Ok(())
 }
 
