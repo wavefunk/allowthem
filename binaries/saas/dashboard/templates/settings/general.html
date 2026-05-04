@@ -15,6 +15,9 @@
 {% endblock %}
 
 {% block dashboard_content %}
+  {% if saved %}
+    <script>document.addEventListener("DOMContentLoaded",function(){if(window.wfEcho)wfEcho("Settings saved.",{kind:"ok"})});</script>
+  {% endif %}
   <div class="wf-panel" style="margin:16px 24px 0">
     <div class="wf-panel-head">
       <div class="wf-panel-title">General</div>

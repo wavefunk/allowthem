@@ -4,7 +4,7 @@
 //! - `GET  /t/{slug}/settings`  — RequireTenantMember (read-only for viewer)
 //! - `POST /t/{slug}/settings`  — RequireTenantAdmin  (name update only)
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use minijinja::context;
 use serde::Deserialize;
@@ -27,19 +27,28 @@ pub struct UpdateGeneralForm {
     pub name: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ShowQuery {
+    #[serde(default)]
+    pub saved: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
 
 fn render(
     state: &DashboardRouterState,
+    session: &str,
     ctx: minijinja::value::Value,
 ) -> Result<Html<String>, BrowserError> {
     let tmpl = state
         .templates
         .get_template("settings/general.html")
         .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! { status_session => session, ..ctx })
+        .map_err(BrowserError::from)?;
     Ok(Html(body))
 }
 
@@ -86,6 +95,7 @@ async fn log_settings_audit(
 
 pub async fn show(
     RequireTenantMember(scope): RequireTenantMember,
+    Query(query): Query<ShowQuery>,
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
@@ -93,12 +103,14 @@ pub async fn show(
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
         &state,
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
             csrf_token => csrf.as_str(),
             error => "",
+            saved => query.saved.is_some(),
         },
     )
     .map(IntoResponse::into_response)
@@ -117,6 +129,7 @@ pub async fn update(
         let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
         return render(
             &state,
+            scope.user.email.as_str(),
             context! {
                 tenant => tenant_ctx(&scope.tenant),
                 nav_sections => nav,
@@ -151,5 +164,5 @@ pub async fn update(
     )
     .await;
 
-    Ok(Redirect::to(&format!("/t/{}/settings", scope.tenant.slug)).into_response())
+    Ok(Redirect::to(&format!("/t/{}/settings?saved=1", scope.tenant.slug)).into_response())
 }
