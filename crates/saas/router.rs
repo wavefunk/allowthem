@@ -211,7 +211,7 @@ pub async fn build_handle_with_path(
     // No `cookie_domain` — host-only cookies satisfy the `__Host-` prefix
     // (see `crates/core/sessions.rs:313`). Cookie name + Secure attribute
     // are picked per environment via `tenant_cookie_name`.
-    let mut builder = allowthem_core::AllowThemBuilder::with_pool(pool)
+    let mut builder = allowthem_core::AllowThemBuilder::with_pool(pool.clone())
         .mfa_key(config.mfa_key)
         .signing_key(config.signing_key)
         .csrf_key(config.csrf_key)
@@ -219,7 +219,17 @@ pub async fn build_handle_with_path(
         .cookie_name(crate::tenants::tenant_cookie_name(config.is_production))
         .cookie_secure(config.is_production);
 
-    if let Some(sender) = &config.email_sender {
+    // Prefer the per-tenant email factory when present; fall back to the
+    // shared sender for embedded/test paths that haven't migrated. The
+    // factory needs the tenant pool because it reads `allowthem_email_config`
+    // and decrypts secrets with the deployment's mfa_key.
+    if let Some(factory) = &config.email_sender_factory {
+        let sender = factory
+            .for_tenant(tenant_id, &pool)
+            .await
+            .map_err(|e| SaasError::ProvisionFailed(e.to_string()))?;
+        builder = builder.email_sender(Box::new(sender));
+    } else if let Some(sender) = &config.email_sender {
         builder = builder.email_sender(Box::new(sender.clone()));
     }
 
@@ -472,6 +482,7 @@ mod tests {
                 event_sink: None,
                 event_sink_factory: None,
                 mau_sink: None,
+                email_sender_factory: None,
             }),
             seen_times: Arc::new(DashMap::new()),
             dashboard_handle: None,
@@ -656,6 +667,7 @@ mod tests {
             event_sink: None,
             event_sink_factory: None,
             mau_sink,
+            email_sender_factory: None,
         }
     }
 

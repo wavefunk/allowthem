@@ -72,6 +72,7 @@ impl Fixture {
             event_sink: None,
             event_sink_factory: None,
             mau_sink: None,
+            email_sender_factory: None,
         });
 
         let handle_cache = HandleCache::new(10);

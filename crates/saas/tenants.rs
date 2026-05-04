@@ -228,6 +228,13 @@ pub struct TenantBuilderConfig {
     /// control-plane MAU counting. `None` disables MAU tracking (e.g. embedded
     /// mode tests, or unit tests that don't exercise login flows).
     pub mau_sink: Option<Arc<MauSink>>,
+    /// Optional per-tenant email-sender factory. When `Some`, the handle-builder
+    /// calls `factory.for_tenant(tenant_id, &pool).await` once per tenant
+    /// `AllowThem` build and binds the resolved sender to that tenant. The
+    /// resolved sender takes precedence over `email_sender`. Use in SaaS-mode
+    /// binaries; embedded integrators leave this `None` and rely on the
+    /// simpler shared `email_sender` path.
+    pub email_sender_factory: Option<Arc<dyn crate::managed_email::EmailSenderFactory>>,
 }
 
 /// Cookie name for tenant sessions.
@@ -729,6 +736,7 @@ mod tests {
             event_sink: None,
             event_sink_factory: None,
             mau_sink: None,
+            email_sender_factory: None,
         }
     }
 

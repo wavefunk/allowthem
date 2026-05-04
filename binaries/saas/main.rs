@@ -20,9 +20,9 @@ use tracing_subscriber::EnvFilter;
 use allowthem_core::{LogEmailSender, LoggingEventSink};
 use allowthem_saas::control_db::ControlDb;
 use allowthem_saas::{
-    DashboardState, HandleCache, HickoryDnsResolver, ManageState, MauSink, SlugCache,
-    TenantBuilderConfig, TenantRouterState, WebhookEventSinkFactory, WebhookWorker,
-    WebhookWorkerConfig, manage_router, pre_warm, tenant_router_middleware,
+    DashboardState, HandleCache, HickoryDnsResolver, ManagedEmailConfig, ManagedEmailSenderFactory,
+    ManageState, MauSink, SlugCache, TenantBuilderConfig, TenantRouterState, WebhookEventSinkFactory,
+    WebhookWorker, WebhookWorkerConfig, manage_router, pre_warm, tenant_router_middleware,
 };
 use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 
@@ -89,6 +89,24 @@ async fn main() -> Result<()> {
             control_db.pool().clone(),
         ))),
         mau_sink: Some(mau_sink.clone()),
+        // Per-tenant email factory: when a Postmark token is configured,
+        // build a `ManagedEmailSenderFactory` that dispatches between
+        // managed (Postmark), SMTP, and webhook modes per the tenant's
+        // `allowthem_email_config` row. Without a token, leave the
+        // factory unset and rely on the shared `email_sender` (dev path).
+        email_sender_factory: cfg.postmark_server_token.as_ref().map(|token| {
+            let deployment = ManagedEmailConfig {
+                postmark_server_token: token.clone(),
+                base_domain: cfg.base_domain.clone(),
+                default_from_local_part: cfg.email_default_from_local_part.clone(),
+                timeout: std::time::Duration::from_secs(10),
+            };
+            Arc::new(ManagedEmailSenderFactory::new(
+                control_db.clone(),
+                deployment,
+                mfa_key,
+            )) as Arc<dyn allowthem_saas::EmailSenderFactory>
+        }),
     });
 
     // CLI subcommands handle their own dashboard.db open path. Run them before

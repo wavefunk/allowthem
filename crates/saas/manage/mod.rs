@@ -298,6 +298,7 @@ mod tests {
                 event_sink: None,
                 event_sink_factory: None,
                 mau_sink: None,
+                email_sender_factory: None,
             }),
             rpm,
             Arc::new(crate::dns::MockDnsResolver::new()),
