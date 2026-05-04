@@ -4,6 +4,7 @@ use std::pin::Pin;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::types::UserId;
 
@@ -13,9 +14,14 @@ use crate::types::UserId;
 /// new event types can be added in future tasks without a breaking API change.
 /// Webhook delivery (epic 7xw.2) will serialise this struct to JSON.
 ///
+/// `event_id` is a per-event UUIDv7 generated at construction time. The same
+/// id is shared across every `webhook_deliveries` row produced from this event
+/// so receivers can dedupe across retries and across multiple subscriptions.
+///
 /// Data shapes are per-`event_type` and may evolve between minor versions.
 #[derive(Debug, Clone, Serialize)]
 pub struct AuthEvent {
+    pub event_id: Uuid,
     pub event_type: String,
     pub user_id: Option<UserId>,
     pub timestamp: DateTime<Utc>,
@@ -23,9 +29,11 @@ pub struct AuthEvent {
 }
 
 impl AuthEvent {
-    /// Construct an `AuthEvent`, stamping `timestamp` with `Utc::now()`.
+    /// Construct an `AuthEvent`, stamping `event_id` with `Uuid::now_v7()` and
+    /// `timestamp` with `Utc::now()`.
     pub fn new(event_type: impl Into<String>, user_id: Option<UserId>, data: Value) -> Self {
         Self {
+            event_id: Uuid::now_v7(),
             event_type: event_type.into(),
             user_id,
             timestamp: Utc::now(),
@@ -127,5 +135,24 @@ mod tests {
         assert!(event.timestamp <= after);
         assert_eq!(event.event_type, "test");
         assert!(event.user_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn auth_event_new_assigns_distinct_non_nil_event_ids() {
+        let a = AuthEvent::new("test", None, serde_json::json!({}));
+        let b = AuthEvent::new("test", None, serde_json::json!({}));
+        assert_ne!(a.event_id, Uuid::nil());
+        assert_ne!(b.event_id, Uuid::nil());
+        assert_ne!(a.event_id, b.event_id);
+    }
+
+    #[tokio::test]
+    async fn auth_event_serializes_event_id_field() {
+        let event = AuthEvent::new("test", None, serde_json::json!({}));
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(
+            json["event_id"].as_str().unwrap(),
+            event.event_id.to_string()
+        );
     }
 }
