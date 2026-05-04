@@ -25,6 +25,7 @@ use allowthem_saas::{
     WebhookWorker, WebhookWorkerConfig, manage_router, pre_warm, tenant_router_middleware,
 };
 use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
+use allowthem_server::login_routes::LoginOverrides;
 
 use crate::dashboard::quickstart::quickstart_routes;
 use crate::dashboard::signup::signup_routes;
@@ -222,6 +223,12 @@ async fn main() -> Result<()> {
         .is_production(cfg.is_production)
         .base_url(format!("https://{}", cfg.base_domain))
         .mfa_issuer(&cfg.base_domain)
+        .oauth_providers(std::collections::HashMap::new())
+        .login_overrides(LoginOverrides {
+            signup_url: Some("/signup".to_owned()),
+            terms_url: Some("#".to_owned()),
+            privacy_url: Some("#".to_owned()),
+        })
         .all_routes()
         .build_for_saas()
         .map_err(|e| eyre::eyre!("{e}"))?;
@@ -292,7 +299,14 @@ async fn main() -> Result<()> {
         )
         .merge(auth_with_middleware)
         .merge(onboarding_with_middleware)
-        .merge(dashboard_pages);
+        .merge(dashboard_pages)
+        .fallback(|| async {
+            let html = allowthem_server::render_error_page(
+                "Not found",
+                "The page you are looking for could not be found.",
+            );
+            (StatusCode::NOT_FOUND, axum::response::Html(html))
+        });
 
     if cfg.pre_migrate_count > 0 {
         pre_warm(
