@@ -1270,4 +1270,135 @@ mod tests {
         let err = provider.fetch_user_info("bad-token").await.unwrap_err();
         assert!(matches!(err, AuthError::OAuthUserInfoFetch(_)));
     }
+
+    // ── Wire-contract gap fillers (allowthem-7m5.3.4) ─────────────────────────
+
+    #[tokio::test]
+    async fn exchange_code_posts_oauth_form_fields_and_pkce_verifier() {
+        // Plan §2 token-exchange contract: form-encoded body must carry
+        // `code`, `client_id`, `client_secret`, `redirect_uri`,
+        // `grant_type=authorization_code`, and `code_verifier`. Existing
+        // tests only asserted the returned access_token; this test pins
+        // the actual request shape that any IdP receives.
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let server = wiremock::MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "tok",
+                "token_type": "Bearer",
+            })))
+            .mount(&server)
+            .await;
+
+        mount_discovery_doc(&server).await;
+        let base = server.uri();
+        let provider = CustomOidcSocialProvider::new(discovery_config(&format!(
+            "{base}/.well-known/openid-configuration"
+        )))
+        .await
+        .unwrap();
+
+        provider
+            .exchange_code("the-code", "https://app.example.com/cb", "the-verifier")
+            .await
+            .unwrap();
+
+        let reqs = server.received_requests().await.unwrap();
+        let token_req = reqs
+            .iter()
+            .find(|r| r.url.path() == "/token")
+            .expect("token POST must reach the IdP");
+        let body = std::str::from_utf8(&token_req.body).expect("form body utf-8");
+        for expected in &[
+            "code=the-code",
+            "client_id=test-client-id",
+            "client_secret=test-client-secret",
+            "redirect_uri=https%3A%2F%2Fapp.example.com%2Fcb",
+            "grant_type=authorization_code",
+            "code_verifier=the-verifier",
+        ] {
+            assert!(
+                body.contains(expected),
+                "token POST form body missing `{expected}`: {body}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_user_info_sends_bearer_authorization_header() {
+        // Plan §2 userinfo contract: the access token travels as
+        // `Authorization: Bearer <token>`. Existing tests asserted the
+        // claim mapping but never the auth header — an IdP would reject
+        // the request without it.
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        let server = wiremock::MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/userinfo"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "sub": "u",
+                "email": "u@example.com",
+            })))
+            .mount(&server)
+            .await;
+
+        mount_discovery_doc(&server).await;
+        let base = server.uri();
+        let provider = CustomOidcSocialProvider::new(discovery_config(&format!(
+            "{base}/.well-known/openid-configuration"
+        )))
+        .await
+        .unwrap();
+
+        provider.fetch_user_info("the-access-token").await.unwrap();
+
+        let reqs = server.received_requests().await.unwrap();
+        let userinfo_req = reqs
+            .iter()
+            .find(|r| r.url.path() == "/userinfo")
+            .expect("userinfo GET must reach the IdP");
+        let auth = userinfo_req
+            .headers
+            .get("authorization")
+            .expect("Authorization header must be present")
+            .to_str()
+            .unwrap();
+        assert_eq!(auth, "Bearer the-access-token");
+    }
+
+    #[tokio::test]
+    async fn authorize_url_uses_discovered_authorize_endpoint() {
+        // Plan §2.2: `authorize_url` (sync) reads the cached endpoints
+        // populated by discovery at construction. Existing tests only
+        // verified `current_endpoints` reflects the doc, not that the
+        // sync trait method returns a URL anchored at the discovered
+        // authorize_endpoint.
+        let server = wiremock::MockServer::start().await;
+        mount_discovery_doc(&server).await;
+        let base = server.uri();
+        let provider = CustomOidcSocialProvider::new(discovery_config(&format!(
+            "{base}/.well-known/openid-configuration"
+        )))
+        .await
+        .unwrap();
+
+        let url = provider.authorize_url(
+            "https://app.example.com/cb",
+            "state-xyz",
+            "challenge-abc",
+        );
+        let expected_prefix = format!("{base}/authorize?");
+        assert!(
+            url.starts_with(&expected_prefix),
+            "authorize_url must use discovered endpoint; got {url}"
+        );
+        assert!(url.contains("client_id=test-client-id"));
+        assert!(url.contains("state=state-xyz"));
+        assert!(url.contains("code_challenge=challenge-abc"));
+        assert!(url.contains("code_challenge_method=S256"));
+    }
 }
