@@ -10,6 +10,7 @@ use allowthem_core::types::ClientType;
 use allowthem_core::{AllowThem, ClientSecret, EmailSender, EventSink};
 
 use crate::control_db::ControlDb;
+use crate::mau::MauSink;
 use crate::error::{SaasError, map_slug_conflict};
 use crate::router::is_reserved_slug;
 
@@ -212,6 +213,11 @@ pub struct TenantBuilderConfig {
     /// Optional event sink. When `None` the handle uses `NoopEventSink` (silent).
     /// Set to `Some(Arc::new(LoggingEventSink))` in dev, or a real sink in production.
     pub event_sink: Option<Arc<dyn EventSink>>,
+    /// Optional MAU sink. When `Some`, every tenant `AllowThem` handle is built
+    /// with an `on_user_active` callback that forwards events to this sink for
+    /// control-plane MAU counting. `None` disables MAU tracking (e.g. embedded
+    /// mode tests, or unit tests that don't exercise login flows).
+    pub mau_sink: Option<Arc<MauSink>>,
 }
 
 /// Cookie name for tenant sessions.
@@ -711,6 +717,7 @@ mod tests {
             is_production: false,
             email_sender: None,
             event_sink: None,
+            mau_sink: None,
         }
     }
 

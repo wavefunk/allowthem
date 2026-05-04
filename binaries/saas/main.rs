@@ -76,6 +76,7 @@ async fn main() -> Result<()> {
         is_production: cfg.is_production,
         email_sender: Some(email_sender.clone()),
         event_sink: Some(Arc::new(LoggingEventSink)),
+        mau_sink: None,
     });
 
     // CLI subcommands handle their own dashboard.db open path. Run them before

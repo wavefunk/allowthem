@@ -70,6 +70,7 @@ impl Fixture {
             is_production: false,
             email_sender: Some(email_sender.clone()),
             event_sink: None,
+            mau_sink: None,
         });
 
         let handle_cache = HandleCache::new(10);
@@ -819,6 +820,7 @@ async fn application_detail_for_default_app_renders_client_id() {
         .get_or_init(tenant_id, async {
             allowthem_saas::build_handle_with_path(
                 &tenant.db_path,
+                tenant_id,
                 &fx.state.tenant_data_dir,
                 &fx.state.tenant_config,
                 "acme",
@@ -948,6 +950,7 @@ async fn tenant_ath_for_slug(fx: &Fixture, slug: &str) -> allowthem_core::AllowT
         .get_or_init(tenant_id, async {
             allowthem_saas::build_handle_with_path(
                 &tenant.db_path,
+                tenant_id,
                 &fx.state.tenant_data_dir,
                 &fx.state.tenant_config,
                 slug,

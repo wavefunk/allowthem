@@ -198,7 +198,7 @@ async fn resolve_scope(
     let ath = state
         .handle_cache
         .get_or_init(tenant_id, async move {
-            build_handle_with_path(&db_file, &dir, &cfg, &slug_for_handle).await
+            build_handle_with_path(&db_file, tenant_id, &dir, &cfg, &slug_for_handle).await
         })
         .await
         .map_err(|e: std::sync::Arc<SaasError>| {

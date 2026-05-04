@@ -257,6 +257,7 @@ mod tests {
             is_production: false,
             email_sender: None,
             event_sink: None,
+            mau_sink: None,
         })
     }
 

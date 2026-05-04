@@ -186,11 +186,12 @@ pub(crate) async fn build_handle(
         .tenant_by_id_raw(tenant_id.as_bytes())
         .await?
         .ok_or(SaasError::TenantNotFound)?;
-    build_handle_with_path(&tenant.db_path, &tenant_data_dir, &config, slug).await
+    build_handle_with_path(&tenant.db_path, tenant_id, &tenant_data_dir, &config, slug).await
 }
 
 pub async fn build_handle_with_path(
     db_file: &str,
+    tenant_id: TenantId,
     tenant_data_dir: &std::path::Path,
     config: &TenantBuilderConfig,
     slug: &str,
@@ -224,6 +225,28 @@ pub async fn build_handle_with_path(
 
     if let Some(sink) = &config.event_sink {
         builder = builder.event_sink(Box::new(sink.clone()));
+    }
+
+    if let Some(mau_sink) = &config.mau_sink {
+        let mau_sink = mau_sink.clone();
+        let cb: allowthem_core::OnUserActive =
+            std::sync::Arc::new(move |user_id, ts| {
+                let mau_sink = mau_sink.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = mau_sink
+                        .record_active(tenant_id, user_id, ts)
+                        .await
+                    {
+                        tracing::warn!(
+                            tenant_id = %tenant_id.as_uuid(),
+                            user_id = %user_id,
+                            error = %e,
+                            "MauSink::record_active failed"
+                        );
+                    }
+                });
+            });
+        builder = builder.on_user_active(cb);
     }
 
     builder
@@ -282,7 +305,7 @@ pub async fn pre_warm(
                 let slug = tenant.slug.clone();
                 let result = cache
                     .get_or_init(tenant_id, async move {
-                        build_handle_with_path(&db_file, &dir, &cfg, &slug).await
+                        build_handle_with_path(&db_file, tenant_id, &dir, &cfg, &slug).await
                     })
                     .await;
                 if let Err(e) = result {
@@ -446,6 +469,7 @@ mod tests {
                 is_production: false,
                 email_sender: None,
                 event_sink: None,
+                mau_sink: None,
             }),
             seen_times: Arc::new(DashMap::new()),
             dashboard_handle: None,
@@ -615,5 +639,126 @@ mod tests {
     async fn root_branch_no_injection_when_none() {
         let state = make_state().await;
         assert!(!root_request_sees_extension(state, "example.com").await);
+    }
+
+    // -- on_user_active wiring for MAU counting (eua.2) ------------------------
+
+    fn mau_test_builder_config(
+        mau_sink: Option<Arc<crate::mau::MauSink>>,
+    ) -> TenantBuilderConfig {
+        TenantBuilderConfig {
+            mfa_key: [1u8; 32],
+            signing_key: [2u8; 32],
+            csrf_key: [3u8; 32],
+            base_domain: "test.local".into(),
+            is_production: false,
+            email_sender: None,
+            event_sink: None,
+            mau_sink,
+        }
+    }
+
+    #[tokio::test]
+    async fn build_handle_with_path_registers_mau_callback_when_sink_present() {
+        use allowthem_core::types::UserId;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = make_state().await;
+        let mau_sink =
+            Arc::new(crate::mau::MauSink::new(state.control_db.clone()));
+
+        // Provision a tenant — creates the SQLite file `build_handle_with_path`
+        // will reopen below. The `mau_sink` on this provisioning config is
+        // ignored (provision_tenant builds its own handle inline); the sink
+        // wiring under test is the build_handle_with_path call afterwards.
+        let provision_config = mau_test_builder_config(None);
+        let provisioned = state
+            .control_db
+            .provision_tenant(
+                "Mau Co".into(),
+                "mauco".into(),
+                "owner@mauco.test".into(),
+                dir.path(),
+                &provision_config,
+            )
+            .await
+            .expect("provision_tenant");
+        let tenant_id =
+            TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
+
+        // Build a fresh handle wired with the MAU sink.
+        let wired_config = mau_test_builder_config(Some(mau_sink.clone()));
+        let ath = build_handle_with_path(
+            &provisioned.tenant.db_path,
+            tenant_id,
+            dir.path(),
+            &wired_config,
+            "mauco",
+        )
+        .await
+        .expect("build_handle_with_path");
+
+        // Fire the callback synthetically. The closure spawns a task that
+        // writes to the control DB; poll until the row appears.
+        let cb = ath
+            .on_user_active()
+            .expect("on_user_active must be registered when mau_sink is set");
+        let user_id = UserId::new();
+        cb(user_id, chrono::Utc::now());
+
+        let deadline = std::time::Instant::now()
+            + std::time::Duration::from_secs(2);
+        loop {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1",
+            )
+            .bind(tenant_id.as_bytes())
+            .fetch_one(state.control_db.pool())
+            .await
+            .unwrap();
+            if count == 1 {
+                break;
+            }
+            if std::time::Instant::now() > deadline {
+                panic!("MAU row never appeared in tenant_active_users");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn build_handle_with_path_no_callback_when_sink_absent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = make_state().await;
+
+        let config = mau_test_builder_config(None);
+        let provisioned = state
+            .control_db
+            .provision_tenant(
+                "Plain Co".into(),
+                "plainco".into(),
+                "owner@plainco.test".into(),
+                dir.path(),
+                &config,
+            )
+            .await
+            .expect("provision_tenant");
+        let tenant_id =
+            TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
+
+        let ath = build_handle_with_path(
+            &provisioned.tenant.db_path,
+            tenant_id,
+            dir.path(),
+            &config,
+            "plainco",
+        )
+        .await
+        .expect("build_handle_with_path");
+
+        assert!(
+            ath.on_user_active().is_none(),
+            "no callback should be registered when mau_sink is None"
+        );
     }
 }

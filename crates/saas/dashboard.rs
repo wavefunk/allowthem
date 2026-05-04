@@ -285,6 +285,7 @@ mod tests {
                 is_production: false,
                 email_sender: None,
                 event_sink: None,
+                mau_sink: None,
             }),
             handle_cache: HandleCache::new(10),
             is_production: false,
