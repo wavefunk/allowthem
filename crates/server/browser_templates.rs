@@ -92,6 +92,16 @@ const ERROR_HTML: &str = include_str!("templates/error.html");
 /// `.wf-shell` / `.wf-sidebar` / `.wf-main` structure is owned by the
 /// shell and remains stable.
 pub fn add_default_browser_templates(env: &mut Environment<'static>) {
+    env.add_filter("datefmt", |value: String| -> String {
+        if value.len() >= 16 {
+            let date = &value[..10];
+            let time = &value[11..16];
+            format!("{date} {time} UTC")
+        } else {
+            value
+        }
+    });
+
     env.add_template_owned("base.html", BASE_HTML)
         .expect("base.html");
     env.add_template_owned("login.html", LOGIN_HTML)
