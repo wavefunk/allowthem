@@ -67,13 +67,16 @@ pub struct UpdateRoleForm {
 
 fn render(
     state: &DashboardRouterState,
+    session: &str,
     ctx: minijinja::value::Value,
 ) -> Result<Html<String>, BrowserError> {
     let tmpl = state
         .templates
         .get_template("settings/team/list.html")
         .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
+    let body = tmpl
+        .render(context! { status_session => session, ..ctx })
+        .map_err(BrowserError::from)?;
     Ok(Html(body))
 }
 
@@ -171,10 +174,12 @@ pub async fn list(
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
     let members = fetch_members(&state, &scope).await;
+    let owner_count = members.iter().filter(|m| m.role.as_str() == "owner").count();
     let path = format!("/t/{}/settings/team", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
         &state,
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
@@ -182,6 +187,7 @@ pub async fn list(
             csrf_token => csrf.as_str(),
             members => member_rows(&members),
             can_manage => can_manage(&scope),
+            owner_count,
             invite_error => "",
         },
     )
@@ -316,6 +322,7 @@ pub async fn update_role(
             let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
             return render(
                 &state,
+                scope.user.email.as_str(),
                 context! {
                     tenant => tenant_ctx(&scope.tenant),
                     nav_sections => nav,
@@ -384,6 +391,7 @@ pub async fn remove(
             let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
             return render(
                 &state,
+                scope.user.email.as_str(),
                 context! {
                     tenant => tenant_ctx(&scope.tenant),
                     nav_sections => nav,
@@ -433,6 +441,7 @@ async fn render_invite_error(
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
         state,
+        scope.user.email.as_str(),
         context! {
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,

@@ -86,20 +86,31 @@
                 <td>{{ m.invited_at }}</td>
                 <td>{{ m.accepted_at or "—" }}</td>
                 {% if can_manage %}
+                  {% set is_sole_owner = m.role == "owner" and owner_count <= 1 %}
                   <td style="display:flex; gap:8px; align-items:center;">
                     {% if role == "owner" %}
-                      <form method="post"
-                            action="/t/{{ tenant.slug }}/settings/team/{{ m.id }}/role"
-                            style="display:inline">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-                        <select name="role" onchange="this.form.submit()">
-                          <option value="owner" {% if m.role == "owner" %}selected{% endif %}>owner</option>
-                          <option value="admin" {% if m.role == "admin" %}selected{% endif %}>admin</option>
-                          <option value="viewer" {% if m.role == "viewer" %}selected{% endif %}>viewer</option>
+                      {% if is_sole_owner %}
+                        <select disabled title="Workspace must have at least one owner" style="opacity:0.5;cursor:not-allowed">
+                          <option selected>owner</option>
                         </select>
-                      </form>
+                      {% else %}
+                        <form method="post"
+                              action="/t/{{ tenant.slug }}/settings/team/{{ m.id }}/role"
+                              style="display:inline">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                          <select name="role" onchange="this.form.submit()">
+                            <option value="owner" {% if m.role == "owner" %}selected{% endif %}>owner</option>
+                            <option value="admin" {% if m.role == "admin" %}selected{% endif %}>admin</option>
+                            <option value="viewer" {% if m.role == "viewer" %}selected{% endif %}>viewer</option>
+                          </select>
+                        </form>
+                      {% endif %}
                     {% endif %}
-                    {% if m.role != "owner" or role == "owner" %}
+                    {% if is_sole_owner %}
+                      <button type="button" class="wf-btn sm err" disabled
+                              title="Workspace must have at least one owner"
+                              style="opacity:0.5;cursor:not-allowed">Remove</button>
+                    {% elif m.role != "owner" or role == "owner" %}
                       <form method="post"
                             action="/t/{{ tenant.slug }}/settings/team/{{ m.id }}/remove"
                             style="display:inline"
