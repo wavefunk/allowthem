@@ -30,6 +30,7 @@ const BASE_DOMAIN: &str = "example.com";
 struct Fixture {
     app: Router,
     state: SignupState,
+    dns_resolver: Arc<allowthem_saas::dns::MockDnsResolver>,
     _dir: tempfile::TempDir,
 }
 
@@ -107,10 +108,11 @@ impl Fixture {
             tenant_router_middleware,
         ));
 
+        let mock_resolver = Arc::new(allowthem_saas::dns::MockDnsResolver::new());
         let dashboard_router_state = crate::dashboard::state::DashboardRouterState::from_signup(
             signup_state.clone(),
             slug_cache.clone(),
-            Arc::new(allowthem_saas::dns::MockDnsResolver::new()),
+            Arc::clone(&mock_resolver) as Arc<dyn allowthem_saas::DnsResolver>,
         );
         let dashboard_pages =
             crate::dashboard::dashboard_pages_router(dashboard_router_state).layer(
@@ -122,6 +124,7 @@ impl Fixture {
         Self {
             app,
             state: signup_state,
+            dns_resolver: mock_resolver,
             _dir: dir,
         }
     }
@@ -2153,6 +2156,7 @@ async fn stub_pages_return_200_with_coming_soon() {
 }
 
 /// The custom-domain settings page (38y.1) returns 200 and shows the domains UI.
+/// Admins and owners see the registration form.
 #[tokio::test]
 async fn domains_settings_page_returns_200() {
     let fx = Fixture::new().await;
@@ -2163,6 +2167,10 @@ async fn domains_settings_page_returns_200() {
     let body = body_string(resp).await;
     assert!(body.contains("Custom Domain"), "page should render domain settings");
     assert!(body.contains("CNAME"), "page should include DNS instructions");
+    assert!(
+        body.contains("Register domain"),
+        "owner should see the registration form button"
+    );
 }
 
 /// POST a valid domain → 303 redirect back to the domains list; row created.
@@ -2330,6 +2338,111 @@ async fn domains_delete_removes_and_redirects() {
         .await
         .expect("list");
     assert!(remaining.is_empty(), "domain should have been deleted");
+}
+
+/// A tenant member with the viewer role can GET the custom-domain settings
+/// page (RequireTenantMember allows all roles).
+#[tokio::test]
+async fn domains_page_renders_for_member() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    // Viewer has their own tenant so they have a dashboard account.
+    let (viewer_cookie, _) = signup_and_get_session(&fx, "viewer@view-ws.com", "view-ws").await;
+    insert_tenant_member(&fx, "acme", "viewer@view-ws.com", "viewer").await;
+
+    let resp = get_authed(&fx, "/t/acme/settings/domains", &viewer_cookie).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "viewer must be able to read the domains page"
+    );
+    let body = body_string(resp).await;
+    assert!(body.contains("Custom Domain"), "domains page should render for viewer");
+}
+
+/// A successful CNAME lookup via MockDnsResolver flips the domain status to
+/// Verified. This test exercises the full verify path through the dashboard
+/// handler, MockDnsResolver, and the control DB.
+#[tokio::test]
+async fn domains_verify_with_mock_resolver_flips_to_verified() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let tenant = fx
+        .state
+        .control_db
+        .tenant_by_slug("acme")
+        .await
+        .expect("db")
+        .expect("tenant");
+    let tenant_id = allowthem_saas::TenantId::from(tenant.id_as_uuid().unwrap());
+
+    // The dashboard handler computes dns_target as "{slug}.{base_domain}".
+    let row = fx
+        .state
+        .control_db
+        .create_tenant_domain(&tenant_id, "flip.myapp.com", "acme.example.com")
+        .await
+        .expect("create_tenant_domain");
+    let domain_id_str = uuid::Uuid::from_slice(&row.id).expect("domain UUID").to_string();
+
+    // Queue a CNAME response that matches dns_target so verify_domain marks it Verified.
+    fx.dns_resolver
+        .queue("flip.myapp.com", Ok(vec!["acme.example.com".into()]))
+        .await;
+
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
+    let resp = fx
+        .post_form(
+            &format!("/t/acme/settings/domains/{domain_id_str}/verify"),
+            &[("csrf_token", csrf.as_str())],
+            Some(&session_cookie),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+    let domain_id =
+        allowthem_saas::DomainId::from(uuid::Uuid::from_slice(&row.id).unwrap());
+    let updated = fx
+        .state
+        .control_db
+        .get_tenant_domain_scoped(&domain_id, &tenant_id)
+        .await
+        .expect("get_tenant_domain_scoped")
+        .expect("domain exists");
+    assert_eq!(
+        updated.status,
+        allowthem_saas::DomainStatus::Verified,
+        "domain should be Verified after CNAME matched"
+    );
+}
+
+/// A viewer (non-admin) attempting POST routes on the domains page receives
+/// 403 — RequireTenantAdmin must fire before any DB mutation.
+#[tokio::test]
+async fn domains_routes_reject_non_admin_writes() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    // Viewer has their own tenant to obtain a valid CSRF token.
+    let (viewer_cookie, _) = signup_and_get_session(&fx, "viewer@view-ws2.com", "view-ws2").await;
+    insert_tenant_member(&fx, "acme", "viewer@view-ws2.com", "viewer").await;
+
+    // Fetch CSRF from the viewer's own tenant page.
+    let csrf =
+        fetch_csrf_for_authed_form(&fx, "/t/view-ws2/settings/domains", &viewer_cookie).await;
+
+    let resp = fx
+        .post_form(
+            "/t/acme/settings/domains",
+            &[("csrf_token", csrf.as_str()), ("domain", "evil.domain.com")],
+            Some(&viewer_cookie),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "viewer must not register a domain"
+    );
 }
 
 /// Authz smoke: viewers can read roles/permissions but not write; admins

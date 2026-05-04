@@ -458,4 +458,73 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
+
+    #[tokio::test]
+    async fn register_lowercases_input() {
+        let ctrl = make_ctrl().await;
+        seed_tenant(&ctrl).await;
+        let resolver = Arc::new(MockDnsResolver::new());
+        let app = test_router(make_state(ctrl, resolver));
+        let body = serde_json::json!({ "domain": "Auth.MYAPP.IO" }).to_string();
+        let req = Request::post("/")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["domain"], "auth.myapp.io");
+    }
+
+    #[tokio::test]
+    async fn list_returns_only_calling_tenants_domains() {
+        let ctrl = make_ctrl().await;
+        seed_tenant(&ctrl).await;
+
+        // Seed a second tenant directly.
+        let other_id = Uuid::new_v4();
+        let plan_id: Vec<u8> = sqlx::query_scalar("SELECT id FROM tenant_plans LIMIT 1")
+            .fetch_one(ctrl.pool())
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO tenants (id, name, slug, owner_email, plan_id, status, db_path) \
+             VALUES (?, 'Other', 'other', 'other@example.com', ?, 'active', 'other.db')",
+        )
+        .bind(other_id.as_bytes().as_ref())
+        .bind(&plan_id)
+        .execute(ctrl.pool())
+        .await
+        .unwrap();
+
+        // Domain belonging to the other tenant.
+        ctrl.create_tenant_domain(
+            &TenantId::from(other_id),
+            "other.domain.com",
+            "custom.test.example.com",
+        )
+        .await
+        .unwrap();
+
+        // Domain belonging to the API key's tenant (nil UUID).
+        ctrl.create_tenant_domain(
+            &make_tenant_id(),
+            "mine.domain.com",
+            "custom.test.example.com",
+        )
+        .await
+        .unwrap();
+
+        let resolver = Arc::new(MockDnsResolver::new());
+        let app = test_router(make_state(ctrl, resolver));
+        let req = Request::get("/").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let arr = json.as_array().unwrap();
+        assert_eq!(arr.len(), 1, "list must only return the calling tenant's domains");
+        assert_eq!(arr[0]["domain"], "mine.domain.com");
+    }
 }
