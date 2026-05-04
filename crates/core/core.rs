@@ -71,6 +71,7 @@ pub use social_google::GoogleSocialProvider;
 pub use social_oidc::{CustomOidcSocialProvider, DiscoveryDoc, DISCOVERY_TTL};
 pub use social_providers::{
     ProviderType, SocialProvider, SocialProviderConfig, SocialProviderRow, SocialUserInfo,
+    build_social_provider,
 };
 pub use token_issuance::{
     RefreshToken, TokenError, TokenResponse, compute_at_hash, exchange_authorization_code,

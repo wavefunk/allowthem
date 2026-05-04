@@ -151,10 +151,48 @@ pub trait SocialProvider: Send + Sync {
     fn fetch_user_info<'a>(&'a self, access_token: &'a str) -> AuthFuture<'a, SocialUserInfo>;
 }
 
+// ── Factory ───────────────────────────────────────────────────────────────────
+
+use crate::error::AuthError;
+
+/// Construct a `Box<dyn SocialProvider>` from a decrypted [`SocialProviderConfig`].
+///
+/// Dispatch table:
+///
+/// | `provider_type` | impl                         |
+/// |-----------------|------------------------------|
+/// | `Google`        | [`crate::social_google::GoogleSocialProvider`] |
+/// | `Github`        | [`crate::social_github::GitHubSocialProvider`] |
+/// | `CustomOidc`    | `Err` — lands in **7m5.3**   |
+/// | `Apple`/`Microsoft` | `Err` — deferred         |
+///
+/// **`async fn` rationale**: the `CustomOidc` branch (7m5.3) needs to `await`
+/// an OIDC discovery fetch at construction time. Declaring `async fn` now means
+/// 7m5.3 can add the real impl without changing the public signature or all
+/// existing call sites.
+pub async fn build_social_provider(
+    config: SocialProviderConfig,
+) -> Result<Box<dyn SocialProvider>, AuthError> {
+    match config.provider_type {
+        ProviderType::Google => Ok(Box::new(
+            crate::social_google::GoogleSocialProvider::new(config)?,
+        )),
+        ProviderType::Github => Ok(Box::new(
+            crate::social_github::GitHubSocialProvider::new(config)?,
+        )),
+        ProviderType::CustomOidc => Err(AuthError::Validation(
+            "custom_oidc provider not yet supported (epic 7m5.3)".into(),
+        )),
+        ProviderType::Apple | ProviderType::Microsoft => Err(AuthError::Validation(format!(
+            "provider type {:?} not yet supported",
+            config.provider_type
+        ))),
+    }
+}
+
 // ── Db CRUD ───────────────────────────────────────────────────────────────────
 
 use crate::db::Db;
-use crate::error::AuthError;
 use crate::social_provider_encrypt::{decrypt_split, encrypt_split};
 
 /// Map a SQLite UNIQUE constraint violation on `(provider_type, display_name)`
@@ -905,5 +943,89 @@ mod tests {
         let bytes =
             decrypt_split(&row.client_secret_nonce, &row.client_secret_enc, &TEST_KEY).unwrap();
         assert_eq!(bytes, b"client-secret");
+    }
+
+    // ── build_social_provider factory ─────────────────────────────────────────
+
+    fn make_config(provider_type: ProviderType, scopes: Vec<String>) -> SocialProviderConfig {
+        use crate::types::SocialProviderId;
+        SocialProviderConfig {
+            id: SocialProviderId::new(),
+            provider_type,
+            display_name: "Test".into(),
+            client_id: "cid".into(),
+            client_secret: "sec".into(),
+            scopes,
+            enabled: true,
+            priority: 0,
+            config: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn build_social_provider_dispatches_to_google() {
+        let cfg = make_config(ProviderType::Google, vec!["openid".into()]);
+        let provider = build_social_provider(cfg).await.unwrap();
+        assert_eq!(provider.provider_type(), ProviderType::Google);
+    }
+
+    #[tokio::test]
+    async fn build_social_provider_dispatches_to_github() {
+        let cfg = make_config(ProviderType::Github, vec!["user:email".into()]);
+        let provider = build_social_provider(cfg).await.unwrap();
+        assert_eq!(provider.provider_type(), ProviderType::Github);
+    }
+
+    #[tokio::test]
+    async fn build_social_provider_rejects_custom_oidc_with_validation_error() {
+        let cfg = make_config(ProviderType::CustomOidc, vec!["openid".into()]);
+        // Box<dyn SocialProvider> doesn't impl Debug, so use match instead of unwrap_err.
+        let err = match build_social_provider(cfg).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err, got Ok"),
+        };
+        match err {
+            AuthError::Validation(msg) => {
+                assert!(msg.contains("custom_oidc"), "got: {msg}");
+                assert!(msg.contains("7m5.3"), "got: {msg}");
+            }
+            other => panic!("expected Validation, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn build_social_provider_rejects_apple_with_validation_error() {
+        let cfg = make_config(ProviderType::Apple, vec!["openid".into()]);
+        let err = match build_social_provider(cfg).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err, got Ok"),
+        };
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[tokio::test]
+    async fn build_social_provider_rejects_microsoft_with_validation_error() {
+        let cfg = make_config(ProviderType::Microsoft, vec!["openid".into()]);
+        let err = match build_social_provider(cfg).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err, got Ok"),
+        };
+        assert!(matches!(err, AuthError::Validation(_)));
+    }
+
+    #[tokio::test]
+    async fn build_social_provider_propagates_constructor_error_from_inner() {
+        // Google config with empty scopes — inner constructor returns Validation.
+        let cfg = make_config(ProviderType::Google, vec![]);
+        let err = match build_social_provider(cfg).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err, got Ok"),
+        };
+        match err {
+            AuthError::Validation(msg) => {
+                assert!(msg.contains("scopes must not be empty"), "got: {msg}");
+            }
+            other => panic!("expected Validation, got {other:?}"),
+        }
     }
 }
