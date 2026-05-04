@@ -18,6 +18,10 @@ pub struct SaasConfig {
     pub mfa_key_hex: String,
     pub signing_key_hex: String,
     pub csrf_key_hex: String,
+    /// Months of `tenant_active_users` history to retain. Older rows are
+    /// pruned daily. `tenant_usage` (the billing source of truth) is never
+    /// pruned. Default: 3.
+    pub mau_retention_months: u32,
 }
 
 impl Default for SaasConfig {
@@ -33,6 +37,7 @@ impl Default for SaasConfig {
             mfa_key_hex: String::new(),
             signing_key_hex: String::new(),
             csrf_key_hex: String::new(),
+            mau_retention_months: 3,
         }
     }
 }
@@ -58,6 +63,7 @@ mod tests {
         assert!(!cfg.is_production);
         assert!(cfg.control_plane_db.is_empty());
         assert!(cfg.mfa_key_hex.is_empty());
+        assert_eq!(cfg.mau_retention_months, 3);
     }
 
     #[test]

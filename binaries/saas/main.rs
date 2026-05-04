@@ -20,8 +20,8 @@ use tracing_subscriber::EnvFilter;
 use allowthem_core::{LogEmailSender, LoggingEventSink};
 use allowthem_saas::control_db::ControlDb;
 use allowthem_saas::{
-    DashboardState, HandleCache, ManageState, SlugCache, TenantBuilderConfig, TenantRouterState,
-    manage_router, pre_warm, tenant_router_middleware,
+    DashboardState, HandleCache, ManageState, MauSink, SlugCache, TenantBuilderConfig,
+    TenantRouterState, manage_router, pre_warm, tenant_router_middleware,
 };
 use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 
@@ -58,6 +58,7 @@ async fn main() -> Result<()> {
         .run(&control_pool)
         .await?;
     let control_db = Arc::new(ControlDb::new(control_pool).await?);
+    let mau_sink = Arc::new(MauSink::new(control_db.clone()));
 
     let handle_cache = HandleCache::new(cfg.cache_max_size);
     let slug_cache = SlugCache::new(cfg.cache_max_size, 300);
@@ -76,14 +77,46 @@ async fn main() -> Result<()> {
         is_production: cfg.is_production,
         email_sender: Some(email_sender.clone()),
         event_sink: Some(Arc::new(LoggingEventSink)),
-        mau_sink: None,
+        mau_sink: Some(mau_sink.clone()),
     });
 
     // CLI subcommands handle their own dashboard.db open path. Run them before
     // we open the runtime dashboard handle to avoid duplicate locks on the
-    // same file when a CLI invocation is short-lived.
+    // same file when a CLI invocation is short-lived. The pruner spawn below
+    // is intentionally placed _after_ this short-circuit so CLI invocations
+    // exit cleanly without an orphaned background task.
     if let Some(cmd) = cli::parse() {
         return cli::run(cmd, &control_db, &handle_cache, &tenant_config, &cfg).await;
+    }
+
+    // Spawn the daily MAU pruner. The first interval tick fires immediately;
+    // skip it so we don't prune at boot when the DB has just opened. The
+    // task is detached — graceful shutdown plumbing across binary tasks
+    // doesn't exist yet (eua.2 plan §2.6); when it lands, this loop should
+    // adopt the same shutdown signal as the axum server.
+    {
+        let sink = mau_sink.clone();
+        let retention = cfg.mau_retention_months;
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(
+                std::time::Duration::from_secs(24 * 60 * 60),
+            );
+            tick.tick().await; // skip the immediate-fire boot tick
+            loop {
+                tick.tick().await;
+                match sink.prune_old_active_users(retention).await {
+                    Ok(n) => tracing::info!(
+                        retention_months = retention,
+                        pruned_rows = n,
+                        "MAU pruner: tenant_active_users sweep complete"
+                    ),
+                    Err(e) => tracing::warn!(
+                        error = %e,
+                        "MAU pruner: prune_old_active_users failed"
+                    ),
+                }
+            }
+        });
     }
 
     // Open dashboard.db (create + migrate). Held in DashboardState for the
