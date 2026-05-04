@@ -1386,11 +1386,8 @@ mod tests {
         .await
         .unwrap();
 
-        let url = provider.authorize_url(
-            "https://app.example.com/cb",
-            "state-xyz",
-            "challenge-abc",
-        );
+        let url =
+            provider.authorize_url("https://app.example.com/cb", "state-xyz", "challenge-abc");
         let expected_prefix = format!("{base}/authorize?");
         assert!(
             url.starts_with(&expected_prefix),

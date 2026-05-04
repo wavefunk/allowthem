@@ -490,8 +490,7 @@ mod tests {
             .busy_timeout(std::time::Duration::from_secs(5));
         let pool = SqlitePool::connect_with(opts).await.unwrap();
         let control_db = Arc::new(ControlDb::new(pool).await.unwrap());
-        let (_plan_id, tenant_id) =
-            seed_plan_and_tenant(control_db.pool(), 1_000).await;
+        let (_plan_id, tenant_id) = seed_plan_and_tenant(control_db.pool(), 1_000).await;
         let sink = Arc::new(MauSink::new(control_db.clone()));
 
         // 10 distinct users, each fired 5 times → 50 spawns, expect mau_count
@@ -512,22 +511,20 @@ mod tests {
             h.await.unwrap().unwrap();
         }
 
-        let mau: i64 = sqlx::query_scalar(
-            "SELECT mau_count FROM tenant_usage WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(control_db.pool())
-        .await
-        .unwrap();
+        let mau: i64 =
+            sqlx::query_scalar("SELECT mau_count FROM tenant_usage WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(control_db.pool())
+                .await
+                .unwrap();
         assert_eq!(mau, 10, "mau_count must equal distinct user count");
 
-        let active_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(control_db.pool())
-        .await
-        .unwrap();
+        let active_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(control_db.pool())
+                .await
+                .unwrap();
         assert_eq!(
             active_count, 10,
             "tenant_active_users must have one row per distinct user"
