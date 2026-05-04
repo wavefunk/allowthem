@@ -24,6 +24,8 @@ pub mod permissions;
 pub mod roles;
 pub mod sessions;
 pub mod signing_keys;
+mod social_provider_encrypt;
+pub mod social_providers;
 pub mod token_cleanup;
 pub mod token_issuance;
 pub mod totp;
@@ -46,6 +48,9 @@ pub use handle::{AllowThem, AllowThemBuilder, BuildError, LoginOutcome, OnUserAc
 pub use invitations::Invitation;
 pub use jwt::{Claims, JwtConfig, generate_token as generate_jwt, validate_token};
 pub use oauth::{OAuthAccountInfo, OAuthProvider, OAuthStateInfo, OAuthUserInfo};
+pub use social_providers::{
+    ProviderType, SocialProvider, SocialProviderConfig, SocialProviderRow, SocialUserInfo,
+};
 pub use oauth_github::GitHubProvider;
 pub use oauth_google::GoogleProvider;
 pub use sessions::{
