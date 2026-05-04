@@ -51,11 +51,11 @@
 {% endmacro %}
 
 {% macro terms_footer(terms_url="", privacy_url="") %}
-  {% set t_url = terms_url or "/terms" %}
-  {% set p_url = privacy_url or "/privacy" %}
+  {% if terms_url and privacy_url %}
   <p class="wf-caption wf-mt-6">
     By continuing, you agree to our
-    <a href="{{ t_url }}">Terms</a> and
-    <a href="{{ p_url }}">Privacy</a>.
+    <a href="{{ terms_url }}">Terms</a> and
+    <a href="{{ privacy_url }}">Privacy</a>.
   </p>
+  {% endif %}
 {% endmacro %}

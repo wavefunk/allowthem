@@ -226,8 +226,8 @@ async fn main() -> Result<()> {
         .oauth_providers(std::collections::HashMap::new())
         .login_overrides(LoginOverrides {
             signup_url: Some("/signup".to_owned()),
-            terms_url: Some("#".to_owned()),
-            privacy_url: Some("#".to_owned()),
+            terms_url: None,
+            privacy_url: None,
         })
         .all_routes()
         .build_for_saas()
