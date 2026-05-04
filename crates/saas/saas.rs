@@ -9,6 +9,7 @@ pub mod mau;
 pub mod router;
 pub mod tenants;
 pub mod webhook_sink;
+pub mod webhook_worker;
 
 pub use api_keys::ApiKeyScope;
 pub use cache::{HandleCache, SlugCache, TenantMeta};
@@ -35,3 +36,4 @@ pub use tenants::{
 pub use webhook_sink::{
     EventSinkFactory, LoggingEventSinkFactory, WebhookEventSink, WebhookEventSinkFactory,
 };
+pub use webhook_worker::{WebhookWorker, WebhookWorkerConfig};
