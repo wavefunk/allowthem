@@ -39,7 +39,7 @@ use std::time::Duration;
 use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use eyre::Result;
 
 use allowthem_core::{AllowThem, AllowThemBuilder};
@@ -159,6 +159,11 @@ pub fn dashboard_pages_router(state: state::DashboardRouterState) -> Router {
         .route("/t/{slug}/settings/webhooks", get(stubs::webhooks))
         .route("/t/{slug}/settings/email", get(stubs::email))
         .route("/t/{slug}/settings/social", get(stubs::social))
+        // l7y.32 workspace-scoped logout → root logout.
+        .route(
+            "/t/{slug}/logout",
+            get(|| async { Redirect::to("/logout") }),
+        )
         // 99c.5 invite accept flow (anonymous-allowed; outside /t/{slug}).
         .merge(invite::invite_routes())
         // 99c.6 super-admin panel.
@@ -293,6 +298,8 @@ mod tests {
         "/t/test-slug/settings/email",
         "/t/test-slug/settings/social",
         "/t/test-slug/settings/domain",
+        // l7y.32 workspace-scoped logout redirect.
+        "/t/test-slug/logout",
         // 99c.5 invite accept (outside /t/{slug}).
         "/invite/some-base64url-token",
         // 99c.6 super-admin panel.
