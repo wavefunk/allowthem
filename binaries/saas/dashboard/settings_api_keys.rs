@@ -130,8 +130,8 @@ async fn list(
             context! {
                 id => k.id.to_string(),
                 name => k.name.clone(),
-                created_at => k.created_at.to_rfc3339(),
-                expires_at => k.expires_at.map(|dt| dt.to_rfc3339()),
+                created_at => k.created_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+                expires_at => k.expires_at.map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()),
             }
         })
         .collect::<Vec<_>>();
@@ -184,8 +184,8 @@ async fn mint(
                 context! {
                     id => k.id.to_string(),
                     name => k.name.clone(),
-                    created_at => k.created_at.to_rfc3339(),
-                    expires_at => k.expires_at.map(|dt| dt.to_rfc3339()),
+                    created_at => k.created_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+                    expires_at => k.expires_at.map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()),
                 }
             })
             .collect::<Vec<_>>();
@@ -246,8 +246,8 @@ async fn mint(
             context! {
                 id => k.id.to_string(),
                 name => k.name.clone(),
-                created_at => k.created_at.to_rfc3339(),
-                expires_at => k.expires_at.map(|dt| dt.to_rfc3339()),
+                created_at => k.created_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+                expires_at => k.expires_at.map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()),
             }
         })
         .collect::<Vec<_>>();
