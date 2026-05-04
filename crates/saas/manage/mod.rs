@@ -1,4 +1,5 @@
 pub mod applications;
+pub mod domains;
 pub mod logs;
 pub mod permissions;
 pub mod roles;
@@ -26,6 +27,7 @@ use sha2::{Digest, Sha256};
 use crate::api_keys::{ApiKey, ApiKeyScope};
 use crate::cache::HandleCache;
 use crate::control_db::ControlDb;
+use crate::dns::DnsResolver;
 use crate::router::build_handle;
 use crate::tenants::TenantBuilderConfig;
 
@@ -110,6 +112,7 @@ pub struct ManageState {
     pub tenant_data_dir: PathBuf,
     pub config: Arc<TenantBuilderConfig>,
     pub rate_limiter: ManageRateLimiter,
+    pub dns_resolver: Arc<dyn DnsResolver>,
 }
 
 impl ManageState {
@@ -119,6 +122,7 @@ impl ManageState {
         tenant_data_dir: PathBuf,
         config: Arc<TenantBuilderConfig>,
         requests_per_minute: u32,
+        dns_resolver: Arc<dyn DnsResolver>,
     ) -> Self {
         let rpm =
             NonZeroU32::new(requests_per_minute).unwrap_or_else(|| NonZeroU32::new(60).unwrap());
@@ -128,6 +132,7 @@ impl ManageState {
             tenant_data_dir,
             config,
             rate_limiter: ManageRateLimiter::new(Quota::per_minute(rpm)),
+            dns_resolver,
         }
     }
 }
@@ -223,6 +228,7 @@ impl<S: Send + Sync> FromRequestParts<S> for AdminKey {
 pub fn manage_router(state: ManageState) -> axum::Router {
     axum::Router::<ManageState>::new()
         .nest("/applications", applications::application_routes())
+        .nest("/domains", domains::domain_routes())
         .nest("/users", users::user_routes())
         .nest("/sessions", sessions::session_routes())
         .nest("/roles", roles::role_routes())
@@ -294,6 +300,7 @@ mod tests {
                 mau_sink: None,
             }),
             rpm,
+            Arc::new(crate::dns::MockDnsResolver::new()),
         )
     }
 

@@ -151,7 +151,10 @@ impl DnsResolver for HickoryDnsResolver {
 #[cfg(any(test, feature = "test-util"))]
 pub struct MockDnsResolver {
     chains: tokio::sync::Mutex<
-        std::collections::HashMap<String, std::collections::VecDeque<Result<Vec<String>, DnsError>>>,
+        std::collections::HashMap<
+            String,
+            std::collections::VecDeque<Result<Vec<String>, DnsError>>,
+        >,
     >,
 }
 
@@ -229,9 +232,7 @@ pub async fn verify_domain(
                     .await?;
                 Ok(DomainStatus::Verified)
             } else {
-                let msg = format!(
-                    "CNAME chain {chain:?} does not contain {dns_target}"
-                );
+                let msg = format!("CNAME chain {chain:?} does not contain {dns_target}");
                 control_db
                     .set_tenant_domain_status(
                         &domain_id,
@@ -348,11 +349,10 @@ mod tests {
         let db = ControlDb::new(pool).await.unwrap();
 
         // Seed a tenant.
-        let plan_id: Vec<u8> =
-            sqlx::query_scalar("SELECT id FROM tenant_plans LIMIT 1")
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
+        let plan_id: Vec<u8> = sqlx::query_scalar("SELECT id FROM tenant_plans LIMIT 1")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
         let tid_uuid = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO tenants (id, name, slug, owner_email, plan_id, status, db_path) \
@@ -385,10 +385,7 @@ mod tests {
         let (db, domain_id, tenant_id) = setup("vf-a", "auth.example.com").await;
         let resolver = MockDnsResolver::new();
         resolver
-            .queue(
-                "auth.example.com",
-                Ok(vec!["custom.allowthem.io".into()]),
-            )
+            .queue("auth.example.com", Ok(vec!["custom.allowthem.io".into()]))
             .await;
 
         let status = verify_domain(
@@ -419,10 +416,7 @@ mod tests {
         let resolver = MockDnsResolver::new();
         // Chain hop ends with a trailing dot (FQDN).
         resolver
-            .queue(
-                "auth.example.com",
-                Ok(vec!["custom.allowthem.io.".into()]),
-            )
+            .queue("auth.example.com", Ok(vec!["custom.allowthem.io.".into()]))
             .await;
 
         let status = verify_domain(
@@ -525,7 +519,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(row.last_error.as_deref().unwrap().contains("does not contain"));
+        assert!(
+            row.last_error
+                .as_deref()
+                .unwrap()
+                .contains("does not contain")
+        );
     }
 
     #[tokio::test]
@@ -536,10 +535,7 @@ mod tests {
 
         let resolver = MockDnsResolver::new();
         resolver
-            .queue(
-                "auth.example.com",
-                Ok(vec!["custom.allowthem.io".into()]),
-            )
+            .queue("auth.example.com", Ok(vec!["custom.allowthem.io".into()]))
             .await;
 
         let result = verify_domain(
@@ -592,10 +588,7 @@ mod tests {
         let (db, domain_id, tenant_id) = setup("sw-a", "auth.example.com").await;
         let resolver = std::sync::Arc::new(MockDnsResolver::new());
         resolver
-            .queue(
-                "auth.example.com",
-                Ok(vec!["custom.allowthem.io".into()]),
-            )
+            .queue("auth.example.com", Ok(vec!["custom.allowthem.io".into()]))
             .await;
 
         let stats = run_one_sweep(&*resolver, &db, 100).await.unwrap();
@@ -612,11 +605,10 @@ mod tests {
     async fn sweep_caps_at_limit() {
         let pool = test_pool().await;
         let db = ControlDb::new(pool).await.unwrap();
-        let plan_id: Vec<u8> =
-            sqlx::query_scalar("SELECT id FROM tenant_plans LIMIT 1")
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
+        let plan_id: Vec<u8> = sqlx::query_scalar("SELECT id FROM tenant_plans LIMIT 1")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
 
         // Seed 5 domains for one tenant.
         let tid_uuid = Uuid::now_v7();
@@ -653,20 +645,14 @@ mod tests {
 
         // First sweep: wrong chain → Failed.
         resolver
-            .queue(
-                "auth.example.com",
-                Ok(vec!["wrong.example.net".into()]),
-            )
+            .queue("auth.example.com", Ok(vec!["wrong.example.net".into()]))
             .await;
         let s1 = run_one_sweep(&resolver, &db, 100).await.unwrap();
         assert_eq!(s1.failed, 1);
 
         // Second sweep: correct chain → Verified.
         resolver
-            .queue(
-                "auth.example.com",
-                Ok(vec!["custom.allowthem.io".into()]),
-            )
+            .queue("auth.example.com", Ok(vec!["custom.allowthem.io".into()]))
             .await;
         let s2 = run_one_sweep(&resolver, &db, 100).await.unwrap();
         assert_eq!(s2.verified, 1);

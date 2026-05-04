@@ -68,6 +68,7 @@ mod tests {
                 mau_sink: None,
             }),
             1000,
+            Arc::new(crate::dns::MockDnsResolver::new()),
         )
     }
 

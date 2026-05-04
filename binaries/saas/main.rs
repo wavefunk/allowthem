@@ -20,9 +20,9 @@ use tracing_subscriber::EnvFilter;
 use allowthem_core::{LogEmailSender, LoggingEventSink};
 use allowthem_saas::control_db::ControlDb;
 use allowthem_saas::{
-    DashboardState, HandleCache, ManageState, MauSink, SlugCache, TenantBuilderConfig,
-    TenantRouterState, WebhookEventSinkFactory, WebhookWorker, WebhookWorkerConfig, manage_router,
-    pre_warm, tenant_router_middleware,
+    DashboardState, HandleCache, HickoryDnsResolver, ManageState, MauSink, SlugCache,
+    TenantBuilderConfig, TenantRouterState, WebhookEventSinkFactory, WebhookWorker,
+    WebhookWorkerConfig, manage_router, pre_warm, tenant_router_middleware,
 };
 use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 
@@ -158,12 +158,14 @@ async fn main() -> Result<()> {
         seen_times: Arc::new(DashMap::new()),
         dashboard_handle: Some(dashboard_ath),
     };
+    let dns_resolver = Arc::new(HickoryDnsResolver::new().map_err(|e| eyre::eyre!("{e}"))?);
     let manage_state = ManageState::new(
         control_db.clone(),
         handle_cache.clone(),
         tenant_data_dir.clone(),
         tenant_config.clone(),
         60,
+        dns_resolver,
     );
 
     let auth_routes = AllRoutesBuilder::new()
@@ -259,10 +261,8 @@ async fn main() -> Result<()> {
     // listens on the same `shutdown_signal()` future, so the worker exits
     // shortly after axum starts draining.
     let (webhook_shutdown_tx, webhook_shutdown_rx) = tokio::sync::watch::channel(false);
-    let webhook_worker = WebhookWorker::new(
-        control_db.pool().clone(),
-        WebhookWorkerConfig::default(),
-    );
+    let webhook_worker =
+        WebhookWorker::new(control_db.pool().clone(), WebhookWorkerConfig::default());
     let webhook_handle = tokio::spawn(async move {
         webhook_worker.run(webhook_shutdown_rx).await;
     });

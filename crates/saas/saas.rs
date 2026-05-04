@@ -2,6 +2,7 @@ pub mod api_keys;
 pub mod cache;
 pub mod control_db;
 pub mod dashboard;
+pub mod dns;
 pub mod domains;
 pub mod error;
 pub mod manage;
@@ -21,6 +22,7 @@ pub use dashboard::{
     DashboardSignupError, DashboardSignupParams, DashboardSignupResult, DashboardState,
     ProvisionForUserError, dashboard_cookie_name, dashboard_signup, provision_tenant_for_user,
 };
+pub use dns::{DnsError, DnsResolver, HickoryDnsResolver, SweepStats, verify_domain};
 pub use domains::{DomainId, DomainStatus, TenantDomain, normalize_domain};
 pub use error::SaasError;
 pub use manage::{ManageState, manage_router};
