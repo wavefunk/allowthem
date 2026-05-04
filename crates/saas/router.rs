@@ -769,4 +769,133 @@ mod tests {
             "no callback should be registered when mau_sink is None"
         );
     }
+
+    // -- email_sender_factory wiring (c8m.3 Task 5) ----------------------------
+
+    /// Stub `EmailSenderFactory` that captures the `tenant_id` it was called
+    /// with. Used to verify `build_handle_with_path` routes through the
+    /// factory (and not the shared `email_sender` fallback) when both are
+    /// present.
+    struct StubEmailFactory {
+        captured: Arc<std::sync::Mutex<Option<TenantId>>>,
+    }
+
+    /// Sentinel sender — never sends; presence of this type is the
+    /// "factory path was chosen" signal in the wiring test.
+    struct SentinelEmailSender;
+
+    impl allowthem_core::EmailSender for SentinelEmailSender {
+        fn send<'a>(
+            &'a self,
+            _message: &'a allowthem_core::email::EmailMessage,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), allowthem_core::error::AuthError>>
+                    + Send
+                    + 'a>,
+        > {
+            Box::pin(std::future::ready(Ok(())))
+        }
+    }
+
+    impl crate::managed_email::EmailSenderFactory for StubEmailFactory {
+        fn for_tenant<'a>(
+            &'a self,
+            tenant_id: TenantId,
+            _tenant_pool: &'a sqlx::SqlitePool,
+        ) -> allowthem_core::auth_client::AuthFuture<'a, Arc<dyn allowthem_core::EmailSender>>
+        {
+            let captured = self.captured.clone();
+            Box::pin(async move {
+                *captured.lock().unwrap() = Some(tenant_id);
+                Ok(Arc::new(SentinelEmailSender) as Arc<dyn allowthem_core::EmailSender>)
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn build_handle_with_path_uses_email_sender_factory_when_set() {
+        // Plan c8m.3 §6 explicitly lists this as the integration test for
+        // Task 5. Asserts that when both `email_sender` and
+        // `email_sender_factory` are set, the factory wins — and that it
+        // is invoked with the supplied tenant_id (so per-tenant resolution
+        // actually receives the correct id).
+        use allowthem_core::email::{EmailMessage, EmailTemplate};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = make_state().await;
+        let captured: Arc<std::sync::Mutex<Option<TenantId>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let factory = Arc::new(StubEmailFactory {
+            captured: captured.clone(),
+        });
+
+        // Set both fields so the precedence assertion is meaningful: the
+        // shared sender is a real LogEmailSender; the factory yields a
+        // SentinelEmailSender. Either could win in principle; `Some(factory)
+        // wins` is the contract under test.
+        let provision_config = TenantBuilderConfig {
+            mfa_key: [1u8; 32],
+            signing_key: [2u8; 32],
+            csrf_key: [3u8; 32],
+            base_domain: "test.local".into(),
+            is_production: false,
+            email_sender: Some(Arc::new(allowthem_core::LogEmailSender)),
+            event_sink: None,
+            event_sink_factory: None,
+            mau_sink: None,
+            email_sender_factory: None,
+        };
+
+        let provisioned = state
+            .control_db
+            .provision_tenant(
+                "Email Co".into(),
+                "emailco".into(),
+                "owner@emailco.test".into(),
+                dir.path(),
+                &provision_config,
+            )
+            .await
+            .expect("provision_tenant");
+        let tenant_id = TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
+
+        let wired_config = TenantBuilderConfig {
+            email_sender_factory: Some(factory.clone()),
+            ..provision_config
+        };
+        let ath = build_handle_with_path(
+            &provisioned.tenant.db_path,
+            tenant_id,
+            dir.path(),
+            &wired_config,
+            "emailco",
+        )
+        .await
+        .expect("build_handle_with_path");
+
+        // The factory should have been invoked with our tenant_id at handle
+        // build time — not deferred to first send.
+        let observed = captured.lock().unwrap().clone();
+        assert_eq!(
+            observed,
+            Some(tenant_id),
+            "EmailSenderFactory::for_tenant must run with the supplied tenant_id"
+        );
+
+        // Sanity: send an email through the handle. Our SentinelEmailSender
+        // returns Ok immediately; LogEmailSender would also return Ok, so
+        // this isn't the discriminating signal — but it ensures the
+        // returned sender is actually wired through (not dropped silently).
+        ath.email_sender()
+            .send(&EmailMessage {
+                to: "user@example.com".into(),
+                subject: "x".into(),
+                template: EmailTemplate::PasswordReset {
+                    url: "https://x".into(),
+                    username: "user".into(),
+                },
+            })
+            .await
+            .expect("send via factory-resolved sender");
+    }
 }

@@ -740,4 +740,58 @@ mod tests {
         let display = resolve_display_name(&control_db, phantom).await;
         assert_eq!(display, "allowthem");
     }
+
+    // -- Gap-filling regressions (c8m.3.4) ---------------------------------
+
+    #[tokio::test]
+    async fn from_strips_double_quotes_from_display_name() {
+        // The From header is composed as `"<display>" <addr>`. An embedded
+        // double-quote in the tenant's display name would close the
+        // quoted-string early and corrupt the header. The sender defends
+        // against this with `.replace('"', "")`. Untested in the original
+        // suite — a regression that dropped the sanitiser would still
+        // produce a `From` field, just a malformed one.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        // A tenant name with embedded quotes — the sanitiser must drop
+        // them, leaving `Bob's Diner Inc.` inside the quoted-string slot.
+        let sender =
+            make_sender_for_server(&server, None, "Bob's \"Diner\" Inc.").await;
+        sender.send(&reset_message()).await.unwrap();
+
+        let reqs = server.received_requests().await.unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(&reqs[0].body).unwrap();
+        let from = body["From"].as_str().unwrap();
+        assert_eq!(
+            from, "\"Bob's Diner Inc.\" <noreply@mail.example.com>",
+            "embedded double-quotes must be stripped from display name"
+        );
+    }
+
+    #[tokio::test]
+    async fn display_name_falls_back_to_default_when_control_pool_is_closed() {
+        // resolve_display_name has three branches: Ok(Some) → name,
+        // Ok(None) → "allowthem", Err → warn-log + "allowthem". The
+        // Err branch is reachable when the control DB pool is closed
+        // (any subsequent query returns sqlx::Error::PoolClosed). The
+        // existing tests cover Ok(Some) and Ok(None); this one walks
+        // the Err arm.
+        let (_factory, tenant_id, _tenant_db, control_db) =
+            setup_factory(deployment_config(), "Acme Inc").await;
+
+        // Close the pool so the next query errors. The helper must catch
+        // the error, log, and return the default.
+        control_db.pool().close().await;
+
+        let display = resolve_display_name(&control_db, tenant_id).await;
+        assert_eq!(
+            display, "allowthem",
+            "Err from control DB lookup must surface as the fallback name"
+        );
+    }
 }
