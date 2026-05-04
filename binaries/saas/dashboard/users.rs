@@ -35,6 +35,7 @@ use allowthem_server::csrf::CsrfToken;
 
 use super::extractors::{
     HtmlForm, RequireTenantAdmin, RequireTenantMember, RequireTenantOwner, TenantScope,
+    current_tenant_ctx, workspaces_for_user,
 };
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
@@ -148,6 +149,7 @@ async fn list(
         .await?;
 
     let total_pages = result.total.div_ceil(PAGE_SIZE).max(1);
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/users", scope.tenant.slug),
@@ -164,6 +166,8 @@ async fn list(
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
             nav_sections => nav,
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             users => &result.users,
             total => result.total,
             page => page,
@@ -261,6 +265,7 @@ async fn detail(
     let all_roles = scope.ath.db().list_roles().await?;
     let all_permissions = scope.ath.db().list_permissions().await?;
 
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/users", scope.tenant.slug),
@@ -277,6 +282,8 @@ async fn detail(
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
             nav_sections => nav,
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             user => &user,
             roles => roles,
             direct_permissions => direct_permissions,

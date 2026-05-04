@@ -18,7 +18,7 @@ use allowthem_saas::{
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember};
+use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, current_tenant_ctx, workspaces_for_user};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -123,6 +123,7 @@ async fn load_entries(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn page_ctx(
     slug: &str,
     name: &str,
@@ -131,12 +132,16 @@ fn page_ctx(
     dns_tgt: &str,
     csrf_token: &str,
     error: &str,
+    current_tenant: minijinja::value::Value,
+    workspaces: Vec<minijinja::value::Value>,
 ) -> minijinja::value::Value {
     let path = format!("/t/{slug}/settings/domains");
     let nav = tenant_nav_items(slug, &path, role);
     context! {
         tenant => context! { name => name, slug => slug },
         nav_sections => nav,
+        current_tenant,
+        workspaces,
         csrf_token => csrf_token,
         domains => entries,
         dns_target => dns_tgt,
@@ -155,6 +160,7 @@ pub async fn show(
 ) -> Result<Response, BrowserError> {
     let tenant_id = extract_tenant_id(&scope.tenant)?;
     let entries = load_entries(&state, &tenant_id).await;
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let dns_tgt = dns_target(&scope.tenant.slug, &state.base_domain);
     render(
         &state,
@@ -167,6 +173,8 @@ pub async fn show(
             &dns_tgt,
             csrf.as_str(),
             "",
+            current_tenant_ctx(&scope.tenant),
+            workspaces,
         ),
     )
     .map(IntoResponse::into_response)
@@ -185,6 +193,7 @@ pub async fn register(
         Ok(d) => d,
         Err(e) => {
             let entries = load_entries(&state, &tenant_id).await;
+            let workspaces = workspaces_for_user(&state, &scope).await;
             return render(
                 &state,
                 scope.user.email.as_str(),
@@ -196,6 +205,8 @@ pub async fn register(
                     &dns_tgt,
                     csrf.as_str(),
                     &e.to_string(),
+                    current_tenant_ctx(&scope.tenant),
+                    workspaces,
                 ),
             )
             .map(IntoResponse::into_response);
@@ -210,6 +221,7 @@ pub async fn register(
         Ok(_) => {}
         Err(SaasError::DomainAlreadyExists) => {
             let entries = load_entries(&state, &tenant_id).await;
+            let workspaces = workspaces_for_user(&state, &scope).await;
             return render(
                 &state,
                 scope.user.email.as_str(),
@@ -221,6 +233,8 @@ pub async fn register(
                     &dns_tgt,
                     csrf.as_str(),
                     "That domain is already registered.",
+                    current_tenant_ctx(&scope.tenant),
+                    workspaces,
                 ),
             )
             .map(IntoResponse::into_response);

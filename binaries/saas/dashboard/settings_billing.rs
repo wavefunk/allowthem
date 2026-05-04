@@ -15,7 +15,9 @@ use allowthem_saas::TenantId;
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{RequireTenantMember, RequireTenantOwner};
+use super::extractors::{
+    RequireTenantMember, RequireTenantOwner, current_tenant_ctx, workspaces_for_user,
+};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -118,6 +120,7 @@ pub async fn show(
         }
     });
 
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/settings/billing", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -127,6 +130,8 @@ pub async fn show(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             plan => plan_ctx,
             current_usage => current_usage,

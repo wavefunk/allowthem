@@ -11,7 +11,7 @@ use minijinja::context;
 
 use allowthem_server::browser_error::BrowserError;
 
-use super::extractors::RequireTenantMember;
+use super::extractors::{RequireTenantMember, current_tenant_ctx, workspaces_for_user};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -85,6 +85,7 @@ pub async fn webhooks(
     State(state): State<DashboardRouterState>,
     RequireTenantMember(scope): RequireTenantMember,
 ) -> Result<Response, BrowserError> {
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/settings/webhooks", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -95,6 +96,8 @@ pub async fn webhooks(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(&scope),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             title => "Webhooks",
             epic_ref => "7xw",
             description => "Configure webhook endpoints to receive real-time events \
@@ -109,6 +112,7 @@ pub async fn email(
     State(state): State<DashboardRouterState>,
     RequireTenantMember(scope): RequireTenantMember,
 ) -> Result<Response, BrowserError> {
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/settings/email", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -119,6 +123,8 @@ pub async fn email(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(&scope),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             title => "Email",
             epic_ref => "c8m",
             description => "Customise transactional email templates and sender address.",
@@ -132,6 +138,7 @@ pub async fn social(
     State(state): State<DashboardRouterState>,
     RequireTenantMember(scope): RequireTenantMember,
 ) -> Result<Response, BrowserError> {
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/settings/social", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -142,6 +149,8 @@ pub async fn social(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(&scope),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             title => "Social Providers",
             epic_ref => "7m5",
             description => "Connect Google, GitHub, and other OAuth providers for social login.",

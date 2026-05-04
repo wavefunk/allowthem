@@ -28,7 +28,10 @@ use allowthem_saas::TenantId;
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
+use super::extractors::{
+    HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope, current_tenant_ctx,
+    workspaces_for_user,
+};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -145,6 +148,7 @@ async fn list(
         });
     }
 
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/roles", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -155,6 +159,8 @@ async fn list(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             roles => role_views,
         },
@@ -167,6 +173,7 @@ async fn new_form(
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/roles/new", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -177,6 +184,8 @@ async fn new_form(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             error => "",
             name => "",
@@ -196,6 +205,7 @@ async fn create(
     let desc = form.description.trim().to_owned();
 
     if name.is_empty() || name.len() > 80 {
+        let workspaces = workspaces_for_user(&state, &scope).await;
         let path = format!("/t/{}/roles/new", scope.tenant.slug);
         let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
         return render(
@@ -206,6 +216,8 @@ async fn create(
                 tenant => tenant_ctx(&scope.tenant),
                 nav_sections => nav,
                 role => role_str(scope.role),
+                current_tenant => current_tenant_ctx(&scope.tenant),
+                workspaces,
                 csrf_token => csrf.as_str(),
                 error => "Role name must be 1–80 characters.",
                 name => &name,
@@ -224,6 +236,7 @@ async fn create(
     {
         Ok(r) => r,
         Err(allowthem_core::error::AuthError::Conflict(_)) => {
+            let workspaces = workspaces_for_user(&state, &scope).await;
             let path = format!("/t/{}/roles/new", scope.tenant.slug);
             let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
             return render(
@@ -234,6 +247,8 @@ async fn create(
                     tenant => tenant_ctx(&scope.tenant),
                     nav_sections => nav,
                     role => role_str(scope.role),
+                    current_tenant => current_tenant_ctx(&scope.tenant),
+                    workspaces,
                     csrf_token => csrf.as_str(),
                     error => "A role with that name already exists.",
                     name => &name,
@@ -286,6 +301,7 @@ async fn detail(
         })
         .collect();
 
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/roles/{}", scope.tenant.slug, role_id);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -296,6 +312,8 @@ async fn detail(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             this_role => context! {
                 id => role.id.to_string(),
@@ -331,6 +349,7 @@ async fn update(
     let _ = re_render; // suppress unused warning; expanded inline below
 
     if name.is_empty() || name.len() > 80 {
+        let workspaces = workspaces_for_user(&state, &scope).await;
         let all_permissions = scope.ath.db().list_permissions().await?;
         let assigned = scope.ath.db().list_role_permissions(&role_id).await?;
         let assigned_ids: HashSet<_> = assigned.iter().map(|p| p.id).collect();
@@ -355,6 +374,8 @@ async fn update(
                 tenant => tenant_ctx(&scope.tenant),
                 nav_sections => nav,
                 role => role_str(scope.role),
+                current_tenant => current_tenant_ctx(&scope.tenant),
+                workspaces,
                 csrf_token => csrf.as_str(),
                 this_role => context! {
                     id => role_id.to_string(),
@@ -396,6 +417,7 @@ async fn update(
             )
         }
         Err(allowthem_core::error::AuthError::Conflict(_)) => {
+            let workspaces = workspaces_for_user(&state, &scope).await;
             let all_permissions = scope.ath.db().list_permissions().await?;
             let assigned = scope.ath.db().list_role_permissions(&role_id).await?;
             let assigned_ids: HashSet<_> = assigned.iter().map(|p| p.id).collect();
@@ -420,6 +442,8 @@ async fn update(
                     tenant => tenant_ctx(&scope.tenant),
                     nav_sections => nav,
                     role => role_str(scope.role),
+                    current_tenant => current_tenant_ctx(&scope.tenant),
+                    workspaces,
                     csrf_token => csrf.as_str(),
                     this_role => context! {
                         id => role_id.to_string(),

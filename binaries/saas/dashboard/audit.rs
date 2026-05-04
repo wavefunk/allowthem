@@ -22,7 +22,9 @@ use allowthem_core::audit::{AuditEvent, AuditListEntry, SearchAuditParams};
 use allowthem_core::types::UserId;
 use allowthem_server::browser_error::BrowserError;
 
-use super::extractors::{RequireTenantMember, TenantScope};
+use super::extractors::{
+    RequireTenantMember, TenantScope, current_tenant_ctx, workspaces_for_user,
+};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -259,6 +261,7 @@ async fn list(
         || nonempty(&query.from).is_some()
         || nonempty(&query.to).is_some();
 
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/audit", scope.tenant.slug),
@@ -272,6 +275,8 @@ async fn list(
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
             nav_sections => nav,
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             entries => entries_view,
             total => total,
             page => page,

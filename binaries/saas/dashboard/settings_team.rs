@@ -24,6 +24,7 @@ use allowthem_server::csrf::CsrfToken;
 
 use super::extractors::{
     HtmlForm, RequireTenantAdmin, RequireTenantMember, RequireTenantOwner, TenantScope,
+    current_tenant_ctx, workspaces_for_user,
 };
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
@@ -175,6 +176,7 @@ pub async fn list(
 ) -> Result<Response, BrowserError> {
     let members = fetch_members(&state, &scope).await;
     let owner_count = members.iter().filter(|m| m.role.as_str() == "owner").count();
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/settings/team", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -184,6 +186,8 @@ pub async fn list(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             members => member_rows(&members),
             can_manage => can_manage(&scope),
@@ -318,6 +322,7 @@ pub async fn update_role(
         Err(SaasError::CannotDemoteLastOwner) => {
             // Re-render list with a flash error.
             let members = fetch_members(&state, &scope).await;
+            let workspaces = workspaces_for_user(&state, &scope).await;
             let path = format!("/t/{}/settings/team", scope.tenant.slug);
             let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
             return render(
@@ -327,6 +332,8 @@ pub async fn update_role(
                     tenant => tenant_ctx(&scope.tenant),
                     nav_sections => nav,
                     role => role_str(scope.role),
+                    current_tenant => current_tenant_ctx(&scope.tenant),
+                    workspaces,
                     csrf_token => csrf.as_str(),
                     members => member_rows(&members),
                     can_manage => true,
@@ -387,6 +394,7 @@ pub async fn remove(
         Ok(()) => {}
         Err(SaasError::CannotRemoveLastOwner) => {
             let members = fetch_members(&state, &scope).await;
+            let workspaces = workspaces_for_user(&state, &scope).await;
             let path = format!("/t/{}/settings/team", scope.tenant.slug);
             let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
             return render(
@@ -396,6 +404,8 @@ pub async fn remove(
                     tenant => tenant_ctx(&scope.tenant),
                     nav_sections => nav,
                     role => role_str(scope.role),
+                    current_tenant => current_tenant_ctx(&scope.tenant),
+                    workspaces,
                     csrf_token => csrf.as_str(),
                     members => member_rows(&members),
                     can_manage => true,
@@ -437,6 +447,7 @@ async fn render_invite_error(
     error: &str,
 ) -> Result<Response, BrowserError> {
     let members = fetch_members(state, scope).await;
+    let workspaces = workspaces_for_user(state, scope).await;
     let path = format!("/t/{}/settings/team", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -446,6 +457,8 @@ async fn render_invite_error(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf_str,
             members => member_rows(&members),
             can_manage => true,

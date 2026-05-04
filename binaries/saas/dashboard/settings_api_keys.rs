@@ -21,7 +21,10 @@ use allowthem_saas::api_keys::ApiKeyScope;
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
+use super::extractors::{
+    HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope, current_tenant_ctx,
+    workspaces_for_user,
+};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -133,6 +136,7 @@ async fn list(
         })
         .collect::<Vec<_>>();
 
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/settings/api-keys", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -143,6 +147,8 @@ async fn list(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             keys => key_views,
             new_key_secret => Option::<String>::None,
@@ -184,6 +190,7 @@ async fn mint(
             })
             .collect::<Vec<_>>();
 
+        let workspaces = workspaces_for_user(&state, &scope).await;
         let path = format!("/t/{}/settings/api-keys", scope.tenant.slug);
         let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
         return render(
@@ -194,6 +201,8 @@ async fn mint(
                 tenant => tenant_ctx(&scope.tenant),
                 nav_sections => nav,
                 role => role_str(scope.role),
+                current_tenant => current_tenant_ctx(&scope.tenant),
+                workspaces,
                 csrf_token => csrf.as_str(),
                 keys => key_views,
                 new_key_secret => Option::<String>::None,
@@ -243,6 +252,7 @@ async fn mint(
         })
         .collect::<Vec<_>>();
 
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/settings/api-keys", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -253,6 +263,8 @@ async fn mint(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             keys => key_views,
             new_key_secret => Some(result.raw_key),

@@ -20,7 +20,10 @@ use allowthem_saas::TenantId;
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
+use super::extractors::{
+    HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope, current_tenant_ctx,
+    workspaces_for_user,
+};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -126,6 +129,7 @@ async fn list(
         })
         .collect();
 
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/permissions", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -136,6 +140,8 @@ async fn list(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             permissions => perm_views,
         },
@@ -148,6 +154,7 @@ async fn new_form(
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/permissions/new", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
     render(
@@ -158,6 +165,8 @@ async fn new_form(
             tenant => tenant_ctx(&scope.tenant),
             nav_sections => nav,
             role => role_str(scope.role),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             error => "",
             name => "",
@@ -177,6 +186,7 @@ async fn create(
     let desc = form.description.trim().to_owned();
 
     if name.is_empty() || name.len() > 120 {
+        let workspaces = workspaces_for_user(&state, &scope).await;
         let path = format!("/t/{}/permissions/new", scope.tenant.slug);
         let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
         return render(
@@ -187,6 +197,8 @@ async fn create(
                 tenant => tenant_ctx(&scope.tenant),
                 nav_sections => nav,
                 role => role_str(scope.role),
+                current_tenant => current_tenant_ctx(&scope.tenant),
+                workspaces,
                 csrf_token => csrf.as_str(),
                 error => "Permission name must be 1–120 characters.",
                 name => &name,
@@ -205,6 +217,7 @@ async fn create(
     {
         Ok(p) => p,
         Err(allowthem_core::error::AuthError::Conflict(_)) => {
+            let workspaces = workspaces_for_user(&state, &scope).await;
             let path = format!("/t/{}/permissions/new", scope.tenant.slug);
             let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
             return render(
@@ -215,6 +228,8 @@ async fn create(
                     tenant => tenant_ctx(&scope.tenant),
                     nav_sections => nav,
                     role => role_str(scope.role),
+                    current_tenant => current_tenant_ctx(&scope.tenant),
+                    workspaces,
                     csrf_token => csrf.as_str(),
                     error => "A permission with that name already exists.",
                     name => &name,

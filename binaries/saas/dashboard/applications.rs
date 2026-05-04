@@ -29,7 +29,10 @@ use allowthem_saas::TenantId;
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
+use super::extractors::{
+    HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope, current_tenant_ctx,
+    workspaces_for_user,
+};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -141,6 +144,7 @@ async fn new_form(
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
@@ -154,6 +158,8 @@ async fn new_form(
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
             nav_sections => nav,
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             client_type => "confidential",
             name => "",
@@ -182,6 +188,7 @@ async fn detail(
     };
     let connected_users = scope.ath.db().count_users_for_application(app.id).await?;
     let redirect_uris = app.redirect_uri_list()?;
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
@@ -195,6 +202,8 @@ async fn detail(
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
             nav_sections => nav,
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             app => &app,
             redirect_uris,
             connected_users,
@@ -213,6 +222,7 @@ async fn edit_form(
 ) -> Result<Response, BrowserError> {
     let app = scope.ath.db().get_application(app_id).await?;
     let redirect_uris = app.redirect_uri_list()?;
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
@@ -226,6 +236,8 @@ async fn edit_form(
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
             nav_sections => nav,
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             app => &app,
             redirect_uris,
             csrf_token => csrf.as_str(),
@@ -255,7 +267,8 @@ async fn create(
                 &csrf,
                 &form,
                 &format!("Unknown client type: {other}"),
-            );
+            )
+            .await;
         }
     };
     let params = CreateApplicationParams {
@@ -286,10 +299,11 @@ async fn create(
                 &csrf,
                 &form,
                 &format!("Invalid redirect URI: {msg}"),
-            );
+            )
+            .await;
         }
         Err(AuthError::Validation(msg)) => {
-            return rerender_new(&state, &scope, &csrf, &form, &msg);
+            return rerender_new(&state, &scope, &csrf, &form, &msg).await;
         }
         Err(e) => return Err(e.into()),
     };
@@ -307,6 +321,7 @@ async fn create(
     .await;
 
     let redirect_uris = app.redirect_uri_list()?;
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let mut resp = render(
         &state,
         "applications/detail.html",
@@ -314,6 +329,8 @@ async fn create(
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             app => &app,
             redirect_uris,
             connected_users => 0u64,
@@ -365,10 +382,11 @@ async fn update(
                 &csrf,
                 &form,
                 &format!("Invalid redirect URI: {msg}"),
-            );
+            )
+            .await;
         }
         Err(AuthError::Validation(msg)) => {
-            return rerender_edit(&state, &scope, &existing, &csrf, &form, &msg);
+            return rerender_edit(&state, &scope, &existing, &csrf, &form, &msg).await;
         }
         Err(e) => return Err(e.into()),
     }
@@ -411,6 +429,7 @@ async fn regenerate_secret(
     .await;
     let connected_users = scope.ath.db().count_users_for_application(app_id).await?;
     let redirect_uris = app.redirect_uri_list()?;
+    let workspaces = workspaces_for_user(&state, &scope).await;
     let mut resp = render(
         &state,
         "applications/detail.html",
@@ -418,6 +437,8 @@ async fn regenerate_secret(
         context! {
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(&scope),
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             app => &app,
             redirect_uris,
             connected_users,
@@ -455,13 +476,14 @@ async fn delete_application(
 // Re-render helpers (used by validation error paths)
 // ---------------------------------------------------------------------------
 
-fn rerender_new(
+async fn rerender_new(
     state: &DashboardRouterState,
     scope: &TenantScope,
     csrf: &CsrfToken,
     form: &CreateAppForm,
     error: &str,
 ) -> Result<Response, BrowserError> {
+    let workspaces = workspaces_for_user(state, scope).await;
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
@@ -475,6 +497,8 @@ fn rerender_new(
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(scope),
             nav_sections => nav,
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             csrf_token => csrf.as_str(),
             client_type => if form.client_type.is_empty() { "confidential" } else { form.client_type.as_str() },
             name => form.name.as_str(),
@@ -486,7 +510,7 @@ fn rerender_new(
     .into_response())
 }
 
-fn rerender_edit(
+async fn rerender_edit(
     state: &DashboardRouterState,
     scope: &TenantScope,
     existing: &Application,
@@ -494,6 +518,7 @@ fn rerender_edit(
     form: &EditAppForm,
     error: &str,
 ) -> Result<Response, BrowserError> {
+    let workspaces = workspaces_for_user(state, scope).await;
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
@@ -507,6 +532,8 @@ fn rerender_edit(
             tenant => tenant_ctx(&scope.tenant),
             role => role_str(scope),
             nav_sections => nav,
+            current_tenant => current_tenant_ctx(&scope.tenant),
+            workspaces,
             app => existing,
             redirect_uris => filter_uris(form.redirect_uris.clone()),
             csrf_token => csrf.as_str(),
@@ -586,30 +613,3 @@ fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
     }
 }
 
-async fn workspaces_for_user(
-    state: &DashboardRouterState,
-    scope: &TenantScope,
-) -> Vec<minijinja::value::Value> {
-    use allowthem_saas::TenantRole;
-    let Ok(pairs) = state
-        .control_db
-        .tenants_for_member(scope.user.email.as_str())
-        .await
-    else {
-        return Vec::new();
-    };
-    pairs
-        .into_iter()
-        .map(|(t, r)| {
-            let role = match r {
-                TenantRole::Owner => "owner",
-                TenantRole::Admin => "admin",
-                TenantRole::Viewer => "viewer",
-            };
-            context! {
-                tenant => tenant_ctx(&t),
-                role,
-            }
-        })
-        .collect()
-}
