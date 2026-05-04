@@ -37,6 +37,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use axum::Router;
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use eyre::Result;
 
 use allowthem_core::{AllowThem, AllowThemBuilder};
@@ -87,6 +90,42 @@ pub async fn open_dashboard_handle(
     Ok(ath)
 }
 
+/// `GET /` — redirect logged-in users to their first workspace dashboard,
+/// unauthenticated users to `/login`, and authenticated users with no
+/// tenants to `/signup`.
+///
+/// This is the natural landing point after a successful login (the login
+/// handler's fallback redirect target is `/`), so we must not 404 here.
+async fn root_redirect(
+    State(state): State<state::DashboardRouterState>,
+    headers: HeaderMap,
+) -> Response {
+    let user = match auth_helpers::current_dashboard_user(&state.ath, &headers).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (StatusCode::SEE_OTHER, [(header::LOCATION, "/login")]).into_response();
+        }
+        Err(_) => {
+            return (StatusCode::SEE_OTHER, [(header::LOCATION, "/login")]).into_response();
+        }
+    };
+    let tenants = match state.control_db.tenants_for_member(user.email.as_str()).await {
+        Ok(ts) => ts,
+        Err(_) => {
+            return (StatusCode::SEE_OTHER, [(header::LOCATION, "/signup")]).into_response();
+        }
+    };
+    if let Some((tenant, _role)) = tenants.into_iter().next() {
+        (
+            StatusCode::SEE_OTHER,
+            [(header::LOCATION, format!("/t/{}/applications", tenant.slug))],
+        )
+            .into_response()
+    } else {
+        (StatusCode::SEE_OTHER, [(header::LOCATION, "/signup")]).into_response()
+    }
+}
+
 /// Dashboard-only routes (application CRUD, user management, settings, etc.).
 ///
 /// `csrf_middleware` is layered on the whole composed router so every POST
@@ -95,6 +134,8 @@ pub fn dashboard_pages_router(state: state::DashboardRouterState) -> Router {
     use axum::routing::get;
 
     Router::new()
+        // l7y.31 root redirect — post-login landing page.
+        .route("/", get(root_redirect))
         // 99c.3 application CRUD.
         .merge(applications::application_routes())
         // 99c.5 audit log.
@@ -196,6 +237,8 @@ mod tests {
     /// uses concrete-segment URIs so axum's path matcher resolves them
     /// without parsing fully-qualified UUIDs.
     pub(super) const DASHBOARD_PATHS: &[&str] = &[
+        // l7y.31 root redirect.
+        "/",
         // 99c.2 onboarding surface — handled by signup_routes / quickstart_routes,
         // not by dashboard_pages_router. Listed here so the auth-router
         // overlap test still asserts the shared auth router doesn't

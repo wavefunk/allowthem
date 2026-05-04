@@ -3119,3 +3119,85 @@ async fn api_key_one_time_secret() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// l7y.26 quickstart dismiss redirect fix
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn quickstart_dismiss_redirects_to_applications() {
+    // POST /quickstart/{token}/dismiss must redirect to
+    // /t/{slug}/applications, not to "/".
+    let fx = Fixture::new().await;
+    let (session_cookie, location) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let token = location
+        .strip_prefix("/quickstart/")
+        .expect("path starts /quickstart/");
+    let dismiss_path = format!("/quickstart/{token}/dismiss");
+
+    // Pull post-auth CSRF from the rendered quickstart page.
+    let render_req = Request::builder()
+        .method("GET")
+        .uri(&location)
+        .header(header::HOST, BASE_DOMAIN)
+        .header(header::COOKIE, HeaderValue::from_str(&session_cookie).unwrap())
+        .body(Body::empty())
+        .unwrap();
+    let render_resp = fx.app.clone().oneshot(render_req).await.unwrap();
+    let body = body_string(render_resp).await;
+    let csrf = extract_csrf_from_body(&body);
+
+    let dismiss_req = Request::builder()
+        .method("POST")
+        .uri(&dismiss_path)
+        .header(header::HOST, BASE_DOMAIN)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(header::COOKIE, HeaderValue::from_str(&session_cookie).unwrap())
+        .body(Body::from(url_encode(&[("csrf_token", &csrf)])))
+        .unwrap();
+    let dismiss_resp = fx.app.clone().oneshot(dismiss_req).await.unwrap();
+    assert_eq!(dismiss_resp.status(), StatusCode::SEE_OTHER);
+    let loc = dismiss_resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(loc, "/t/acme/applications", "dismiss must redirect to applications, got: {loc}");
+}
+
+// ---------------------------------------------------------------------------
+// l7y.31 GET / root redirect
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn root_unauthenticated_redirects_to_login() {
+    let fx = Fixture::new().await;
+    let resp = fx.get("/").await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(loc, "/login", "unauthenticated / must redirect to /login, got: {loc}");
+}
+
+#[tokio::test]
+async fn root_authenticated_with_tenant_redirects_to_applications() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = get_authed(&fx, "/", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let loc = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(
+        loc,
+        "/t/acme/applications",
+        "authenticated / must redirect to first tenant applications, got: {loc}"
+    );
+}
