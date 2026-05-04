@@ -57,12 +57,24 @@ async fn post_dismiss(
     };
     // Bind dismiss to the session, like get_quickstart, so a stolen URL
     // can't wipe someone else's secret prematurely.
-    if let Some(entry) = state.quickstart_cache.get(&token).await
+    let slug = if let Some(entry) = state.quickstart_cache.get(&token).await
         && entry.dashboard_user_id == user.id
     {
+        let slug = entry.slug.clone();
         state.quickstart_cache.evict(&token).await;
-    }
-    Ok((StatusCode::SEE_OTHER, [(header::LOCATION, "/")]).into_response())
+        slug
+    } else {
+        // Token not found or belongs to another user; fall back to the
+        // tenant list rather than leaving the user stranded at root.
+        return Ok(
+            (StatusCode::SEE_OTHER, [(header::LOCATION, "/signup")]).into_response(),
+        );
+    };
+    Ok((
+        StatusCode::SEE_OTHER,
+        [(header::LOCATION, format!("/t/{slug}/applications"))],
+    )
+        .into_response())
 }
 
 fn render_quickstart(
