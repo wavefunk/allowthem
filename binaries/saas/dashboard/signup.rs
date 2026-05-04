@@ -45,11 +45,7 @@ pub fn signup_routes(state: SignupState) -> Router {
 async fn get_signup(
     State(state): State<SignupState>,
     csrf: CsrfToken,
-    headers: HeaderMap,
 ) -> Result<Response, BrowserError> {
-    if is_authenticated(&state.ath, &headers).await {
-        return Ok(redirect_to("/"));
-    }
     let html = render_signup_form(&state, csrf.as_str(), "", "", "", None)?;
     Ok(no_store(html.into_response()))
 }
