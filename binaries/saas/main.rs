@@ -98,9 +98,7 @@ async fn main() -> Result<()> {
         let sink = mau_sink.clone();
         let retention = cfg.mau_retention_months;
         tokio::spawn(async move {
-            let mut tick = tokio::time::interval(
-                std::time::Duration::from_secs(24 * 60 * 60),
-            );
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
             tick.tick().await; // skip the immediate-fire boot tick
             loop {
                 tick.tick().await;

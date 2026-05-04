@@ -229,23 +229,19 @@ pub async fn build_handle_with_path(
 
     if let Some(mau_sink) = &config.mau_sink {
         let mau_sink = mau_sink.clone();
-        let cb: allowthem_core::OnUserActive =
-            std::sync::Arc::new(move |user_id, ts| {
-                let mau_sink = mau_sink.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = mau_sink
-                        .record_active(tenant_id, user_id, ts)
-                        .await
-                    {
-                        tracing::warn!(
-                            tenant_id = %tenant_id.as_uuid(),
-                            user_id = %user_id,
-                            error = %e,
-                            "MauSink::record_active failed"
-                        );
-                    }
-                });
+        let cb: allowthem_core::OnUserActive = std::sync::Arc::new(move |user_id, ts| {
+            let mau_sink = mau_sink.clone();
+            tokio::spawn(async move {
+                if let Err(e) = mau_sink.record_active(tenant_id, user_id, ts).await {
+                    tracing::warn!(
+                        tenant_id = %tenant_id.as_uuid(),
+                        user_id = %user_id,
+                        error = %e,
+                        "MauSink::record_active failed"
+                    );
+                }
             });
+        });
         builder = builder.on_user_active(cb);
     }
 
@@ -643,9 +639,7 @@ mod tests {
 
     // -- on_user_active wiring for MAU counting (eua.2) ------------------------
 
-    fn mau_test_builder_config(
-        mau_sink: Option<Arc<crate::mau::MauSink>>,
-    ) -> TenantBuilderConfig {
+    fn mau_test_builder_config(mau_sink: Option<Arc<crate::mau::MauSink>>) -> TenantBuilderConfig {
         TenantBuilderConfig {
             mfa_key: [1u8; 32],
             signing_key: [2u8; 32],
@@ -664,8 +658,7 @@ mod tests {
 
         let dir = tempfile::tempdir().expect("tempdir");
         let state = make_state().await;
-        let mau_sink =
-            Arc::new(crate::mau::MauSink::new(state.control_db.clone()));
+        let mau_sink = Arc::new(crate::mau::MauSink::new(state.control_db.clone()));
 
         // Provision a tenant — creates the SQLite file `build_handle_with_path`
         // will reopen below. The `mau_sink` on this provisioning config is
@@ -683,8 +676,7 @@ mod tests {
             )
             .await
             .expect("provision_tenant");
-        let tenant_id =
-            TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
+        let tenant_id = TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
 
         // Build a fresh handle wired with the MAU sink.
         let wired_config = mau_test_builder_config(Some(mau_sink.clone()));
@@ -706,16 +698,14 @@ mod tests {
         let user_id = UserId::new();
         cb(user_id, chrono::Utc::now());
 
-        let deadline = std::time::Instant::now()
-            + std::time::Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         loop {
-            let count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1",
-            )
-            .bind(tenant_id.as_bytes())
-            .fetch_one(state.control_db.pool())
-            .await
-            .unwrap();
+            let count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1")
+                    .bind(tenant_id.as_bytes())
+                    .fetch_one(state.control_db.pool())
+                    .await
+                    .unwrap();
             if count == 1 {
                 break;
             }
@@ -743,8 +733,7 @@ mod tests {
             )
             .await
             .expect("provision_tenant");
-        let tenant_id =
-            TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
+        let tenant_id = TenantId::from(provisioned.tenant.id_as_uuid().unwrap());
 
         let ath = build_handle_with_path(
             &provisioned.tenant.db_path,

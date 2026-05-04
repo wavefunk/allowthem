@@ -10,8 +10,8 @@ use allowthem_core::types::ClientType;
 use allowthem_core::{AllowThem, ClientSecret, EmailSender, EventSink};
 
 use crate::control_db::ControlDb;
-use crate::mau::MauSink;
 use crate::error::{SaasError, map_slug_conflict};
+use crate::mau::MauSink;
 use crate::router::is_reserved_slug;
 
 /// Validates slug format per spec §4 step 1: ^[a-z][a-z0-9-]{2,39}$

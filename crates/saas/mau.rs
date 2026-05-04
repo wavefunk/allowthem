@@ -38,8 +38,7 @@ fn period_key(at: DateTime<Utc>) -> String {
 /// previous N months"). Older rows are deleted.
 fn prune_cutoff(now: DateTime<Utc>, retention_months: u32) -> String {
     // Convert to absolute month index, subtract retention, convert back.
-    let total_months = now.year() * 12 + (now.month() as i32) - 1
-        - retention_months as i32;
+    let total_months = now.year() * 12 + (now.month() as i32) - 1 - retention_months as i32;
     let year = total_months.div_euclid(12);
     let month = (total_months.rem_euclid(12) + 1) as u32;
     format!("{year:04}-{month:02}")
@@ -151,10 +150,7 @@ impl MauSink {
     ///
     /// `tenant_usage` is **not** pruned — it is the billing source of
     /// truth, and is small (one row per tenant per period).
-    pub async fn prune_old_active_users(
-        &self,
-        retention_months: u32,
-    ) -> Result<u64, SaasError> {
+    pub async fn prune_old_active_users(&self, retention_months: u32) -> Result<u64, SaasError> {
         let cutoff = prune_cutoff(Utc::now(), retention_months);
         let result = sqlx::query("DELETE FROM tenant_active_users WHERE period < ?1")
             .bind(&cutoff)
@@ -176,10 +172,7 @@ mod tests {
 
     /// Seed a single plan + tenant in the control DB and return their ids.
     /// `mau_limit` controls when `limit_reached_at` flips during tests.
-    async fn seed_plan_and_tenant(
-        pool: &SqlitePool,
-        mau_limit: i64,
-    ) -> (Vec<u8>, TenantId) {
+    async fn seed_plan_and_tenant(pool: &SqlitePool, mau_limit: i64) -> (Vec<u8>, TenantId) {
         let plan_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO tenant_plans (id, name, mau_limit, price_cents) \
@@ -210,13 +203,10 @@ mod tests {
 
     /// Build a `MauSink` against a fresh in-memory control DB plus seeded
     /// plan + tenant.
-    async fn make_sink(
-        mau_limit: i64,
-    ) -> (MauSink, TenantId) {
+    async fn make_sink(mau_limit: i64) -> (MauSink, TenantId) {
         let pool = test_pool().await;
         let control_db = Arc::new(ControlDb::new(pool).await.unwrap());
-        let (_plan_id, tenant_id) =
-            seed_plan_and_tenant(control_db.pool(), mau_limit).await;
+        let (_plan_id, tenant_id) = seed_plan_and_tenant(control_db.pool(), mau_limit).await;
         (MauSink::new(control_db), tenant_id)
     }
 
@@ -258,13 +248,12 @@ mod tests {
             .await
             .unwrap();
 
-        let active_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(sink.control_db.pool())
-        .await
-        .unwrap();
+        let active_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(sink.control_db.pool())
+                .await
+                .unwrap();
         assert_eq!(active_count, 1);
 
         let mau: i64 = sqlx::query_scalar(
@@ -290,22 +279,20 @@ mod tests {
             .await
             .unwrap();
 
-        let active_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(sink.control_db.pool())
-        .await
-        .unwrap();
+        let active_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(sink.control_db.pool())
+                .await
+                .unwrap();
         assert_eq!(active_count, 1);
 
-        let mau: i64 = sqlx::query_scalar(
-            "SELECT mau_count FROM tenant_usage WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(sink.control_db.pool())
-        .await
-        .unwrap();
+        let mau: i64 =
+            sqlx::query_scalar("SELECT mau_count FROM tenant_usage WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(sink.control_db.pool())
+                .await
+                .unwrap();
         assert_eq!(mau, 1);
     }
 
@@ -319,13 +306,12 @@ mod tests {
                 .unwrap();
         }
 
-        let mau: i64 = sqlx::query_scalar(
-            "SELECT mau_count FROM tenant_usage WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(sink.control_db.pool())
-        .await
-        .unwrap();
+        let mau: i64 =
+            sqlx::query_scalar("SELECT mau_count FROM tenant_usage WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(sink.control_db.pool())
+                .await
+                .unwrap();
         assert_eq!(mau, 3);
     }
 
@@ -341,13 +327,12 @@ mod tests {
             .await
             .unwrap();
 
-        let active_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(sink.control_db.pool())
-        .await
-        .unwrap();
+        let active_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tenant_active_users WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(sink.control_db.pool())
+                .await
+                .unwrap();
         assert_eq!(active_count, 2);
 
         let usage_rows: Vec<(String, i64)> = sqlx::query_as(
@@ -374,38 +359,34 @@ mod tests {
         sink.record_active(tenant_id, users[0], march_first())
             .await
             .unwrap();
-        let flag: Option<DateTime<Utc>> = sqlx::query_scalar(
-            "SELECT limit_reached_at FROM tenant_usage WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(sink.control_db.pool())
-        .await
-        .unwrap();
+        let flag: Option<DateTime<Utc>> =
+            sqlx::query_scalar("SELECT limit_reached_at FROM tenant_usage WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(sink.control_db.pool())
+                .await
+                .unwrap();
         assert!(flag.is_none(), "flag must be NULL after 1 event (1 < 2)");
 
         sink.record_active(tenant_id, users[1], march_first())
             .await
             .unwrap();
-        let flag_after_two: Option<DateTime<Utc>> = sqlx::query_scalar(
-            "SELECT limit_reached_at FROM tenant_usage WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(sink.control_db.pool())
-        .await
-        .unwrap();
-        let stamped =
-            flag_after_two.expect("flag must be set after 2 events (2 >= 2)");
+        let flag_after_two: Option<DateTime<Utc>> =
+            sqlx::query_scalar("SELECT limit_reached_at FROM tenant_usage WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(sink.control_db.pool())
+                .await
+                .unwrap();
+        let stamped = flag_after_two.expect("flag must be set after 2 events (2 >= 2)");
 
         sink.record_active(tenant_id, users[2], march_first())
             .await
             .unwrap();
-        let flag_after_three: Option<DateTime<Utc>> = sqlx::query_scalar(
-            "SELECT limit_reached_at FROM tenant_usage WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(sink.control_db.pool())
-        .await
-        .unwrap();
+        let flag_after_three: Option<DateTime<Utc>> =
+            sqlx::query_scalar("SELECT limit_reached_at FROM tenant_usage WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(sink.control_db.pool())
+                .await
+                .unwrap();
         assert_eq!(
             flag_after_three,
             Some(stamped),
@@ -419,8 +400,7 @@ mod tests {
 
         // Pre-seed `tenant_usage` with a known `limit_reached_at`.
         let usage_id = Uuid::now_v7();
-        let prev =
-            Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+        let prev = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
         sqlx::query(
             "INSERT INTO tenant_usage (id, tenant_id, period, mau_count, limit_reached_at) \
              VALUES (?, ?, '2026-03', 5, ?)",
@@ -437,13 +417,12 @@ mod tests {
             .await
             .unwrap();
 
-        let flag: DateTime<Utc> = sqlx::query_scalar(
-            "SELECT limit_reached_at FROM tenant_usage WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_one(sink.control_db.pool())
-        .await
-        .unwrap();
+        let flag: DateTime<Utc> =
+            sqlx::query_scalar("SELECT limit_reached_at FROM tenant_usage WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_one(sink.control_db.pool())
+                .await
+                .unwrap();
         assert_eq!(flag, prev);
     }
 
@@ -484,13 +463,12 @@ mod tests {
         let pruned = sink.prune_old_active_users(3).await.unwrap();
         assert_eq!(pruned, 1, "exactly one stale row should be deleted");
 
-        let remaining: Vec<String> = sqlx::query_scalar(
-            "SELECT period FROM tenant_active_users WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id.as_bytes())
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+        let remaining: Vec<String> =
+            sqlx::query_scalar("SELECT period FROM tenant_active_users WHERE tenant_id = ?1")
+                .bind(tenant_id.as_bytes())
+                .fetch_all(&pool)
+                .await
+                .unwrap();
         assert_eq!(remaining, vec![current_period]);
     }
 
@@ -513,11 +491,13 @@ mod tests {
 
         sink.prune_old_active_users(3).await.unwrap();
 
-        let usage_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM tenant_usage")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(usage_count, 1, "tenant_usage rows are billing data; never pruned");
+        let usage_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenant_usage")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            usage_count, 1,
+            "tenant_usage rows are billing data; never pruned"
+        );
     }
 }
