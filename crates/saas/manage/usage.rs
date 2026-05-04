@@ -64,6 +64,7 @@ mod tests {
                 is_production: false,
                 email_sender: None,
                 event_sink: None,
+                event_sink_factory: None,
                 mau_sink: None,
             }),
             1000,

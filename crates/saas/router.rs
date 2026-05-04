@@ -223,7 +223,12 @@ pub async fn build_handle_with_path(
         builder = builder.email_sender(Box::new(sender.clone()));
     }
 
-    if let Some(sink) = &config.event_sink {
+    // Prefer the per-tenant factory when present; fall back to the shared
+    // sink for embedded/test paths that haven't migrated to the factory.
+    if let Some(factory) = &config.event_sink_factory {
+        let sink = factory.for_tenant(tenant_id);
+        builder = builder.event_sink(Box::new(sink));
+    } else if let Some(sink) = &config.event_sink {
         builder = builder.event_sink(Box::new(sink.clone()));
     }
 
@@ -465,6 +470,7 @@ mod tests {
                 is_production: false,
                 email_sender: None,
                 event_sink: None,
+                event_sink_factory: None,
                 mau_sink: None,
             }),
             seen_times: Arc::new(DashMap::new()),
@@ -648,6 +654,7 @@ mod tests {
             is_production: false,
             email_sender: None,
             event_sink: None,
+            event_sink_factory: None,
             mau_sink,
         }
     }

@@ -77,6 +77,10 @@ async fn main() -> Result<()> {
         is_production: cfg.is_production,
         email_sender: Some(email_sender.clone()),
         event_sink: Some(Arc::new(LoggingEventSink)),
+        // Factory wiring lives behind `LoggingEventSinkFactory` here as a
+        // placeholder. Task 6 swaps it for `WebhookEventSinkFactory` once
+        // the sink + worker land.
+        event_sink_factory: None,
         mau_sink: Some(mau_sink.clone()),
     });
 

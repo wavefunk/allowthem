@@ -8,6 +8,7 @@ pub mod manage;
 pub mod mau;
 pub mod router;
 pub mod tenants;
+pub mod webhook_sink;
 
 pub use api_keys::ApiKeyScope;
 pub use cache::{HandleCache, SlugCache, TenantMeta};
@@ -31,3 +32,4 @@ pub use tenants::{
     MemberId, PlanId, ProvisionResult, Tenant, TenantBuilderConfig, TenantId, TenantMember,
     TenantPlan, TenantStatus, tenant_cookie_name, validate_slug,
 };
+pub use webhook_sink::{EventSinkFactory, LoggingEventSinkFactory};

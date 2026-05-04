@@ -139,6 +139,7 @@ pub(crate) mod tests {
                 is_production: false,
                 email_sender: Some(email_sender.clone()),
                 event_sink: None,
+                event_sink_factory: None,
                 mau_sink: None,
             });
             let signup_state = SignupState {

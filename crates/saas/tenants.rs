@@ -212,7 +212,17 @@ pub struct TenantBuilderConfig {
     pub email_sender: Option<Arc<dyn EmailSender>>,
     /// Optional event sink. When `None` the handle uses `NoopEventSink` (silent).
     /// Set to `Some(Arc::new(LoggingEventSink))` in dev, or a real sink in production.
+    ///
+    /// Prefer `event_sink_factory` for any sink that needs the tenant id (e.g.
+    /// the SaaS webhook sink). When both are set, the handle-builder uses the
+    /// factory and ignores `event_sink`.
     pub event_sink: Option<Arc<dyn EventSink>>,
+    /// Optional per-tenant event-sink factory. When `Some`, the handle-builder
+    /// calls `factory.for_tenant(tenant_id)` once per tenant `AllowThem`
+    /// build and binds the resulting sink to that tenant. Required for
+    /// webhook delivery (epic 7xw.2) where the sink scopes its
+    /// `tenant_webhooks` lookup by tenant id.
+    pub event_sink_factory: Option<Arc<dyn crate::webhook_sink::EventSinkFactory>>,
     /// Optional MAU sink. When `Some`, every tenant `AllowThem` handle is built
     /// with an `on_user_active` callback that forwards events to this sink for
     /// control-plane MAU counting. `None` disables MAU tracking (e.g. embedded
@@ -717,6 +727,7 @@ mod tests {
             is_production: false,
             email_sender: None,
             event_sink: None,
+            event_sink_factory: None,
             mau_sink: None,
         }
     }
