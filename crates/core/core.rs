@@ -29,6 +29,7 @@ pub mod sessions;
 pub mod signing_keys;
 pub mod social_github;
 pub mod social_google;
+pub mod social_oidc;
 mod social_provider_encrypt;
 pub mod social_providers;
 pub mod token_cleanup;
@@ -67,6 +68,7 @@ pub use signing_keys::{
 };
 pub use social_github::GitHubSocialProvider;
 pub use social_google::GoogleSocialProvider;
+pub use social_oidc::{CustomOidcSocialProvider, DiscoveryDoc, DISCOVERY_TTL};
 pub use social_providers::{
     ProviderType, SocialProvider, SocialProviderConfig, SocialProviderRow, SocialUserInfo,
 };
