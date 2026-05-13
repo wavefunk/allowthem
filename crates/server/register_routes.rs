@@ -39,12 +39,15 @@ struct RegisterConfig {
     events_tx: Option<LifecycleEventSender>,
     base_url: Option<String>,
     oauth_providers: Vec<String>,
+    public_registration: bool,
 }
 
 #[derive(Deserialize)]
 struct RegisterQuery {
     #[serde(default)]
     client_id: Option<ClientId>,
+    #[serde(default)]
+    token: Option<String>,
 }
 
 /// GET /register — render the registration form.
@@ -73,25 +76,50 @@ async fn get_register(
         .map(|s| s.fields.as_slice())
         .unwrap_or(&[]);
     let empty: HashMap<String, String> = HashMap::new();
+    let invitation = match invitation_for_token(&ath, query.token.as_deref()).await {
+        Ok(invitation) => invitation,
+        Err(error) => {
+            let params = RegisterFormParams {
+                csrf_token: csrf.as_str(),
+                email: "",
+                username: "",
+                error: &error,
+                client_id: query.client_id.as_ref(),
+                branding: branding.as_ref(),
+                custom_fields,
+                custom_values: &empty,
+                token: query.token.as_deref(),
+                email_readonly: false,
+                registration_disabled: !config.public_registration,
+            };
+            return render_register_response(&config, params, request && !boosted);
+        }
+    };
+    let invited_email = invitation
+        .as_ref()
+        .and_then(|inv| inv.email.as_ref())
+        .map(|email| email.as_str())
+        .unwrap_or("");
 
     let params = RegisterFormParams {
         csrf_token: csrf.as_str(),
-        email: "",
+        email: invited_email,
         username: "",
-        error: "",
+        error: if !config.public_registration && invitation.is_none() {
+            "Registration is disabled. Use an invitation link."
+        } else {
+            ""
+        },
         client_id: query.client_id.as_ref(),
         branding: branding.as_ref(),
         custom_fields,
         custom_values: &empty,
+        token: query.token.as_deref(),
+        email_readonly: !invited_email.is_empty(),
+        registration_disabled: !config.public_registration && invitation.is_none(),
     };
 
-    if request && !boosted {
-        let html = render_register_fragment(&config, params)?;
-        return Ok(html.into_response());
-    }
-
-    let html = render_register_form(&config, params)?;
-    Ok(html.into_response())
+    render_register_response(&config, params, request && !boosted)
 }
 
 /// POST /register — validate input, create user, start session, redirect.
@@ -117,6 +145,29 @@ async fn post_register(
         .as_ref()
         .map(|s| s.fields.as_slice())
         .unwrap_or(&[]);
+    let token_raw = form
+        .get("token")
+        .map(String::as_str)
+        .filter(|v| !v.is_empty());
+    let invitation = match invitation_for_token(&ath, token_raw).await {
+        Ok(invitation) => invitation,
+        Err(error) => {
+            return render_form_error(
+                &config,
+                &csrf,
+                form.get("email").map(String::as_str).unwrap_or(""),
+                form.get("username").map(String::as_str).unwrap_or(""),
+                &error,
+                cid,
+                br,
+                custom_fields,
+                &form,
+                token_raw,
+                false,
+                !config.public_registration,
+            );
+        }
+    };
 
     // Extract standard form fields with empty defaults
     let email_raw = form.get("email").map(String::as_str).unwrap_or("");
@@ -126,6 +177,27 @@ async fn post_register(
         .map(String::as_str)
         .unwrap_or("");
     let username_raw = form.get("username").map(String::as_str).unwrap_or("");
+    let email_readonly = invitation
+        .as_ref()
+        .and_then(|inv| inv.email.as_ref())
+        .is_some();
+
+    if !config.public_registration && invitation.is_none() {
+        return render_form_error(
+            &config,
+            &csrf,
+            email_raw,
+            username_raw,
+            "Registration is disabled. Use an invitation link.",
+            cid,
+            br,
+            custom_fields,
+            &form,
+            token_raw,
+            email_readonly,
+            true,
+        );
+    }
 
     // 1. Validate passwords match
     if password != password_confirm {
@@ -139,6 +211,9 @@ async fn post_register(
             br,
             custom_fields,
             &form,
+            token_raw,
+            email_readonly,
+            false,
         );
     }
 
@@ -154,6 +229,9 @@ async fn post_register(
             br,
             custom_fields,
             &form,
+            token_raw,
+            email_readonly,
+            false,
         );
     }
 
@@ -171,9 +249,32 @@ async fn post_register(
                 br,
                 custom_fields,
                 &form,
+                token_raw,
+                email_readonly,
+                false,
             );
         }
     };
+
+    if let Some(invitation) = &invitation
+        && let Some(expected) = invitation.email.as_ref()
+        && !expected.as_str().eq_ignore_ascii_case(email.as_str())
+    {
+        return render_form_error(
+            &config,
+            &csrf,
+            expected.as_str(),
+            username_raw,
+            "This invitation is for a different email address",
+            cid,
+            br,
+            custom_fields,
+            &form,
+            token_raw,
+            true,
+            false,
+        );
+    }
 
     // 4. Parse username
     let trimmed = username_raw.trim();
@@ -213,6 +314,9 @@ async fn post_register(
                 br,
                 custom_fields,
                 &form,
+                token_raw,
+                email_readonly,
+                false,
             );
         }
         Some(coerced)
@@ -237,6 +341,9 @@ async fn post_register(
                 br,
                 custom_fields,
                 &form,
+                token_raw,
+                email_readonly,
+                false,
             );
         }
         Err(AuthError::Conflict(ref msg)) if msg.contains("username") => {
@@ -250,10 +357,17 @@ async fn post_register(
                 br,
                 custom_fields,
                 &form,
+                token_raw,
+                email_readonly,
+                false,
             );
         }
         Err(e) => return Err(BrowserError::Auth(e)),
     };
+
+    if invitation.is_some() {
+        ath.db().set_email_verified(user.id, true).await?;
+    }
 
     // 7. Create session
     let token = generate_token();
@@ -282,11 +396,25 @@ async fn post_register(
         tracing::error!(error = %e, "failed to log registration audit event");
     }
 
+    if let Some(invitation) = &invitation {
+        ath.db().consume_invitation(invitation.id).await?;
+    }
+
     // 9. Publish lifecycle event (fire-and-forget; after all fallible DB calls).
     publish(config.events_tx.as_ref(), || {
+        let source = invitation
+            .as_ref()
+            .map(|invitation| RegistrationSource::Invitation {
+                email: invitation
+                    .email
+                    .as_ref()
+                    .map(|email| email.as_str().to_string()),
+                metadata: invitation.metadata.clone(),
+            })
+            .unwrap_or(RegistrationSource::Password);
         LifecycleEvent::Registered(RegisteredEvent::new(
             user.clone(),
-            RegistrationSource::Password,
+            source,
             EventContext::new(
                 ip.clone(),
                 ua.map(str::to_owned),
@@ -317,6 +445,37 @@ struct RegisterFormParams<'a> {
     branding: Option<&'a BrandingConfig>,
     custom_fields: &'a [CustomFieldDescriptor],
     custom_values: &'a HashMap<String, String>,
+    token: Option<&'a str>,
+    email_readonly: bool,
+    registration_disabled: bool,
+}
+
+async fn invitation_for_token(
+    ath: &AllowThem,
+    token: Option<&str>,
+) -> Result<Option<allowthem_core::Invitation>, String> {
+    let Some(token) = token.map(str::trim).filter(|token| !token.is_empty()) else {
+        return Ok(None);
+    };
+    match ath.db().validate_invitation(token).await {
+        Ok(Some(invitation)) => Ok(Some(invitation)),
+        Ok(None) => Err("This invitation link is invalid or has expired.".to_string()),
+        Err(error) => {
+            tracing::error!(%error, "failed to validate invitation token");
+            Err("This invitation link could not be validated.".to_string())
+        }
+    }
+}
+
+fn render_register_response(
+    config: &RegisterConfig,
+    params: RegisterFormParams<'_>,
+    fragment: bool,
+) -> Result<Response, BrowserError> {
+    if fragment {
+        return Ok(render_register_fragment(config, params)?.into_response());
+    }
+    Ok(render_register_form(config, params)?.into_response())
 }
 
 fn render_register_form(
@@ -342,6 +501,9 @@ fn render_register_form(
         client_id,
         branding,
         custom_fields,
+        token,
+        email_readonly,
+        registration_disabled,
         ..
     } = params;
     crate::browser_templates::render(
@@ -356,6 +518,9 @@ fn render_register_form(
             is_production => config.is_production,
             custom_fields,
             custom_values => custom_values_map,
+            token,
+            email_readonly,
+            registration_disabled,
             oauth_providers => &config.oauth_providers,
             ..branding_context(branding),
         },
@@ -386,6 +551,9 @@ fn render_register_fragment(
         client_id,
         branding,
         custom_fields,
+        token,
+        email_readonly,
+        registration_disabled,
         ..
     } = params;
     let ctx = context! {
@@ -397,6 +565,9 @@ fn render_register_fragment(
         is_production => config.is_production,
         custom_fields,
         custom_values => custom_values_map,
+        token,
+        email_readonly,
+        registration_disabled,
         oauth_providers => &config.oauth_providers,
         page_title => "Register — allowthem",
         status_hint => "CREATE ACCOUNT",
@@ -425,6 +596,9 @@ fn render_form_error(
     branding: Option<&BrandingConfig>,
     custom_fields: &[CustomFieldDescriptor],
     form_data: &HashMap<String, String>,
+    token: Option<&str>,
+    email_readonly: bool,
+    registration_disabled: bool,
 ) -> Result<Response, BrowserError> {
     let html = render_register_form(
         config,
@@ -437,6 +611,9 @@ fn render_form_error(
             branding,
             custom_fields,
             custom_values: form_data,
+            token,
+            email_readonly,
+            registration_disabled,
         },
     )?;
     Ok(html.into_response())
@@ -465,6 +642,7 @@ pub fn register_routes(
     events_tx: Option<LifecycleEventSender>,
     base_url: Option<String>,
     oauth_providers: Vec<String>,
+    public_registration: bool,
 ) -> Router<()> {
     let cfg = RegisterConfig {
         templates,
@@ -473,6 +651,7 @@ pub fn register_routes(
         events_tx,
         base_url,
         oauth_providers,
+        public_registration,
     };
     Router::new()
         .route("/register", get(get_register).post(post_register))
@@ -513,6 +692,7 @@ mod tests {
             events_tx: None,
             base_url: None,
             oauth_providers: Vec::new(),
+            public_registration: true,
         };
         (ath, config)
     }
@@ -529,6 +709,7 @@ mod tests {
             config.events_tx.clone(),
             config.base_url.clone(),
             config.oauth_providers.clone(),
+            config.public_registration,
         )
         .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
@@ -571,6 +752,7 @@ mod tests {
             config.events_tx.clone(),
             config.base_url.clone(),
             config.oauth_providers.clone(),
+            config.public_registration,
         )
         .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
@@ -1211,6 +1393,7 @@ mod tests {
             Some(events_tx),
             Some(base_url),
             config.oauth_providers.clone(),
+            config.public_registration,
         )
         .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(
@@ -1304,6 +1487,9 @@ mod tests {
                 branding: None,
                 custom_fields: &[],
                 custom_values: &empty,
+                token: None,
+                email_readonly: false,
+                registration_disabled: false,
             },
         )
         .unwrap()

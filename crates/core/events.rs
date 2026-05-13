@@ -36,7 +36,13 @@ impl RegisteredEvent {
 #[non_exhaustive]
 pub enum RegistrationSource {
     Password,
-    OAuth { provider: String },
+    Invitation {
+        email: Option<String>,
+        metadata: Option<String>,
+    },
+    OAuth {
+        provider: String,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -27,8 +27,16 @@
   </div>
 
   <div class="wf-auth-wrap">
-    <h1>Create account</h1>
-    <p class="wf-auth-sub">Let's get you set up.</p>
+    <h1>{% if registration_disabled %}Registration disabled{% elif token %}Accept invitation{% else %}Create account{% endif %}</h1>
+    <p class="wf-auth-sub">
+      {% if registration_disabled %}
+        Ask an admin for an invitation link.
+      {% elif token %}
+        Finish creating your account.
+      {% else %}
+        Let's get you set up.
+      {% endif %}
+    </p>
 
     <div class="wf-mt-5">
       {{ auth.tabs(active="signup", signup_href=register_href) }}
@@ -41,13 +49,16 @@
       </div>
     {% endif %}
 
+    {% if not registration_disabled %}
     <form method="post" action="/register" class="wf-f wf-col wf-gap-5 wf-mt-5">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {% if token %}<input type="hidden" name="token" value="{{ token }}">{% endif %}
 
       <div class="wf-field">
         <label class="wf-label" for="email">Email</label>
         <input class="wf-input" id="email" name="email" type="email"
-               value="{{ email }}" required autocomplete="email">
+               value="{{ email }}" required autocomplete="email"
+               {% if email_readonly %}readonly{% endif %}>
       </div>
 
       <div class="wf-field">
@@ -163,6 +174,11 @@
     {{ auth.oauth_grid(oauth_providers) }}
 
     {{ auth.terms_footer() }}
+    {% else %}
+    <div class="wf-mt-5">
+      <a class="wf-btn primary lg wf-w-full" href="/login">Back to sign in →</a>
+    </div>
+    {% endif %}
   </div>
 </main>
 <style>

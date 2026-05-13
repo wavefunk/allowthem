@@ -67,6 +67,7 @@ pub struct AllRoutesBuilder {
 
     // Register-specific
     custom_fields_schema: Option<serde_json::Value>,
+    public_registration: bool,
 
     // Event publishing (optional)
     events_tx: Option<LifecycleEventSender>,
@@ -101,6 +102,7 @@ impl AllRoutesBuilder {
             oauth_provider_impls: None,
             mfa_issuer: None,
             custom_fields_schema: None,
+            public_registration: true,
             events_tx: None,
             routes: HashSet::new(),
             all: false,
@@ -187,6 +189,11 @@ impl AllRoutesBuilder {
 
     pub fn custom_fields_schema(mut self, schema: serde_json::Value) -> Self {
         self.custom_fields_schema = Some(schema);
+        self
+    }
+
+    pub fn public_registration(mut self, enabled: bool) -> Self {
+        self.public_registration = enabled;
         self
     }
 
@@ -367,6 +374,7 @@ impl AllRoutesBuilder {
                 self.events_tx.clone(),
                 self.base_url.clone(),
                 oauth_providers_list.clone(),
+                self.public_registration,
             ));
         }
 
