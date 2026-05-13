@@ -20,12 +20,13 @@ use tracing_subscriber::EnvFilter;
 use allowthem_core::{LogEmailSender, LoggingEventSink};
 use allowthem_saas::control_db::ControlDb;
 use allowthem_saas::{
-    DashboardState, HandleCache, HickoryDnsResolver, ManagedEmailConfig, ManagedEmailSenderFactory,
-    ManageState, MauSink, SlugCache, TenantBuilderConfig, TenantRouterState, WebhookEventSinkFactory,
-    WebhookWorker, WebhookWorkerConfig, manage_router, pre_warm, tenant_router_middleware,
+    DashboardState, HandleCache, HickoryDnsResolver, ManageState, ManagedEmailConfig,
+    ManagedEmailSenderFactory, MauSink, SlugCache, TenantBuilderConfig, TenantRouterState,
+    WebhookEventSinkFactory, WebhookWorker, WebhookWorkerConfig, manage_router, pre_warm,
+    tenant_router_middleware,
 };
-use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 use allowthem_server::login_routes::LoginOverrides;
+use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 
 use crate::dashboard::quickstart::quickstart_routes;
 use crate::dashboard::signup::signup_routes;
@@ -199,12 +200,8 @@ async fn main() -> Result<()> {
             tick.tick().await; // skip the immediate-fire boot tick
             loop {
                 tick.tick().await;
-                match allowthem_saas::dns::run_one_sweep(
-                    sweep_resolver.as_ref(),
-                    &sweep_db,
-                    100,
-                )
-                .await
+                match allowthem_saas::dns::run_one_sweep(sweep_resolver.as_ref(), &sweep_db, 100)
+                    .await
                 {
                     Ok(stats) => tracing::info!(
                         processed = stats.processed,

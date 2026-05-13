@@ -159,4 +159,3 @@ pub async fn social(
     )
     .map(IntoResponse::into_response)
 }
-

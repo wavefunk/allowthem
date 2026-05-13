@@ -13,12 +13,14 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use allowthem_saas::{
-    DomainId, DomainStatus, TenantDomain, TenantId, SaasError, normalize_domain, verify_domain,
+    DomainId, DomainStatus, SaasError, TenantDomain, TenantId, normalize_domain, verify_domain,
 };
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, current_tenant_ctx, workspaces_for_user};
+use super::extractors::{
+    HtmlForm, RequireTenantAdmin, RequireTenantMember, current_tenant_ctx, workspaces_for_user,
+};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
 
@@ -94,14 +96,17 @@ fn not_found() -> BrowserError {
     BrowserError::from(allowthem_core::error::AuthError::NotFound)
 }
 
-fn extract_tenant_id(
-    tenant: &allowthem_saas::Tenant,
-) -> Result<TenantId, BrowserError> {
-    tenant.id_as_uuid().map(TenantId::from).ok_or_else(not_found)
+fn extract_tenant_id(tenant: &allowthem_saas::Tenant) -> Result<TenantId, BrowserError> {
+    tenant
+        .id_as_uuid()
+        .map(TenantId::from)
+        .ok_or_else(not_found)
 }
 
 fn parse_domain_id(s: &str) -> Result<DomainId, BrowserError> {
-    s.parse::<Uuid>().map(DomainId::from).map_err(|_| not_found())
+    s.parse::<Uuid>()
+        .map(DomainId::from)
+        .map_err(|_| not_found())
 }
 
 /// CNAME target the tenant must point their custom domain at.
@@ -109,10 +114,7 @@ fn dns_target(slug: &str, base_domain: &str) -> String {
     format!("{slug}.{base_domain}")
 }
 
-async fn load_entries(
-    state: &DashboardRouterState,
-    tenant_id: &TenantId,
-) -> Vec<DomainEntry> {
+async fn load_entries(state: &DashboardRouterState, tenant_id: &TenantId) -> Vec<DomainEntry> {
     state
         .control_db
         .list_tenant_domains(tenant_id)
@@ -307,10 +309,10 @@ pub async fn delete(
 pub fn domain_routes() -> axum::Router<DashboardRouterState> {
     use axum::routing::{get, post};
     axum::Router::new()
+        .route("/t/{slug}/settings/domains", get(show).post(register))
         .route(
-            "/t/{slug}/settings/domains",
-            get(show).post(register),
+            "/t/{slug}/settings/domains/{id}/verify",
+            post(trigger_verify),
         )
-        .route("/t/{slug}/settings/domains/{id}/verify", post(trigger_verify))
         .route("/t/{slug}/settings/domains/{id}/delete", post(delete))
 }

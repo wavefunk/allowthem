@@ -66,9 +66,7 @@ async fn post_dismiss(
     } else {
         // Token not found or belongs to another user; fall back to the
         // tenant list rather than leaving the user stranded at root.
-        return Ok(
-            (StatusCode::SEE_OTHER, [(header::LOCATION, "/signup")]).into_response(),
-        );
+        return Ok((StatusCode::SEE_OTHER, [(header::LOCATION, "/signup")]).into_response());
     };
     Ok((
         StatusCode::SEE_OTHER,

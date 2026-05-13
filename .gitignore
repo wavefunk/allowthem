@@ -24,3 +24,7 @@ tasks.org
 /.playwright-cli/
 /.playwright-profile/
 /.playwright/
+/.beads/
+*.bak
+/allowthem-saas.toml
+*.state

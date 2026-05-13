@@ -164,16 +164,12 @@ impl EmailSender for ManagedEmailSender {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| {
-                    AuthError::Email(format!("postmark http: {e}"))
-                })?;
+                .map_err(|e| AuthError::Email(format!("postmark http: {e}")))?;
 
             let status = resp.status();
             if !status.is_success() {
                 let body = resp.text().await.unwrap_or_default();
-                return Err(AuthError::Email(format!(
-                    "postmark {status}: {body}"
-                )));
+                return Err(AuthError::Email(format!("postmark {status}: {body}")));
             }
 
             tracing::debug!(
@@ -289,14 +285,17 @@ impl EmailSenderFactory for ManagedEmailSenderFactory {
             };
 
             // Mode resolution. None → Managed with default everything.
-            let mode = cfg_opt.as_ref().map(|c| c.mode).unwrap_or(EmailConfigMode::Managed);
+            let mode = cfg_opt
+                .as_ref()
+                .map(|c| c.mode)
+                .unwrap_or(EmailConfigMode::Managed);
             match mode {
                 EmailConfigMode::Smtp => {
-                    let smtp = cfg_opt
-                        .and_then(|c| c.smtp)
-                        .ok_or_else(|| AuthError::Validation(
+                    let smtp = cfg_opt.and_then(|c| c.smtp).ok_or_else(|| {
+                        AuthError::Validation(
                             "email_config.mode=smtp but smtp block missing".into(),
-                        ))?;
+                        )
+                    })?;
                     let cfg = SmtpConfig {
                         host: smtp.host,
                         port: smtp.port,
@@ -309,11 +308,11 @@ impl EmailSenderFactory for ManagedEmailSenderFactory {
                     Ok(Arc::new(SmtpEmailSender::new(cfg, branding)?) as Arc<dyn EmailSender>)
                 }
                 EmailConfigMode::Webhook => {
-                    let webhook = cfg_opt
-                        .and_then(|c| c.webhook)
-                        .ok_or_else(|| AuthError::Validation(
+                    let webhook = cfg_opt.and_then(|c| c.webhook).ok_or_else(|| {
+                        AuthError::Validation(
                             "email_config.mode=webhook but webhook block missing".into(),
-                        ))?;
+                        )
+                    })?;
                     let cfg = WebhookEmailConfig {
                         webhook_url: webhook.url,
                         signing_secret: webhook.signing_secret,
@@ -322,9 +321,8 @@ impl EmailSenderFactory for ManagedEmailSenderFactory {
                     Ok(Arc::new(WebhookEmailSender::new(cfg, branding)?) as Arc<dyn EmailSender>)
                 }
                 EmailConfigMode::Managed => {
-                    let from_override = cfg_opt
-                        .and_then(|c| c.managed)
-                        .and_then(|m| m.from_address);
+                    let from_override =
+                        cfg_opt.and_then(|c| c.managed).and_then(|m| m.from_address);
                     Ok(Arc::new(ManagedEmailSender::new(
                         &self.deployment,
                         from_override,
@@ -395,8 +393,7 @@ mod tests {
         sender.send(&reset_message()).await.unwrap();
 
         let reqs = server.received_requests().await.unwrap();
-        let body: serde_json::Value =
-            serde_json::from_slice(&reqs[0].body).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
         assert_eq!(body["Subject"], "Reset your password");
         assert_eq!(body["To"], "alice@example.com");
         let html = body["HtmlBody"].as_str().unwrap();
@@ -420,8 +417,7 @@ mod tests {
         sender.send(&reset_message()).await.unwrap();
 
         let reqs = server.received_requests().await.unwrap();
-        let body: serde_json::Value =
-            serde_json::from_slice(&reqs[0].body).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
         let from = body["From"].as_str().unwrap();
         assert!(
             from.contains("noreply@mail.example.com"),
@@ -437,17 +433,12 @@ mod tests {
             .mount(&server)
             .await;
 
-        let sender = make_sender_for_server(
-            &server,
-            Some("noreply@auth.acme.com".into()),
-            "Acme",
-        )
-        .await;
+        let sender =
+            make_sender_for_server(&server, Some("noreply@auth.acme.com".into()), "Acme").await;
         sender.send(&reset_message()).await.unwrap();
 
         let reqs = server.received_requests().await.unwrap();
-        let body: serde_json::Value =
-            serde_json::from_slice(&reqs[0].body).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
         let from = body["From"].as_str().unwrap();
         assert!(
             from.contains("noreply@auth.acme.com"),
@@ -471,8 +462,7 @@ mod tests {
         sender.send(&reset_message()).await.unwrap();
 
         let reqs = server.received_requests().await.unwrap();
-        let body: serde_json::Value =
-            serde_json::from_slice(&reqs[0].body).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
         assert_eq!(
             body["From"], "\"Acme Inc\" <noreply@mail.example.com>",
             "From must be `\"<display>\" <addr>`"
@@ -492,19 +482,14 @@ mod tests {
             logo_url: None,
             footer_line: None,
         };
-        let sender = ManagedEmailSender::new(
-            &deployment_config(),
-            None,
-            "Acme Inc".to_owned(),
-            branding,
-        )
-        .unwrap()
-        .with_api_url(server.uri());
+        let sender =
+            ManagedEmailSender::new(&deployment_config(), None, "Acme Inc".to_owned(), branding)
+                .unwrap()
+                .with_api_url(server.uri());
         sender.send(&reset_message()).await.unwrap();
 
         let reqs = server.received_requests().await.unwrap();
-        let body: serde_json::Value =
-            serde_json::from_slice(&reqs[0].body).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
         let html = body["HtmlBody"].as_str().unwrap();
         assert!(
             html.contains("Acme Inc"),
@@ -532,9 +517,7 @@ mod tests {
     async fn timeout_returns_email_error() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .respond_with(
-                ResponseTemplate::new(200).set_delay(Duration::from_secs(5)),
-            )
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(5)))
             .mount(&server)
             .await;
 
@@ -583,19 +566,16 @@ mod tests {
         tenant_name: &str,
     ) -> (ManagedEmailSenderFactory, TenantId, Db, Arc<ControlDb>) {
         // Control plane.
-        let control_pool = sqlx::SqlitePool::connect("sqlite::memory:")
-            .await
-            .unwrap();
+        let control_pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
         let control_db = Arc::new(ControlDb::new(control_pool).await.unwrap());
 
         // Use the seeded 'dev' plan (control plane migrations already
         // insert it). Look up its id rather than re-inserting.
-        let plan_id: Vec<u8> = sqlx::query_scalar(
-            "SELECT id FROM tenant_plans WHERE name = 'dev' LIMIT 1",
-        )
-        .fetch_one(control_db.pool())
-        .await
-        .unwrap();
+        let plan_id: Vec<u8> =
+            sqlx::query_scalar("SELECT id FROM tenant_plans WHERE name = 'dev' LIMIT 1")
+                .fetch_one(control_db.pool())
+                .await
+                .unwrap();
 
         let tenant_id = TenantId::new();
         sqlx::query(
@@ -613,11 +593,8 @@ mod tests {
         // Tenant DB (in-memory, core migrations).
         let tenant_db = Db::connect("sqlite::memory:").await.unwrap();
 
-        let factory = ManagedEmailSenderFactory::new(
-            control_db.clone(),
-            deployment,
-            FACTORY_MFA_KEY,
-        );
+        let factory =
+            ManagedEmailSenderFactory::new(control_db.clone(), deployment, FACTORY_MFA_KEY);
         (factory, tenant_id, tenant_db, control_db)
     }
 
@@ -759,13 +736,11 @@ mod tests {
 
         // A tenant name with embedded quotes — the sanitiser must drop
         // them, leaving `Bob's Diner Inc.` inside the quoted-string slot.
-        let sender =
-            make_sender_for_server(&server, None, "Bob's \"Diner\" Inc.").await;
+        let sender = make_sender_for_server(&server, None, "Bob's \"Diner\" Inc.").await;
         sender.send(&reset_message()).await.unwrap();
 
         let reqs = server.received_requests().await.unwrap();
-        let body: serde_json::Value =
-            serde_json::from_slice(&reqs[0].body).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
         let from = body["From"].as_str().unwrap();
         assert_eq!(
             from, "\"Bob's Diner Inc.\" <noreply@mail.example.com>",

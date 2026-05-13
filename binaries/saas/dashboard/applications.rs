@@ -612,4 +612,3 @@ fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
         slug => tenant.slug.clone(),
     }
 }
-

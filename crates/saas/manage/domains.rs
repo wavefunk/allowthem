@@ -524,7 +524,11 @@ mod tests {
         let body = to_bytes(resp.into_body(), 4096).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let arr = json.as_array().unwrap();
-        assert_eq!(arr.len(), 1, "list must only return the calling tenant's domains");
+        assert_eq!(
+            arr.len(),
+            1,
+            "list must only return the calling tenant's domains"
+        );
         assert_eq!(arr[0]["domain"], "mine.domain.com");
     }
 }

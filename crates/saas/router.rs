@@ -789,9 +789,11 @@ mod tests {
             &'a self,
             _message: &'a allowthem_core::email::EmailMessage,
         ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<(), allowthem_core::error::AuthError>>
+            Box<
+                dyn std::future::Future<Output = Result<(), allowthem_core::error::AuthError>>
                     + Send
-                    + 'a>,
+                    + 'a,
+            >,
         > {
             Box::pin(std::future::ready(Ok(())))
         }

@@ -109,7 +109,11 @@ async fn root_redirect(
             return (StatusCode::SEE_OTHER, [(header::LOCATION, "/login")]).into_response();
         }
     };
-    let tenants = match state.control_db.tenants_for_member(user.email.as_str()).await {
+    let tenants = match state
+        .control_db
+        .tenants_for_member(user.email.as_str())
+        .await
+    {
         Ok(ts) => ts,
         Err(_) => {
             return (StatusCode::SEE_OTHER, [(header::LOCATION, "/signup")]).into_response();

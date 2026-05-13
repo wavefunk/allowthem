@@ -2165,8 +2165,14 @@ async fn domains_settings_page_returns_200() {
     let resp = get_authed(&fx, "/t/acme/settings/domains", &session_cookie).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
-    assert!(body.contains("Custom Domain"), "page should render domain settings");
-    assert!(body.contains("CNAME"), "page should include DNS instructions");
+    assert!(
+        body.contains("Custom Domain"),
+        "page should render domain settings"
+    );
+    assert!(
+        body.contains("CNAME"),
+        "page should include DNS instructions"
+    );
     assert!(
         body.contains("Register domain"),
         "owner should see the registration form button"
@@ -2233,15 +2239,11 @@ async fn domains_register_duplicate_shows_error() {
     assert_eq!(resp1.status(), StatusCode::SEE_OTHER);
 
     // Second registration for the same domain re-renders with an error.
-    let csrf2 =
-        fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
+    let csrf2 = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
     let resp2 = fx
         .post_form(
             "/t/acme/settings/domains",
-            &[
-                ("csrf_token", csrf2.as_str()),
-                ("domain", "dup.myapp.com"),
-            ],
+            &[("csrf_token", csrf2.as_str()), ("domain", "dup.myapp.com")],
             Some(&session_cookie),
         )
         .await;
@@ -2274,8 +2276,9 @@ async fn domains_verify_triggers_and_redirects() {
         .create_tenant_domain(&tenant_id, "verify.myapp.com", "acme.example.com")
         .await
         .expect("create_tenant_domain");
-    let domain_id =
-        uuid::Uuid::from_slice(&row.id).expect("domain UUID").to_string();
+    let domain_id = uuid::Uuid::from_slice(&row.id)
+        .expect("domain UUID")
+        .to_string();
 
     let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
     let resp = fx
@@ -2316,8 +2319,9 @@ async fn domains_delete_removes_and_redirects() {
         .create_tenant_domain(&tenant_id, "delete.myapp.com", "acme.example.com")
         .await
         .expect("create_tenant_domain");
-    let domain_id =
-        uuid::Uuid::from_slice(&row.id).expect("domain UUID").to_string();
+    let domain_id = uuid::Uuid::from_slice(&row.id)
+        .expect("domain UUID")
+        .to_string();
 
     let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings/domains", &session_cookie).await;
     let resp = fx
@@ -2357,7 +2361,10 @@ async fn domains_page_renders_for_member() {
         "viewer must be able to read the domains page"
     );
     let body = body_string(resp).await;
-    assert!(body.contains("Custom Domain"), "domains page should render for viewer");
+    assert!(
+        body.contains("Custom Domain"),
+        "domains page should render for viewer"
+    );
 }
 
 /// A successful CNAME lookup via MockDnsResolver flips the domain status to
@@ -2384,7 +2391,9 @@ async fn domains_verify_with_mock_resolver_flips_to_verified() {
         .create_tenant_domain(&tenant_id, "flip.myapp.com", "acme.example.com")
         .await
         .expect("create_tenant_domain");
-    let domain_id_str = uuid::Uuid::from_slice(&row.id).expect("domain UUID").to_string();
+    let domain_id_str = uuid::Uuid::from_slice(&row.id)
+        .expect("domain UUID")
+        .to_string();
 
     // Queue a CNAME response that matches dns_target so verify_domain marks it Verified.
     fx.dns_resolver
@@ -2401,8 +2410,7 @@ async fn domains_verify_with_mock_resolver_flips_to_verified() {
         .await;
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
 
-    let domain_id =
-        allowthem_saas::DomainId::from(uuid::Uuid::from_slice(&row.id).unwrap());
+    let domain_id = allowthem_saas::DomainId::from(uuid::Uuid::from_slice(&row.id).unwrap());
     let updated = fx
         .state
         .control_db
@@ -3141,7 +3149,10 @@ async fn quickstart_dismiss_redirects_to_applications() {
         .method("GET")
         .uri(&location)
         .header(header::HOST, BASE_DOMAIN)
-        .header(header::COOKIE, HeaderValue::from_str(&session_cookie).unwrap())
+        .header(
+            header::COOKIE,
+            HeaderValue::from_str(&session_cookie).unwrap(),
+        )
         .body(Body::empty())
         .unwrap();
     let render_resp = fx.app.clone().oneshot(render_req).await.unwrap();
@@ -3153,7 +3164,10 @@ async fn quickstart_dismiss_redirects_to_applications() {
         .uri(&dismiss_path)
         .header(header::HOST, BASE_DOMAIN)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .header(header::COOKIE, HeaderValue::from_str(&session_cookie).unwrap())
+        .header(
+            header::COOKIE,
+            HeaderValue::from_str(&session_cookie).unwrap(),
+        )
         .body(Body::from(url_encode(&[("csrf_token", &csrf)])))
         .unwrap();
     let dismiss_resp = fx.app.clone().oneshot(dismiss_req).await.unwrap();
@@ -3163,7 +3177,10 @@ async fn quickstart_dismiss_redirects_to_applications() {
         .get(header::LOCATION)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    assert_eq!(loc, "/t/acme/applications", "dismiss must redirect to applications, got: {loc}");
+    assert_eq!(
+        loc, "/t/acme/applications",
+        "dismiss must redirect to applications, got: {loc}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3180,7 +3197,10 @@ async fn root_unauthenticated_redirects_to_login() {
         .get(header::LOCATION)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    assert_eq!(loc, "/login", "unauthenticated / must redirect to /login, got: {loc}");
+    assert_eq!(
+        loc, "/login",
+        "unauthenticated / must redirect to /login, got: {loc}"
+    );
 }
 
 #[tokio::test]
@@ -3196,8 +3216,7 @@ async fn root_authenticated_with_tenant_redirects_to_applications() {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     assert_eq!(
-        loc,
-        "/t/acme/applications",
+        loc, "/t/acme/applications",
         "authenticated / must redirect to first tenant applications, got: {loc}"
     );
 }

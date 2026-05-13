@@ -175,7 +175,10 @@ pub async fn list(
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
     let members = fetch_members(&state, &scope).await;
-    let owner_count = members.iter().filter(|m| m.role.as_str() == "owner").count();
+    let owner_count = members
+        .iter()
+        .filter(|m| m.role.as_str() == "owner")
+        .count();
     let workspaces = workspaces_for_user(&state, &scope).await;
     let path = format!("/t/{}/settings/team", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
