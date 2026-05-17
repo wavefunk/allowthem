@@ -23,32 +23,6 @@
           config.allowUnfree = true;
         };
         toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-        playwrightDeps = with pkgs; [
-          glib
-          nss
-          nspr
-          atk
-          at-spi2-atk
-          cups.lib
-          dbus
-          libdrm
-          expat
-          libxkbcommon
-          xorg.libX11
-          xorg.libXcomposite
-          xorg.libXdamage
-          xorg.libXext
-          xorg.libXfixes
-          xorg.libXrandr
-          xorg.libxcb
-          mesa
-          pango
-          cairo
-          alsa-lib
-          gtk3
-          systemd
-          libgbm
-        ];
       in
       {
         devShells.default =
@@ -59,7 +33,6 @@
               just
               cargo-expand
               bacon
-              dolt
               esbuild
               nodejs
               cargo-dist
@@ -70,11 +43,6 @@
               pkg-config
               toolchain
             ];
-
-            shellHook = ''
-              export LD_LIBRARY_PATH="${lib.makeLibraryPath playwrightDeps}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-              export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
-            '';
           };
       }
     );

@@ -1,176 +1,71 @@
-# Agent Instructions
+# Project Overview : allowthem
+An embeddable authentication system for all wavefunk projects (speakwith, immersiq, substrukt, is-still-online, transfer-these-files, sendword). Can be used as a library (where the integrator controls tables, data, and configuration) or as a standalone service with its own frontend and auth endpoints. Consuming projects code against an `AuthClient` trait so they can flip between embedded and external mode without code changes.
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+## Tech Stack
+Web framework = Axum
+Database = SQLite via SQLx
+Async runtime = Tokio
+Rust toolchain = nightly-2026-01-05 (pinned in rust-toolchain.toml)
 
-## Quick Reference
+## Local development
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work atomically
-bd close <id>         # Complete work
-bd dolt push          # Push beads data to remote
+Nix, direnv and flake to manage local dev environment
+just to run often used commands
+Migrations live in `crates/core/migrations/`. Run `just sqlx-prepare` after changing queries to update the .sqlx/ offline cache.
+
+## Commits
+Do not add Co-Authored-By or any Claude/AI attribution to commit messages.
+
+## Work Structure
+1. Create a plan
+2. Review the plan
+3. Apply review feedback
+4. Create an implementation plan
+5. Review the implementation plan
+6. Apply implementation review feedback
+7. Write code
+
+Always create a git branch for the work.
+Create atomic commits for coherent work done.
+Branch does not get merged unless the feature has tests that are passing.
+Integration tests (if required, not mandatory) should be in rust as well.
+
+## Planning Style
+- Small milestones - never more than 5-10 tasks per milestone.
+- Use `br` for task tracking. Run `br ready` to find available work.
+- Plan and implement each task separately — don't batch planning across milestones.
+- Design spec: `docs/superpowers/specs/2026-03-19-allowthem-design.md`
+
+## Code Style
+
+- Idiomatic rust code
+- Workspace isolation of responsibilities.
+- Optimized for readability first
+- Avoid long format!() chains and other allocations. Be memory efficient.
+- Write tests immediately after a feature.
+- Do not write "ceremony" tests that actually just test the library being used.
+- Do not use unwrap or expect unless its an invariant.
+- Read the docs for the libraries to plan the implementation.
+- The crates folders within the project are NOT prefixed with allowthem-, but the package names are. The path in the crate is always to the name of the folder.. so crates/core/core.rs is the main file, and Cargo.toml reflects that with `[lib] path = "./core.rs"`
+
+## Key Architecture Decisions
+- **AuthClient trait**: Consuming projects use this trait, not AllowThem handle directly. Enables embedded-to-external mode switch via config flag.
+- **Login is mode-aware**: Embedded mode renders own login form + direct call. External mode redirects to OIDC. Login is NOT part of the AuthClient trait (security: external mode never handles passwords).
+- **JWT validation for external mode**: RS256 tokens validated locally via JWKS. No round-trip per request.
+- **Table prefix**: `allowthem_` prefix in embedded mode (configurable). No prefix in standalone mode.
+
+## Commands
 ```
-
-## Non-Interactive Shell Commands
-
-**ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
-
-Shell commands like `cp`, `mv`, and `rm` may be aliased to include `-i` (interactive) mode on some systems, causing the agent to hang indefinitely waiting for y/n input.
-
-**Use these forms instead:**
-```bash
-# Force overwrite without prompting
-cp -f source dest           # NOT: cp source dest
-mv -f source dest           # NOT: mv source dest
-rm -f file                  # NOT: rm file
-
-# For recursive operations
-rm -rf directory            # NOT: rm -r directory
-cp -rf source dest          # NOT: cp -r source dest
+just build        # cargo build --workspace
+just check        # cargo check --workspace
+just test         # cargo test --workspace
+just clippy       # cargo clippy --workspace -- -D warnings
+just fmt          # cargo fmt --all
+just watch        # bacon (watch mode)
+just dev          # run standalone server
+just migrate      # run SQLx migrations
+just migrate-new NAME  # create new migration
+just sqlx-prepare # regenerate .sqlx/ offline cache
+just sqlx-reset   # delete dev DB and re-migrate
 ```
-
-**Other commands that may prompt:**
-- `scp` - use `-o BatchMode=yes` for non-interactive
-- `ssh` - use `-o BatchMode=yes` to fail instead of prompting
-- `apt-get` - use `-y` flag
-- `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
-
-<!-- BEGIN BEADS INTEGRATION -->
-## Issue Tracking with bd (beads)
-
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
-
-### Why bd?
-
-- Dependency-aware: Track blockers and relationships between issues
-- Version-controlled: Built on Dolt with cell-level merge
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
-
-### Quick Start
-
-**Check for ready work:**
-
-```bash
-bd ready --json
-```
-
-**Create new issues:**
-
-```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
-```
-
-**Claim and update:**
-
-```bash
-bd update <id> --claim --json
-bd update bd-42 --priority 1 --json
-```
-
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-### Issue Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task atomically**: `bd update <id> --claim`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-
-### Auto-Sync
-
-bd automatically syncs with git:
-
-- Exports to `.beads/issues.jsonl` after changes (5s debounce)
-- Imports from JSONL when newer (e.g., after `git pull`)
-- No manual export/import needed!
-
-### Important Rules
-
-- Use bd for ALL task tracking
-- Always use `--json` flag for programmatic use
-- Link discovered work with `discovered-from` dependencies
-- Check `bd ready` before asking "what should I work on?"
-- Do NOT create markdown TODO lists
-- Do NOT use external issue trackers
-- Do NOT duplicate tracking systems
-
-For more details, see README.md and docs/QUICKSTART.md.
-
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd dolt push
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
-<!-- END BEADS INTEGRATION -->
-
-<!-- BEGIN YOUWHATKNOW INTEGRATION -->
-## File Summaries (youwhatknow)
-
-This project uses **youwhatknow** for automatic file summaries during Claude Code sessions.
-It works via hooks — no manual action needed.
-
-**How it works:**
-- Large files show a summary (description, symbols, line ranges) on first read
-- Read again for full content, or use offset/limit to target sections
-- Project structure is injected at session start
-
-**Useful commands:**
-```bash
-youwhatknow status              # Check daemon health
-youwhatknow status --json       # Machine-readable status
-youwhatknow reindex             # Refresh index after major changes
-youwhatknow reindex --full      # Full reindex (ignore change detection)
-youwhatknow summary <path>      # Preview a file summary
-youwhatknow reset <path>        # Reset read count for a file
-youwhatknow restart             # Restart daemon
-youwhatknow logs                # View daemon logs
-youwhatknow prime               # Full agent workflow context
-```
-
-<!-- END YOUWHATKNOW INTEGRATION -->
+Add frequently used commands to the justfile.
