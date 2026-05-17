@@ -32,6 +32,7 @@ dashmap.workspace = true
 subtle.workspace = true
 jsonschema.workspace = true
 qrcode.workspace = true
+wavefunk-ui.workspace = true
 
 [dev-dependencies]
 jsonwebtoken.workspace = true

@@ -6,6 +6,7 @@ data/
 *.db-wal
 *.db-shm
 .envrc.private
+/.cargo/config.toml
 
 # Dolt database files (added by bd init)
 .dolt/
@@ -24,7 +25,6 @@ tasks.org
 /.playwright-cli/
 /.playwright-profile/
 /.playwright/
-/.beads/
 *.bak
 /allowthem-saas.toml
 *.state
