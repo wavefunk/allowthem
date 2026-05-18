@@ -18,8 +18,8 @@ use wavefunk_ui::components::{
     DataTableCell, DataTableHeader, DataTableRow, FeedbackKind, Field, FilterBar, Form,
     FormActions, FormPanel, FormSection, HtmlAttr, Input, Modeline, ModelineSegment, PageHeader,
     PageLink, Pagination, Panel, RepeatableArray, RepeatableItem, SecretValue, Select,
-    SelectOption, Sidenav, SidenavItem, SidenavSection, SnippetTab, SnippetTabs, SplitShell,
-    TableColumnWidth, TableFooter, TableWrap, Tag,
+    SelectOption, SettingsSection, Sidenav, SidenavItem, SidenavSection, SnippetTab, SnippetTabs,
+    SplitShell, TableColumnWidth, TableFooter, TableWrap, Tag,
 };
 use wavefunk_ui::layouts::AppShell;
 
@@ -318,6 +318,32 @@ pub struct PermissionNewPageView<'a> {
     pub name: &'a str,
     pub description: &'a str,
     pub error: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct GeneralSettingsPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub csrf_token: &'a str,
+    pub error: &'a str,
+    pub saved: bool,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct ComingSoonPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub title: &'a str,
+    pub epic_ref: &'a str,
+    pub description: &'a str,
+    pub wireframe: Option<&'a str>,
     pub status_session: Option<&'a str>,
     pub is_production: bool,
 }
@@ -2749,6 +2775,105 @@ pub fn permission_new_page(view: &PermissionNewPageView<'_>) -> Result<Html<Stri
     })
 }
 
+pub fn general_settings_page(
+    view: &GeneralSettingsPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    let mut body = String::new();
+    if view.saved {
+        body.push_str(r#"<script>document.addEventListener("DOMContentLoaded",function(){document.dispatchEvent(new CustomEvent("wfEcho",{detail:{kind:"ok",msg:"Settings saved."}}));});</script>"#);
+    }
+    if !view.error.is_empty() {
+        body.push_str(&alert(FeedbackKind::Error, view.error)?);
+    }
+    if can_manage(view.role) {
+        let name_attrs = [HtmlAttr::new("maxlength", "80")];
+        let slug_attrs = [
+            HtmlAttr::new("readonly", ""),
+            HtmlAttr::new("disabled", ""),
+            HtmlAttr::new("style", "opacity:0.6;cursor:not-allowed"),
+        ];
+        let mut form_body = hidden_input("csrf_token", view.csrf_token);
+        form_body.push_str(&field(
+            "Workspace name",
+            &Input::new("name")
+                .with_type("text")
+                .with_value(view.tenant_name)
+                .with_attrs(&name_attrs)
+                .required(),
+            None,
+        )?);
+        form_body.push_str(&field(
+            "Slug",
+            &Input::new("slug")
+                .with_type("text")
+                .with_value(view.tenant_slug)
+                .with_attrs(&slug_attrs),
+            Some("The slug is permanent. Contact support if you need to change it."),
+        )?);
+        let save = render(
+            &Button::primary("Save changes")
+                .with_button_type("submit")
+                .with_size(ButtonSize::Small),
+        )?;
+        form_body.push_str(&render(&FormActions::new(trusted_html(&save)))?);
+        let action = format!("/t/{}/settings", view.tenant_slug);
+        body.push_str(&render(
+            &Form::new(trusted_html(&form_body))
+                .with_action(&action)
+                .with_attrs(&[HtmlAttr::new("style", "max-width:480px")]),
+        )?);
+    } else {
+        write!(
+            body,
+            r#"<dl class="wf-dl"><div class="wf-dl-row"><dt>Workspace name</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>Slug</dt><dd><code>{}</code></dd></div></dl>"#,
+            text(view.tenant_name),
+            text(view.tenant_slug)
+        )
+        .unwrap();
+    }
+    let section = render(&SettingsSection::new("General", trusted_html(&body)))?;
+    let content = format!(r#"<div style="margin:16px 24px 0">{section}</div>"#);
+    let title = format!("General Settings - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "General Settings",
+        content_html: &content,
+    })
+}
+
+pub fn coming_soon_page(view: &ComingSoonPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let tag = render(&Tag::new(&format!("Coming soon - Epic {}", view.epic_ref)))?;
+    let mut body = format!(r#"<p>{tag}</p><p>{}</p>"#, text(view.description));
+    if let Some(wireframe) = view.wireframe.filter(|wireframe| !wireframe.is_empty()) {
+        write!(
+            body,
+            r#"<pre class="wf-wireframe" style="margin-top:16px;font-size:12px;color:var(--wf-text-muted)">{}</pre>"#,
+            text(wireframe)
+        )
+        .unwrap();
+    }
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    let content = render(&Panel::new(view.title, trusted_html(&body)).with_attrs(&panel_attrs))?;
+    let title = format!("{} - {}", view.title, view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: view.title,
+        content_html: &content,
+    })
+}
+
 fn audit_event_label(event: &AuditEvent) -> &'static str {
     match event {
         AuditEvent::Login => "Login",
@@ -3442,6 +3567,77 @@ mod tests {
         assert!(form_html.contains(r#"name="csrf_token" value="csrf-new-perm""#));
         assert!(form_html.contains("Create permission"));
         assert!(!form_html.contains("reports:<write>"));
+    }
+
+    #[test]
+    fn general_settings_page_preserves_form_readonly_and_saved_feedback() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/settings", TenantRole::Owner);
+        let workspaces = workspaces();
+        let html = general_settings_page(&GeneralSettingsPageView {
+            tenant_name: "Acme <Ops>",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-settings",
+            error: "Workspace name must be 1-80 characters.",
+            saved: true,
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render general settings page")
+        .0;
+
+        assert!(html.contains("General Settings"));
+        assert!(html.contains(r#"action="/t/acme/settings""#));
+        assert!(html.contains(r#"name="csrf_token" value="csrf-settings""#));
+        assert!(html.contains("Settings saved."));
+        assert!(html.contains(r#"name="slug""#));
+        assert!(html.contains(r#"value="acme""#));
+        assert!(html.contains("disabled"));
+        assert!(!html.contains("Acme <Ops>"));
+
+        let viewer_html = general_settings_page(&GeneralSettingsPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Viewer,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-settings",
+            error: "",
+            saved: false,
+            status_session: Some("viewer@example.com"),
+            is_production: false,
+        })
+        .expect("render viewer general settings page")
+        .0;
+        assert!(viewer_html.contains(r#"<dt>Workspace name</dt>"#));
+        assert!(!viewer_html.contains("Save changes"));
+    }
+
+    #[test]
+    fn coming_soon_page_renders_copy_and_escapes_wireframe() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/settings/webhooks", TenantRole::Owner);
+        let workspaces = workspaces();
+        let html = coming_soon_page(&ComingSoonPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            title: "Webhooks",
+            epic_ref: "7xw",
+            description: "Configure <hooks> soon.",
+            wireframe: Some("[<endpoint>]"),
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render coming soon page")
+        .0;
+
+        assert!(html.contains("Webhooks"));
+        assert!(html.contains("Coming soon - Epic 7xw"));
+        assert!(!html.contains("Configure <hooks> soon."));
+        assert!(!html.contains("[<endpoint>]"));
     }
 
     fn test_user_list_entry(

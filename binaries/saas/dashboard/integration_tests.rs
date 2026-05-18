@@ -2200,6 +2200,40 @@ async fn stub_pages_return_200_with_coming_soon() {
     }
 }
 
+#[tokio::test]
+async fn general_settings_page_updates_workspace_name() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = get_authed(&fx, "/t/acme/settings", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Workspace name"));
+    assert!(body.contains(r#"name="slug""#));
+
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings", &session_cookie).await;
+    let resp = fx
+        .post_form(
+            "/t/acme/settings",
+            &[("csrf_token", csrf.as_str()), ("name", "Renamed Workspace")],
+            Some(&session_cookie),
+        )
+        .await;
+
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let location = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(location, "/t/acme/settings?saved=1");
+
+    let resp = get_authed(&fx, "/t/acme/settings", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Renamed Workspace"));
+}
+
 /// The custom-domain settings page (38y.1) returns 200 and shows the domains UI.
 /// Admins and owners see the registration form.
 #[tokio::test]
