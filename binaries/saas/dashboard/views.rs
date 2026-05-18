@@ -322,6 +322,28 @@ pub struct PermissionNewPageView<'a> {
     pub is_production: bool,
 }
 
+pub struct TeamMemberView {
+    pub id: String,
+    pub email: String,
+    pub role: TenantRole,
+    pub accepted: bool,
+    pub invited_at: String,
+    pub accepted_at: Option<String>,
+}
+
+pub struct TeamSettingsPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub csrf_token: &'a str,
+    pub members: &'a [TeamMemberView],
+    pub invite_error: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
 pub struct GeneralSettingsPageView<'a> {
     pub tenant_name: &'a str,
     pub tenant_slug: &'a str,
@@ -2775,6 +2797,244 @@ pub fn permission_new_page(view: &PermissionNewPageView<'_>) -> Result<Html<Stri
     })
 }
 
+fn team_role_tag(role: TenantRole) -> Result<String, BrowserError> {
+    match role {
+        TenantRole::Owner => render(&Tag::status(FeedbackKind::Ok, role_label(role))),
+        TenantRole::Admin => render(&Tag::status(FeedbackKind::Warn, role_label(role))),
+        TenantRole::Viewer => render(&Badge::muted(role_label(role))),
+    }
+}
+
+fn team_status_tag(accepted: bool) -> Result<String, BrowserError> {
+    if accepted {
+        render(&Tag::status(FeedbackKind::Ok, "accepted"))
+    } else {
+        render(&Badge::muted("invited"))
+    }
+}
+
+fn team_role_options(current: TenantRole, include_owner: bool) -> Vec<SelectOption<'static>> {
+    let current = role_label(current);
+    let mut options = vec![
+        selected_option("viewer", "viewer", current),
+        selected_option("admin", "admin", current),
+    ];
+    if include_owner {
+        options.insert(0, selected_option("owner", "owner", current));
+    }
+    options
+}
+
+fn team_member_actions(
+    view: &TeamSettingsPageView<'_>,
+    member: &TeamMemberView,
+    sole_owner: bool,
+) -> Result<String, BrowserError> {
+    if !can_manage(view.role) {
+        return Ok(String::new());
+    }
+
+    let mut actions =
+        String::from(r#"<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">"#);
+    let disabled_title = "Workspace must have at least one owner";
+    if view.role == TenantRole::Owner {
+        if sole_owner {
+            let options = [SelectOption::new("owner", "owner").selected()];
+            let attrs = [
+                HtmlAttr::new("title", disabled_title),
+                HtmlAttr::new("style", "opacity:0.5;cursor:not-allowed"),
+            ];
+            actions.push_str(&render(
+                &Select::new("role", &options).with_attrs(&attrs).disabled(),
+            )?);
+        } else {
+            let options = team_role_options(member.role, true);
+            let attrs = [HtmlAttr::new("onchange", "this.form.submit()")];
+            let select = render(&Select::new("role", &options).with_attrs(&attrs))?;
+            let action = format!("/t/{}/settings/team/{}/role", view.tenant_slug, member.id);
+            write!(
+                actions,
+                r#"<form method="post" action="{}" style="display:inline">{}{select}</form>"#,
+                attr(&action),
+                hidden_input("csrf_token", view.csrf_token)
+            )
+            .unwrap();
+        }
+    }
+
+    if sole_owner {
+        let attrs = [HtmlAttr::new("title", disabled_title)];
+        actions.push_str(&render(
+            &Button::new("Remove")
+                .with_variant(ButtonVariant::Danger)
+                .with_size(ButtonSize::Small)
+                .with_button_type("button")
+                .with_attrs(&attrs)
+                .disabled(),
+        )?);
+    } else if member.role != TenantRole::Owner || view.role == TenantRole::Owner {
+        let button = render(
+            &Button::new("Remove")
+                .with_variant(ButtonVariant::Danger)
+                .with_size(ButtonSize::Small)
+                .with_button_type("submit"),
+        )?;
+        let action = format!("/t/{}/settings/team/{}/remove", view.tenant_slug, member.id);
+        write!(
+            actions,
+            r#"<form method="post" action="{}" style="display:inline" onsubmit="return confirm('Remove this member from this workspace?')">{}{button}</form>"#,
+            attr(&action),
+            hidden_input("csrf_token", view.csrf_token)
+        )
+        .unwrap();
+    }
+
+    actions.push_str("</div>");
+    Ok(actions)
+}
+
+fn team_invite_form(view: &TeamSettingsPageView<'_>) -> Result<String, BrowserError> {
+    let email_attrs = [
+        HtmlAttr::new("maxlength", "254"),
+        HtmlAttr::new("placeholder", "colleague@example.com"),
+    ];
+    let email = field(
+        "Email",
+        &Input::email("email").with_attrs(&email_attrs).required(),
+        None,
+    )?;
+    let role_options = team_role_options(TenantRole::Viewer, view.role == TenantRole::Owner);
+    let role = field_html("Role", &render(&Select::new("role", &role_options))?, None)?;
+    let invite = render(
+        &Button::primary("Invite")
+            .with_size(ButtonSize::Small)
+            .with_button_type("submit"),
+    )?;
+    let body = format!(
+        "{}{email}{role}{invite}",
+        hidden_input("csrf_token", view.csrf_token)
+    );
+    let action = format!("/t/{}/settings/team/invite", view.tenant_slug);
+    let attrs = [HtmlAttr::new(
+        "style",
+        "display:flex; gap:12px; align-items:flex-end; padding:12px 16px; flex-wrap:wrap;",
+    )];
+    render(
+        &Form::new(trusted_html(&body))
+            .with_action(&action)
+            .with_attrs(&attrs),
+    )
+}
+
+pub fn team_settings_page(view: &TeamSettingsPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let mut content = String::new();
+    let mut panel_body = String::new();
+    if can_manage(view.role) {
+        panel_body.push_str(&team_invite_form(view)?);
+        if !view.invite_error.is_empty() {
+            write!(
+                panel_body,
+                r#"<div style="margin:0 16px 12px;">{}</div>"#,
+                alert(FeedbackKind::Error, view.invite_error)?
+            )
+            .unwrap();
+        }
+    }
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    content.push_str(&render(
+        &Panel::new("Team Members", trusted_html(&panel_body)).with_attrs(&panel_attrs),
+    )?);
+
+    if view.members.is_empty() {
+        content.push_str(
+            r#"<p class="wf-empty" style="margin:12px 24px;">No team members found.</p>"#,
+        );
+    } else {
+        let owner_count = view
+            .members
+            .iter()
+            .filter(|member| member.role == TenantRole::Owner)
+            .count();
+        let mut headers = vec![
+            DataTableHeader::new("Email").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Role").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Status").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Invited").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Accepted").with_width(TableColumnWidth::Medium),
+        ];
+        if can_manage(view.role) {
+            headers.push(DataTableHeader::new("Actions").action_column());
+        }
+
+        let role_tags: Vec<String> = view
+            .members
+            .iter()
+            .map(|member| team_role_tag(member.role))
+            .collect::<Result<_, _>>()?;
+        let status_tags: Vec<String> = view
+            .members
+            .iter()
+            .map(|member| team_status_tag(member.accepted))
+            .collect::<Result<_, _>>()?;
+        let accepted: Vec<String> = view
+            .members
+            .iter()
+            .map(|member| member.accepted_at.clone().unwrap_or_else(|| "-".to_owned()))
+            .collect();
+        let actions: Vec<String> = if can_manage(view.role) {
+            view.members
+                .iter()
+                .map(|member| {
+                    team_member_actions(
+                        view,
+                        member,
+                        member.role == TenantRole::Owner && owner_count <= 1,
+                    )
+                })
+                .collect::<Result<_, _>>()?
+        } else {
+            Vec::new()
+        };
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .members
+            .iter()
+            .enumerate()
+            .map(|(idx, member)| {
+                let mut cells = vec![
+                    DataTableCell::new(member.email.as_str()),
+                    DataTableCell::html(trusted_html(&role_tags[idx])),
+                    DataTableCell::html(trusted_html(&status_tags[idx])),
+                    DataTableCell::new(member.invited_at.as_str()),
+                    DataTableCell::new(accepted[idx].as_str()),
+                ];
+                if can_manage(view.role) {
+                    cells.push(DataTableCell::html(trusted_html(&actions[idx])));
+                }
+                cells
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows).sticky())?;
+        content.push_str(&render(&TableWrap::new(trusted_html(&table)))?);
+    }
+
+    let title = format!("Team - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "Team",
+        content_html: &content,
+    })
+}
+
 pub fn general_settings_page(
     view: &GeneralSettingsPageView<'_>,
 ) -> Result<Html<String>, BrowserError> {
@@ -3567,6 +3827,72 @@ mod tests {
         assert!(form_html.contains(r#"name="csrf_token" value="csrf-new-perm""#));
         assert!(form_html.contains("Create permission"));
         assert!(!form_html.contains("reports:<write>"));
+    }
+
+    #[test]
+    fn team_settings_page_preserves_invite_actions_and_escaping() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/settings/team", TenantRole::Owner);
+        let workspaces = workspaces();
+        let members = [
+            TeamMemberView {
+                id: "owner-id".to_owned(),
+                email: "owner@example.com".to_owned(),
+                role: TenantRole::Owner,
+                accepted: true,
+                invited_at: "2026-05-18 10:00 UTC".to_owned(),
+                accepted_at: Some("2026-05-18 10:01 UTC".to_owned()),
+            },
+            TeamMemberView {
+                id: "admin-id".to_owned(),
+                email: "admin<ops>@example.com".to_owned(),
+                role: TenantRole::Admin,
+                accepted: false,
+                invited_at: "2026-05-18 11:00 UTC".to_owned(),
+                accepted_at: None,
+            },
+        ];
+        let html = team_settings_page(&TeamSettingsPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-team",
+            members: &members,
+            invite_error: "Email is required.",
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render team settings page")
+        .0;
+
+        assert!(html.contains("Team Members"));
+        assert!(html.contains(r#"action="/t/acme/settings/team/invite""#));
+        assert!(html.contains(r#"name="csrf_token" value="csrf-team""#));
+        assert!(html.contains("Email is required."));
+        assert!(html.contains(r#"action="/t/acme/settings/team/admin-id/role""#));
+        assert!(html.contains(r#"action="/t/acme/settings/team/admin-id/remove""#));
+        assert!(html.contains("Remove this member from this workspace?"));
+        assert!(!html.contains("admin<ops>@example.com"));
+
+        let viewer_html = team_settings_page(&TeamSettingsPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Viewer,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-team",
+            members: &members,
+            invite_error: "",
+            status_session: Some("viewer@example.com"),
+            is_production: false,
+        })
+        .expect("render viewer team settings page")
+        .0;
+        assert!(viewer_html.contains("Team Members"));
+        assert!(!viewer_html.contains(r#"settings/team/invite"#));
+        assert!(!viewer_html.contains("Actions"));
+        assert!(!viewer_html.contains("Remove this member"));
     }
 
     #[test]

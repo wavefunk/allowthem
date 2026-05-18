@@ -2115,6 +2115,20 @@ async fn invite_existing_user_full_flow() {
     );
 }
 
+#[tokio::test]
+async fn team_settings_page_renders_members_and_invite_controls() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = get_authed(&fx, "/t/acme/settings/team", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Team Members"));
+    assert!(body.contains("owner@acme.com"));
+    assert!(body.contains(r#"action="/t/acme/settings/team/invite""#));
+    assert!(body.contains(r#"name="role""#));
+}
+
 /// POST to demote the last owner via the HTTP route must re-render the team
 /// page with a friendly error — not 500 or a silent no-op.
 #[tokio::test]
