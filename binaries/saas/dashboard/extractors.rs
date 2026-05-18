@@ -18,7 +18,6 @@ use axum::body::Bytes;
 use axum::extract::{FromRequest, FromRequestParts, Path, Request};
 use axum::http::{StatusCode, header, request::Parts};
 use axum::response::{IntoResponse, Response};
-use minijinja::context;
 use serde::Deserialize;
 
 use allowthem_core::{AllowThem, User};
@@ -28,53 +27,6 @@ use allowthem_saas::{
 
 use super::auth_helpers::current_dashboard_user;
 use super::state::DashboardRouterState;
-
-// ---------------------------------------------------------------------------
-// Workspace context helpers — used by every dashboard page that renders
-// `_dashboard_shell.html` (which includes `_workspace_switcher.html`).
-// ---------------------------------------------------------------------------
-
-/// Build the `workspaces` template context: all tenants the current user
-/// belongs to, shaped as `[{tenant: {id, name, slug}, role: "owner"|…}]`.
-pub async fn workspaces_for_user(
-    state: &DashboardRouterState,
-    scope: &TenantScope,
-) -> Vec<minijinja::value::Value> {
-    let Ok(pairs) = state
-        .control_db
-        .tenants_for_member(scope.user.email.as_str())
-        .await
-    else {
-        return Vec::new();
-    };
-    pairs
-        .into_iter()
-        .map(|(t, r)| {
-            let role = match r {
-                TenantRole::Owner => "owner",
-                TenantRole::Admin => "admin",
-                TenantRole::Viewer => "viewer",
-            };
-            context! {
-                tenant => context! {
-                    id => t.id.clone(),
-                    name => t.name.clone(),
-                    slug => t.slug.clone(),
-                },
-                role,
-            }
-        })
-        .collect()
-}
-
-/// Build the `current_tenant` template context from the resolved scope.
-pub fn current_tenant_ctx(tenant: &Tenant) -> minijinja::value::Value {
-    context! {
-        id => tenant.id.clone(),
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
-    }
-}
 
 // ---------------------------------------------------------------------------
 // HtmlForm

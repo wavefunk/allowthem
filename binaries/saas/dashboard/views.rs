@@ -9,17 +9,17 @@ use allowthem_core::audit::{AuditEvent, AuditListEntry};
 use allowthem_core::sessions::SessionListEntry;
 use allowthem_core::types::{ClientType, Permission, Role, User};
 use allowthem_core::users::UserListEntry;
-use allowthem_saas::TenantRole;
+use allowthem_saas::{DomainStatus, TenantRole};
 use allowthem_server::BrowserError;
 use allowthem_server::ui::{render_component, trusted_html};
 use wavefunk_ui::components::{
-    Alert, Badge, Button, ButtonSize, ButtonVariant, CheckRow, CodeGrid, ContextSwitcher,
-    ContextSwitcherItem, CopyableValue, CredentialStatusItem, CredentialStatusList, DataTable,
-    DataTableCell, DataTableHeader, DataTableRow, FeedbackKind, Field, FilterBar, Form,
-    FormActions, FormPanel, FormSection, HtmlAttr, Input, Modeline, ModelineSegment, PageHeader,
-    PageLink, Pagination, Panel, RepeatableArray, RepeatableItem, SecretValue, Select,
-    SelectOption, SettingsSection, Sidenav, SidenavItem, SidenavSection, SnippetTab, SnippetTabs,
-    SplitShell, TableColumnWidth, TableFooter, TableWrap, Tag,
+    Alert, Badge, Button, ButtonSize, ButtonVariant, CheckRow, CodeBlock, CodeGrid,
+    ContextSwitcher, ContextSwitcherItem, CopyableValue, CredentialStatusItem,
+    CredentialStatusList, DataTable, DataTableCell, DataTableHeader, DataTableRow, FeedbackKind,
+    Field, FilterBar, Form, FormActions, FormPanel, FormSection, HtmlAttr, Input, Modeline,
+    ModelineSegment, PageHeader, PageLink, Pagination, Panel, RepeatableArray, RepeatableItem,
+    SecretValue, Select, SelectOption, SettingsSection, Sidenav, SidenavItem, SidenavSection,
+    SnippetTab, SnippetTabs, SplitShell, TableColumnWidth, TableFooter, TableWrap, Tag,
 };
 use wavefunk_ui::layouts::AppShell;
 
@@ -387,6 +387,29 @@ pub struct BillingSettingsPageView<'a> {
     pub plan: Option<&'a BillingPlanView>,
     pub current_usage: i64,
     pub usage: &'a [BillingUsageView],
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct DomainEntryView {
+    pub id: String,
+    pub domain: String,
+    pub status: DomainStatus,
+    pub status_label: &'static str,
+    pub verified_at: Option<String>,
+    pub last_error: Option<String>,
+}
+
+pub struct DomainSettingsPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub csrf_token: &'a str,
+    pub domains: &'a [DomainEntryView],
+    pub dns_target: &'a str,
+    pub error: &'a str,
     pub status_session: Option<&'a str>,
     pub is_production: bool,
 }
@@ -3357,6 +3380,186 @@ pub fn billing_settings_page(
     })
 }
 
+fn domain_status_badge(domain: &DomainEntryView) -> Result<String, BrowserError> {
+    match domain.status {
+        DomainStatus::Failed => render(&Badge::error(domain.status_label)),
+        DomainStatus::Verified | DomainStatus::Active => render(&Badge::new(domain.status_label)),
+        DomainStatus::PendingVerification => render(&Badge::muted(domain.status_label)),
+    }
+}
+
+fn domain_actions(
+    view: &DomainSettingsPageView<'_>,
+    domain: &DomainEntryView,
+) -> Result<String, BrowserError> {
+    if !can_manage(view.role) {
+        return Ok(String::new());
+    }
+    let verify = render(
+        &Button::new("Verify")
+            .with_size(ButtonSize::Small)
+            .with_button_type("submit"),
+    )?;
+    let remove = render(
+        &Button::new("Remove")
+            .with_variant(ButtonVariant::Danger)
+            .with_size(ButtonSize::Small)
+            .with_button_type("submit"),
+    )?;
+    let verify_action = format!(
+        "/t/{}/settings/domains/{}/verify",
+        view.tenant_slug, domain.id
+    );
+    let delete_action = format!(
+        "/t/{}/settings/domains/{}/delete",
+        view.tenant_slug, domain.id
+    );
+    Ok(format!(
+        r#"<form method="post" action="{}" style="display:inline;">{}{verify}</form><form method="post" action="{}" style="display:inline;margin-left:6px;" onsubmit="return confirm('Remove this custom domain?')">{}{remove}</form>"#,
+        attr(&verify_action),
+        hidden_input("csrf_token", view.csrf_token),
+        attr(&delete_action),
+        hidden_input("csrf_token", view.csrf_token)
+    ))
+}
+
+fn domain_registration_form(view: &DomainSettingsPageView<'_>) -> Result<String, BrowserError> {
+    let input_attrs = [
+        HtmlAttr::new("autocomplete", "off"),
+        HtmlAttr::new("spellcheck", "false"),
+    ];
+    let input = Input::new("domain")
+        .with_type("text")
+        .with_placeholder("auth.example.com")
+        .with_attrs(&input_attrs);
+    let mut body = hidden_input("csrf_token", view.csrf_token);
+    body.push_str(&field("Add custom domain", &input, None)?);
+    let button = render(
+        &Button::primary("Register domain")
+            .with_button_type("submit")
+            .with_size(ButtonSize::Small),
+    )?;
+    body.push_str(&render(&FormActions::new(trusted_html(&button)))?);
+    let action = format!("/t/{}/settings/domains", view.tenant_slug);
+    render(
+        &Form::new(trusted_html(&body))
+            .with_action(&action)
+            .with_attrs(&[HtmlAttr::new("style", "max-width:480px")]),
+    )
+}
+
+pub fn domain_settings_page(
+    view: &DomainSettingsPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    let code = render(
+        &CodeBlock::new(view.dns_target)
+            .with_label("CNAME target")
+            .with_copy_target("domain-dns-target"),
+    )?;
+    let mut body = format!(
+        r#"<div style="margin-bottom:24px;"><p style="margin:0 0 8px;font-size:14px;">To use a custom domain, add a <strong>CNAME</strong> record in your DNS provider pointing to:</p>{code}<p class="wf-hint" style="margin-top:6px;font-size:12px;color:var(--wf-text-muted)">DNS propagation can take up to 48 hours. Use the Verify button once the record is live.</p></div>"#
+    );
+    if !view.error.is_empty() {
+        body.push_str(&alert(FeedbackKind::Error, view.error)?);
+    }
+
+    if view.domains.is_empty() {
+        body.push_str(
+            r#"<p style="color:var(--wf-text-muted);font-size:14px;margin-bottom:24px;">No custom domains registered yet.</p>"#,
+        );
+    } else {
+        let mut headers = vec![
+            DataTableHeader::new("Domain").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Status").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Verified at").with_width(TableColumnWidth::Medium),
+        ];
+        if can_manage(view.role) {
+            headers.push(DataTableHeader::new("Actions").action_column());
+        }
+        let domains: Vec<String> = view
+            .domains
+            .iter()
+            .map(|domain| format!(r#"<code>{}</code>"#, text(domain.domain.as_str())))
+            .collect();
+        let statuses: Vec<String> = view
+            .domains
+            .iter()
+            .map(|domain| {
+                let mut status = domain_status_badge(domain)?;
+                if let Some(error) = domain.last_error.as_deref().filter(|error| !error.is_empty())
+                {
+                    write!(
+                        status,
+                        r#"<span class="wf-hint" style="font-size:11px;color:var(--wf-text-muted);display:block;margin-top:2px;">{}</span>"#,
+                        text(error)
+                    )
+                    .unwrap();
+                }
+                Ok(status)
+            })
+            .collect::<Result<Vec<_>, BrowserError>>()?;
+        let verified: Vec<String> = view
+            .domains
+            .iter()
+            .map(|domain| domain.verified_at.clone().unwrap_or_else(|| "-".to_owned()))
+            .collect();
+        let actions: Vec<String> = if can_manage(view.role) {
+            view.domains
+                .iter()
+                .map(|domain| domain_actions(view, domain))
+                .collect::<Result<_, _>>()?
+        } else {
+            Vec::new()
+        };
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .domains
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                let mut cells = vec![
+                    DataTableCell::html(trusted_html(&domains[idx])),
+                    DataTableCell::html(trusted_html(&statuses[idx])),
+                    DataTableCell::new(verified[idx].as_str()),
+                ];
+                if can_manage(view.role) {
+                    cells.push(DataTableCell::html(trusted_html(&actions[idx])));
+                }
+                cells
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows))?;
+        write!(
+            body,
+            r#"<div style="margin-bottom:24px;">{}</div>"#,
+            render(&TableWrap::new(trusted_html(&table)))?
+        )
+        .unwrap();
+    }
+
+    if can_manage(view.role) {
+        body.push_str(&domain_registration_form(view)?);
+    }
+
+    let section = render(&SettingsSection::new("Custom Domain", trusted_html(&body)))?;
+    let content = format!(r#"<div style="margin:16px 24px 0">{section}</div>"#);
+    let title = format!("Custom Domain - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "Custom Domain",
+        content_html: &content,
+    })
+}
+
 pub fn general_settings_page(
     view: &GeneralSettingsPageView<'_>,
 ) -> Result<Html<String>, BrowserError> {
@@ -4332,6 +4535,67 @@ mod tests {
         assert!(viewer_html.contains("Plan"));
         assert!(viewer_html.contains("Usage"));
         assert!(!viewer_html.contains("Upgrade plan"));
+    }
+
+    #[test]
+    fn domain_settings_page_preserves_dns_actions_and_viewer_readonly() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/settings/domains", TenantRole::Owner);
+        let workspaces = workspaces();
+        let domains = [DomainEntryView {
+            id: "domain-id".to_owned(),
+            domain: "auth<bad>.example.com".to_owned(),
+            status: DomainStatus::Failed,
+            status_label: "Failed",
+            verified_at: None,
+            last_error: Some("Missing <CNAME>".to_owned()),
+        }];
+        let html = domain_settings_page(&DomainSettingsPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-domain",
+            domains: &domains,
+            dns_target: "acme.example.test",
+            error: "That domain is already registered.",
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render domain settings page")
+        .0;
+
+        assert!(html.contains("Custom Domain"));
+        assert!(html.contains("CNAME"));
+        assert!(html.contains("acme.example.test"));
+        assert!(html.contains("That domain is already registered."));
+        assert!(html.contains(r#"action="/t/acme/settings/domains/domain-id/verify""#));
+        assert!(html.contains(r#"action="/t/acme/settings/domains/domain-id/delete""#));
+        assert!(html.contains(r#"name="csrf_token" value="csrf-domain""#));
+        assert!(html.contains("Register domain"));
+        assert!(!html.contains("auth<bad>.example.com"));
+        assert!(!html.contains("Missing <CNAME>"));
+
+        let viewer_html = domain_settings_page(&DomainSettingsPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Viewer,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-domain",
+            domains: &domains,
+            dns_target: "acme.example.test",
+            error: "",
+            status_session: Some("viewer@example.com"),
+            is_production: false,
+        })
+        .expect("render viewer domain settings page")
+        .0;
+        assert!(viewer_html.contains("Custom Domain"));
+        assert!(viewer_html.contains("acme.example.test"));
+        assert!(!viewer_html.contains("Register domain"));
+        assert!(!viewer_html.contains("/settings/domains/domain-id/verify"));
+        assert!(!viewer_html.contains("/settings/domains/domain-id/delete"));
     }
 
     #[test]

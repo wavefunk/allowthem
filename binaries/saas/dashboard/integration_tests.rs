@@ -2458,6 +2458,10 @@ async fn domains_page_renders_for_member() {
         body.contains("Custom Domain"),
         "domains page should render for viewer"
     );
+    assert!(
+        !body.contains("Register domain"),
+        "viewer must see the custom-domain page read-only"
+    );
 }
 
 /// A successful CNAME lookup via MockDnsResolver flips the domain status to
