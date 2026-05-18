@@ -23,7 +23,6 @@ use super::quickstart::quickstart_routes;
 use super::quickstart_cache::QuickstartCache;
 use super::signup::signup_routes;
 use super::state::SignupState;
-use super::templates::build_dashboard_env;
 
 const BASE_DOMAIN: &str = "example.com";
 
@@ -86,7 +85,6 @@ impl Fixture {
             handle_cache: handle_cache.clone(),
             quickstart_cache: QuickstartCache::new(),
             base_domain: BASE_DOMAIN.into(),
-            templates: build_dashboard_env(),
             email_sender,
             is_production: false,
         };

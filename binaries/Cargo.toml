@@ -10,7 +10,6 @@ publish = false
 
 [features]
 default = []
-saas-dashboard-templates = ["dep:minijinja", "allowthem-server/browser-templates"]
 
 [[bin]]
 name = "allowthem"
@@ -19,7 +18,6 @@ path = "standalone/main.rs"
 [[bin]]
 name = "allowthem-saas"
 path = "saas/main.rs"
-required-features = ["saas-dashboard-templates"]
 
 [[bin]]
 name = "seed-branding"
@@ -47,7 +45,6 @@ sqlx.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-minijinja = { workspace = true, optional = true }
 tower-http.workspace = true
 url.workspace = true
 serde_html_form.workspace = true

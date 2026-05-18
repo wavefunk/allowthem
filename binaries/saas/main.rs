@@ -30,7 +30,7 @@ use allowthem_server::login_routes::LoginOverrides;
 
 use crate::dashboard::quickstart::quickstart_routes;
 use crate::dashboard::signup::signup_routes;
-use crate::dashboard::{QuickstartCache, SignupState, build_dashboard_env};
+use crate::dashboard::{QuickstartCache, SignupState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -246,7 +246,6 @@ async fn main() -> Result<()> {
         handle_cache: handle_cache.clone(),
         quickstart_cache: QuickstartCache::new(),
         base_domain: cfg.base_domain.clone(),
-        templates: build_dashboard_env(),
         email_sender: email_sender.clone(),
         is_production: cfg.is_production,
     };

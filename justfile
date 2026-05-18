@@ -5,25 +5,21 @@ default:
 build:
     cargo build --workspace
     cargo build -p allowthem-server --features browser-templates
-    cargo build -p allowthem --bin allowthem-saas --features saas-dashboard-templates
 
 # Type-check without building
 check:
     cargo check --workspace
     cargo check -p allowthem-server --features browser-templates
-    cargo check -p allowthem --bin allowthem-saas --features saas-dashboard-templates
 
 # Run all tests
 test:
     cargo test --workspace
     cargo test -p allowthem-server --features browser-templates
-    cargo test -p allowthem --bin allowthem-saas --features saas-dashboard-templates
 
 # Run clippy lints
 clippy:
     cargo clippy --workspace -- -D warnings
     cargo clippy -p allowthem-server --features browser-templates -- -D warnings
-    cargo clippy -p allowthem --bin allowthem-saas --features saas-dashboard-templates -- -D warnings
 
 # Format code
 fmt:

@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use minijinja::Environment;
 use tokio::sync::RwLock;
 
 use allowthem_core::{AllowThem, EmailSender};
@@ -45,7 +44,6 @@ pub struct SignupState {
     pub handle_cache: HandleCache,
     pub quickstart_cache: QuickstartCache,
     pub base_domain: String,
-    pub templates: Arc<Environment<'static>>,
     /// Shared email sender used by transactional flows (e.g. 99c.4's
     /// force-password-reset). Plumbed through `DashboardRouterState::from_signup`
     /// so the dashboard pages router gets the same `Arc` instance.
@@ -73,7 +71,6 @@ pub struct DashboardRouterState {
     pub slug_cache: SlugCache,
     pub tenant_data_dir: PathBuf,
     pub tenant_config: Arc<TenantBuilderConfig>,
-    pub templates: Arc<Environment<'static>>,
     /// Shared email sender — used by 99c.4's force-password-reset handler.
     pub email_sender: Arc<dyn EmailSender>,
     pub is_production: bool,
@@ -102,7 +99,6 @@ impl DashboardRouterState {
             slug_cache,
             tenant_data_dir: s.tenant_data_dir,
             tenant_config: s.tenant_config,
-            templates: s.templates,
             email_sender: s.email_sender,
             is_production: s.is_production,
             base_domain: s.base_domain,

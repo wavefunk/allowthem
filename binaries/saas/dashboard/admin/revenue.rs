@@ -3,8 +3,7 @@
 //! - `GET /admin/revenue` — MRR and plan distribution (Step 11 of 99c.6)
 
 use axum::extract::State;
-use axum::response::{Html, IntoResponse, Response};
-use minijinja::context;
+use axum::response::{IntoResponse, Response};
 
 use allowthem_core::AuthError;
 use allowthem_saas::SaasError;
@@ -13,6 +12,7 @@ use allowthem_server::browser_error::BrowserError;
 use crate::dashboard::extractors::RequireSuperAdmin;
 use crate::dashboard::nav::admin_nav_items;
 use crate::dashboard::state::DashboardRouterState;
+use crate::dashboard::views::{self, AdminPlanView};
 
 fn saas_err(e: SaasError) -> BrowserError {
     match e {
@@ -46,19 +46,15 @@ pub async fn page(
     }
 
     let nav = admin_nav_items("/admin/revenue");
+    let plan_views: Vec<AdminPlanView> = plans.iter().map(AdminPlanView::from_plan).collect();
 
-    let tmpl = state
-        .templates
-        .get_template("admin/revenue.html")
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! {
-            status_session => scope.user.email.as_str(),
-            nav_sections => nav,
-            by_plan => by_plan,
-            plans => plans,
-            mrr_cents => mrr_cents,
-        })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body).into_response())
+    Ok(views::admin_revenue_page(&views::AdminRevenuePageView {
+        nav_sections: &nav,
+        by_plan: &by_plan,
+        plans: &plan_views,
+        mrr_cents,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
+    .into_response())
 }

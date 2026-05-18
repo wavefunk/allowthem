@@ -9,7 +9,9 @@ use allowthem_core::audit::{AuditEvent, AuditListEntry};
 use allowthem_core::sessions::SessionListEntry;
 use allowthem_core::types::{ClientType, Permission, Role, User};
 use allowthem_core::users::UserListEntry;
-use allowthem_saas::{DomainStatus, TenantRole};
+use allowthem_saas::{
+    DomainStatus, PeriodAggregate, Tenant, TenantOverviewRow, TenantPlan, TenantRole, TenantStatus,
+};
 use allowthem_server::BrowserError;
 use allowthem_server::ui::{render_component, trusted_html};
 use wavefunk_ui::components::{
@@ -436,6 +438,118 @@ pub struct ComingSoonPageView<'a> {
     pub epic_ref: &'a str,
     pub description: &'a str,
     pub wireframe: Option<&'a str>,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct AdminPlanView {
+    pub id_hex: String,
+    pub name: String,
+    pub price_cents: i64,
+    pub mau_limit: i64,
+}
+
+impl AdminPlanView {
+    pub fn from_plan(plan: &TenantPlan) -> Self {
+        Self {
+            id_hex: hex::encode(&plan.id),
+            name: plan.name.clone(),
+            price_cents: plan.price_cents,
+            mau_limit: plan.mau_limit,
+        }
+    }
+}
+
+pub struct AdminTenantRowView {
+    pub id: String,
+    pub name: String,
+    pub slug: String,
+    pub owner_email: String,
+    pub status: TenantStatus,
+    pub plan_name: String,
+    pub mau_count: i64,
+    pub created_at: String,
+    pub last_seen_at: Option<String>,
+}
+
+impl AdminTenantRowView {
+    pub fn from_row(row: &TenantOverviewRow) -> Self {
+        Self {
+            id: uuid::Uuid::from_slice(&row.id)
+                .map(|uuid| uuid.to_string())
+                .unwrap_or_default(),
+            name: row.name.clone(),
+            slug: row.slug.clone(),
+            owner_email: row.owner_email.clone(),
+            status: row.status,
+            plan_name: row.plan_name.clone(),
+            mau_count: row.mau_count,
+            created_at: datefmt(&row.created_at),
+            last_seen_at: row.last_seen_at.as_ref().map(datefmt),
+        }
+    }
+}
+
+pub struct AdminOverviewPageView<'a> {
+    pub nav_sections: &'a [NavSection],
+    pub tenants: &'a [AdminTenantRowView],
+    pub total: u32,
+    pub page: u32,
+    pub total_pages: u32,
+    pub active_count: i64,
+    pub suspended_count: i64,
+    pub new_30d: i64,
+    pub dormant_count: i64,
+    pub plans: &'a [AdminPlanView],
+    pub q: &'a str,
+    pub status: &'a str,
+    pub plan: &'a str,
+    pub sort: &'a str,
+    pub dir: &'a str,
+    pub has_filters: bool,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct AdminTenantDetailPageView<'a> {
+    pub nav_sections: &'a [NavSection],
+    pub tenant: &'a Tenant,
+    pub tenant_uuid: &'a str,
+    pub usage: &'a PeriodAggregate,
+    pub plan: Option<&'a TenantPlan>,
+    pub current_plan_id_hex: &'a str,
+    pub all_plans: &'a [AdminPlanView],
+    pub info: &'a str,
+    pub error: &'a str,
+    pub csrf_token: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct AdminUsagePageView<'a> {
+    pub nav_sections: &'a [NavSection],
+    pub current: &'a PeriodAggregate,
+    pub history: &'a [PeriodAggregate],
+    pub current_period: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct AdminRevenuePageView<'a> {
+    pub nav_sections: &'a [NavSection],
+    pub by_plan: &'a [(String, i64)],
+    pub plans: &'a [AdminPlanView],
+    pub mrr_cents: i64,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct AdminHealthPageView<'a> {
+    pub nav_sections: &'a [NavSection],
+    pub total_bytes: u64,
+    pub top_files: &'a [(String, u64)],
+    pub slug_cache_entries: u64,
+    pub handle_cache_entries: u64,
     pub status_session: Option<&'a str>,
     pub is_production: bool,
 }
@@ -3659,6 +3773,577 @@ pub fn coming_soon_page(view: &ComingSoonPageView<'_>) -> Result<Html<String>, B
     })
 }
 
+fn admin_dashboard_page(
+    title: &str,
+    page_title: &str,
+    nav_sections: &[NavSection],
+    content_html: &str,
+    status_session: Option<&str>,
+    is_production: bool,
+) -> Result<Html<String>, BrowserError> {
+    let empty_workspaces: [WorkspaceView<'_>; 0] = [];
+    dashboard_page(&DashboardShellView {
+        title,
+        app_name: "allowthem",
+        brand_href: "/admin",
+        logout_href: "/logout",
+        nav_sections,
+        workspaces: &empty_workspaces,
+        current_workspace: None,
+        status_session,
+        is_production,
+        content_html,
+        page_title: Some(page_title),
+        main_class: "has-header",
+    })
+}
+
+fn admin_status_tag(status: TenantStatus) -> Result<String, BrowserError> {
+    match status {
+        TenantStatus::Active => render(&Tag::status(FeedbackKind::Ok, "Active")),
+        TenantStatus::Suspended => render(&Tag::status(FeedbackKind::Warn, "Suspended")),
+        TenantStatus::Deleted => render(&Tag::status(FeedbackKind::Error, "Deleted")),
+    }
+}
+
+fn admin_stat_card(label: &str, value: impl std::fmt::Display) -> String {
+    format!(
+        r#"<div class="wf-panel" style="flex:1; min-width:160px; padding:16px;"><div class="wf-caption">{}</div><div style="font-size:1.8rem; font-weight:700;">{}</div></div>"#,
+        text(label),
+        text(&value.to_string())
+    )
+}
+
+fn admin_stat_row(cards: &[String]) -> String {
+    format!(
+        r#"<div style="display:flex; gap:16px; flex-wrap:wrap; margin:16px 24px 0;">{}</div>"#,
+        cards.join("")
+    )
+}
+
+pub fn admin_overview_page(view: &AdminOverviewPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let stats = [
+        admin_stat_card("Active", view.active_count),
+        admin_stat_card("Suspended", view.suspended_count),
+        admin_stat_card("New (30d)", view.new_30d),
+        admin_stat_card("Dormant (90d)", view.dormant_count),
+    ];
+    let mut content = admin_stat_row(&stats);
+
+    let search = field(
+        "Search",
+        &Input::new("q")
+            .with_type("text")
+            .with_value(view.q)
+            .with_placeholder("name, slug, or owner"),
+        None,
+    )?;
+    let status_options = [
+        selected_option("", "Any", view.status),
+        selected_option("active", "Active", view.status),
+        selected_option("suspended", "Suspended", view.status),
+        selected_option("deleted", "Deleted", view.status),
+    ];
+    let status = field_html(
+        "Status",
+        &render(&Select::new("status", &status_options))?,
+        None,
+    )?;
+    let mut plan_options = vec![selected_option("", "Any", view.plan)];
+    plan_options.extend(
+        view.plans
+            .iter()
+            .map(|plan| selected_option(plan.name.as_str(), plan.name.as_str(), view.plan)),
+    );
+    let plan = field_html("Plan", &render(&Select::new("plan", &plan_options))?, None)?;
+    let sort_options = [
+        selected_option("name", "Name", view.sort),
+        selected_option("slug", "Slug", view.sort),
+        selected_option("status", "Status", view.sort),
+        selected_option("plan", "Plan", view.sort),
+        selected_option("mau", "MAU", view.sort),
+        selected_option("created_at", "Created", view.sort),
+        selected_option("last_seen_at", "Last seen", view.sort),
+    ];
+    let sort = field_html("Sort", &render(&Select::new("sort", &sort_options))?, None)?;
+    let dir_options = [
+        selected_option("asc", "Asc", view.dir),
+        selected_option("desc", "Desc", view.dir),
+    ];
+    let dir = field_html("Dir", &render(&Select::new("dir", &dir_options))?, None)?;
+    let filter = render(
+        &Button::primary("Filter")
+            .with_button_type("submit")
+            .with_size(ButtonSize::Small),
+    )?;
+    let mut controls =
+        format!("{search}{status}{plan}{sort}{dir}<div class=\"wf-actions\">{filter}");
+    if view.has_filters {
+        controls.push_str(&render(
+            &Button::link("Reset", "/admin").with_size(ButtonSize::Small),
+        )?);
+    }
+    controls.push_str("</div>");
+    let form = filter_form("/admin", &controls)?;
+    let filterbar = render(&FilterBar::new(trusted_html(&form)))?;
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    content.push_str(&render(
+        &Panel::new(
+            &format!("Tenants ({})", view.total),
+            trusted_html(&filterbar),
+        )
+        .with_attrs(&panel_attrs),
+    )?);
+
+    if view.tenants.is_empty() {
+        let empty = if view.has_filters {
+            "No tenants match these filters."
+        } else {
+            "No tenants yet."
+        };
+        write!(
+            content,
+            r#"<p class="wf-empty" style="margin:12px 24px;">{}</p>"#,
+            text(empty)
+        )
+        .unwrap();
+    } else {
+        let headers = [
+            DataTableHeader::new("Name").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Slug").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Owner").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Status").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Plan").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("MAU").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Created").with_width(TableColumnWidth::Medium),
+        ];
+        let links: Vec<String> = view
+            .tenants
+            .iter()
+            .map(|tenant| {
+                format!(
+                    r#"<a class="wf-link" href="/admin/tenants/{}">{}</a>"#,
+                    attr(tenant.id.as_str()),
+                    text(tenant.name.as_str())
+                )
+            })
+            .collect();
+        let statuses: Vec<String> = view
+            .tenants
+            .iter()
+            .map(|tenant| admin_status_tag(tenant.status))
+            .collect::<Result<_, _>>()?;
+        let mau_counts: Vec<String> = view
+            .tenants
+            .iter()
+            .map(|tenant| tenant.mau_count.to_string())
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .tenants
+            .iter()
+            .enumerate()
+            .map(|(idx, tenant)| {
+                let _ = &tenant.last_seen_at;
+                vec![
+                    DataTableCell::html(trusted_html(&links[idx])),
+                    DataTableCell::new(tenant.slug.as_str()),
+                    DataTableCell::new(tenant.owner_email.as_str()),
+                    DataTableCell::html(trusted_html(&statuses[idx])),
+                    DataTableCell::new(tenant.plan_name.as_str()),
+                    DataTableCell::numeric(mau_counts[idx].as_str()),
+                    DataTableCell::new(tenant.created_at.as_str()),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows).sticky())?;
+        let query = format!(
+            "q={}&status={}&plan={}&sort={}&dir={}&page=",
+            url_encode(view.q),
+            url_encode(view.status),
+            url_encode(view.plan),
+            url_encode(view.sort),
+            url_encode(view.dir),
+        );
+        let prev_href = format!("/admin?{}{}", query, view.page.saturating_sub(1).max(1));
+        let next_href = format!("/admin?{}{}", query, view.page + 1);
+        let footer = pagination_footer(
+            &format!(
+                "Page {} of {} - {} tenants",
+                view.page, view.total_pages, view.total
+            ),
+            view.page,
+            view.total_pages,
+            &prev_href,
+            &next_href,
+        )?;
+        content.push_str(&render(
+            &TableWrap::new(trusted_html(&table)).with_footer_component(trusted_html(&footer)),
+        )?);
+    }
+
+    admin_dashboard_page(
+        "Admin - Tenants",
+        "Tenants",
+        view.nav_sections,
+        &content,
+        view.status_session,
+        view.is_production,
+    )
+}
+
+pub fn admin_tenant_detail_page(
+    view: &AdminTenantDetailPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    let mut content = String::new();
+    if !view.info.is_empty() {
+        write!(
+            content,
+            r#"<div style="margin:16px 24px 0;">{}</div>"#,
+            alert(FeedbackKind::Ok, view.info)?
+        )
+        .unwrap();
+    }
+    if !view.error.is_empty() {
+        write!(
+            content,
+            r#"<div style="margin:16px 24px 0;">{}</div>"#,
+            alert(FeedbackKind::Error, view.error)?
+        )
+        .unwrap();
+    }
+
+    let plan_name = view.plan.map(|plan| plan.name.as_str()).unwrap_or("-");
+    let last_seen = view
+        .tenant
+        .last_seen_at
+        .as_ref()
+        .map(datefmt)
+        .unwrap_or_else(|| "-".to_owned());
+    let mut info = String::new();
+    write!(
+        info,
+        r#"<dl class="wf-dl"><div class="wf-dl-row"><dt>Slug</dt><dd><code>{}</code></dd></div><div class="wf-dl-row"><dt>Owner</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>Plan</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>Current MAU</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>Created</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>Last seen</dt><dd>{}</dd></div></dl>"#,
+        text(view.tenant.slug.as_str()),
+        text(view.tenant.owner_email.as_str()),
+        text(plan_name),
+        view.usage.total_mau,
+        text(&datefmt(&view.tenant.created_at)),
+        text(&last_seen),
+    )
+    .unwrap();
+    let status = admin_status_tag(view.tenant.status)?;
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    content.push_str(&render(
+        &Panel::new(view.tenant.name.as_str(), trusted_html(&info))
+            .with_action(trusted_html(&status))
+            .with_attrs(&panel_attrs),
+    )?);
+
+    let mut actions = String::new();
+    if view.tenant.status == TenantStatus::Active {
+        let button = render(
+            &Button::new("Suspend")
+                .with_variant(ButtonVariant::Danger)
+                .with_size(ButtonSize::Small)
+                .with_button_type("submit"),
+        )?;
+        write!(
+            actions,
+            r#"<form method="post" action="/admin/tenants/{}/suspend">{}{button}</form>"#,
+            attr(view.tenant_uuid),
+            hidden_input("csrf_token", view.csrf_token),
+        )
+        .unwrap();
+    } else if view.tenant.status == TenantStatus::Suspended {
+        let button = render(
+            &Button::primary("Reactivate")
+                .with_size(ButtonSize::Small)
+                .with_button_type("submit"),
+        )?;
+        write!(
+            actions,
+            r#"<form method="post" action="/admin/tenants/{}/unsuspend">{}{button}</form>"#,
+            attr(view.tenant_uuid),
+            hidden_input("csrf_token", view.csrf_token),
+        )
+        .unwrap();
+    }
+    if view.tenant.status != TenantStatus::Deleted {
+        let button = render(
+            &Button::new("Delete")
+                .with_variant(ButtonVariant::Danger)
+                .with_size(ButtonSize::Small)
+                .with_button_type("submit"),
+        )?;
+        write!(
+            actions,
+            r#"<form method="post" action="/admin/tenants/{}/delete" onsubmit="return confirm('Permanently delete this tenant?')">{}{button}</form>"#,
+            attr(view.tenant_uuid),
+            hidden_input("csrf_token", view.csrf_token),
+        )
+        .unwrap();
+    }
+    let actions = format!(
+        r#"<div class="wf-actions" style="display:flex; gap:12px; flex-wrap:wrap;">{actions}</div>"#
+    );
+    content.push_str(&render(
+        &Panel::new("Actions", trusted_html(&actions)).with_attrs(&panel_attrs),
+    )?);
+
+    if !view.all_plans.is_empty() {
+        let labels: Vec<String> = view
+            .all_plans
+            .iter()
+            .map(|plan| {
+                format!(
+                    "{} (${} /mo, {} MAU)",
+                    plan.name,
+                    plan.price_cents / 100,
+                    plan.mau_limit
+                )
+            })
+            .collect();
+        let options: Vec<SelectOption<'_>> = view
+            .all_plans
+            .iter()
+            .zip(labels.iter())
+            .map(|(plan, label)| {
+                selected_option(
+                    plan.id_hex.as_str(),
+                    label.as_str(),
+                    view.current_plan_id_hex,
+                )
+            })
+            .collect();
+        let select = field_html("Plan", &render(&Select::new("plan_id", &options))?, None)?;
+        let button = render(
+            &Button::primary("Update Plan")
+                .with_size(ButtonSize::Small)
+                .with_button_type("submit"),
+        )?;
+        let body = format!(
+            "{}{select}{}",
+            hidden_input("csrf_token", view.csrf_token),
+            render(&FormActions::new(trusted_html(&button)))?
+        );
+        let action = format!("/admin/tenants/{}/change-plan", view.tenant_uuid);
+        let form = render(&Form::new(trusted_html(&body)).with_action(&action))?;
+        content.push_str(&render(
+            &Panel::new("Change Plan", trusted_html(&form)).with_attrs(&panel_attrs),
+        )?);
+    }
+
+    let title = format!("Admin - {}", view.tenant.name);
+    admin_dashboard_page(
+        &title,
+        view.tenant.name.as_str(),
+        view.nav_sections,
+        &content,
+        view.status_session,
+        view.is_production,
+    )
+}
+
+pub fn admin_usage_page(view: &AdminUsagePageView<'_>) -> Result<Html<String>, BrowserError> {
+    let stats = [
+        admin_stat_card(
+            &format!("MAU ({})", view.current_period),
+            view.current.total_mau,
+        ),
+        admin_stat_card("Active tenants", view.current.active_tenants),
+    ];
+    let mut content = admin_stat_row(&stats);
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    if view.history.is_empty() {
+        content.push_str(&render(
+            &Panel::new(
+                "Monthly history",
+                trusted_html(r#"<p class="wf-empty">No usage data recorded yet.</p>"#),
+            )
+            .with_attrs(&panel_attrs),
+        )?);
+    } else {
+        let headers = [
+            DataTableHeader::new("Period").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Total MAU").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Active tenants").with_width(TableColumnWidth::Small),
+        ];
+        let total_mau: Vec<String> = view
+            .history
+            .iter()
+            .map(|row| row.total_mau.to_string())
+            .collect();
+        let active_tenants: Vec<String> = view
+            .history
+            .iter()
+            .map(|row| row.active_tenants.to_string())
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .history
+            .iter()
+            .enumerate()
+            .map(|(idx, row)| {
+                vec![
+                    DataTableCell::new(row.period.as_str()),
+                    DataTableCell::numeric(total_mau[idx].as_str()),
+                    DataTableCell::numeric(active_tenants[idx].as_str()),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows))?;
+        let table = render(&TableWrap::new(trusted_html(&table)))?;
+        content.push_str(&render(
+            &Panel::new("Monthly history", trusted_html(&table)).with_attrs(&panel_attrs),
+        )?);
+    }
+    admin_dashboard_page(
+        "Admin - Usage",
+        "Usage",
+        view.nav_sections,
+        &content,
+        view.status_session,
+        view.is_production,
+    )
+}
+
+pub fn admin_revenue_page(view: &AdminRevenuePageView<'_>) -> Result<Html<String>, BrowserError> {
+    let stats = [admin_stat_card(
+        "Estimated MRR",
+        format!("${}", view.mrr_cents / 100),
+    )];
+    let mut content = admin_stat_row(&stats);
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    if view.by_plan.is_empty() {
+        content.push_str(&render(
+            &Panel::new(
+                "Plan distribution",
+                trusted_html(r#"<p class="wf-empty">No plan data available.</p>"#),
+            )
+            .with_attrs(&panel_attrs),
+        )?);
+    } else {
+        let headers = [
+            DataTableHeader::new("Plan").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Tenants").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Price/mo").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Subtotal MRR").with_width(TableColumnWidth::Small),
+        ];
+        let prices: Vec<i64> = view
+            .by_plan
+            .iter()
+            .map(|(name, _)| {
+                view.plans
+                    .iter()
+                    .find(|plan| &plan.name == name)
+                    .map(|plan| plan.price_cents)
+                    .unwrap_or(0)
+            })
+            .collect();
+        let tenant_counts: Vec<String> = view
+            .by_plan
+            .iter()
+            .map(|(_, count)| count.to_string())
+            .collect();
+        let price_labels: Vec<String> = prices
+            .iter()
+            .map(|price| format!("${}", price / 100))
+            .collect();
+        let subtotal_labels: Vec<String> = view
+            .by_plan
+            .iter()
+            .zip(prices.iter())
+            .map(|((_, count), price)| format!("${}", (price * count) / 100))
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .by_plan
+            .iter()
+            .enumerate()
+            .map(|(idx, (name, _))| {
+                vec![
+                    DataTableCell::new(name.as_str()),
+                    DataTableCell::numeric(tenant_counts[idx].as_str()),
+                    DataTableCell::numeric(price_labels[idx].as_str()),
+                    DataTableCell::numeric(subtotal_labels[idx].as_str()),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows))?;
+        let table = render(&TableWrap::new(trusted_html(&table)))?;
+        content.push_str(&render(
+            &Panel::new("Plan distribution", trusted_html(&table)).with_attrs(&panel_attrs),
+        )?);
+    }
+    admin_dashboard_page(
+        "Admin - Revenue",
+        "Revenue",
+        view.nav_sections,
+        &content,
+        view.status_session,
+        view.is_production,
+    )
+}
+
+pub fn admin_health_page(view: &AdminHealthPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let stats = [
+        admin_stat_card("Slug cache entries", view.slug_cache_entries),
+        admin_stat_card("Handle cache entries", view.handle_cache_entries),
+        admin_stat_card("Tenant data dir (bytes)", view.total_bytes),
+    ];
+    let mut content = admin_stat_row(&stats);
+    if !view.top_files.is_empty() {
+        let headers = [
+            DataTableHeader::new("Tenant (stem)").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Size (bytes)").with_width(TableColumnWidth::Small),
+        ];
+        let sizes: Vec<String> = view
+            .top_files
+            .iter()
+            .map(|(_, size)| size.to_string())
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .top_files
+            .iter()
+            .enumerate()
+            .map(|(idx, (name, _))| {
+                vec![
+                    DataTableCell::new(name.as_str()),
+                    DataTableCell::numeric(sizes[idx].as_str()),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows))?;
+        let table = render(&TableWrap::new(trusted_html(&table)))?;
+        let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+        content.push_str(&render(
+            &Panel::new("Largest tenant databases", trusted_html(&table)).with_attrs(&panel_attrs),
+        )?);
+    }
+    admin_dashboard_page(
+        "Admin - Health",
+        "Health",
+        view.nav_sections,
+        &content,
+        view.status_session,
+        view.is_production,
+    )
+}
+
 fn audit_event_label(event: &AuditEvent) -> &'static str {
     match event {
         AuditEvent::Login => "Login",
@@ -3719,6 +4404,8 @@ mod tests {
     };
     use allowthem_core::users::UserListEntry;
     use allowthem_core::{ApplicationId, ClientType};
+    use allowthem_saas::{PeriodAggregate, Tenant, TenantOverviewRow, TenantPlan, TenantStatus};
+    use uuid::Uuid;
 
     fn workspaces<'a>() -> [WorkspaceView<'a>; 2] {
         [
@@ -4596,6 +5283,206 @@ mod tests {
         assert!(!viewer_html.contains("Register domain"));
         assert!(!viewer_html.contains("/settings/domains/domain-id/verify"));
         assert!(!viewer_html.contains("/settings/domains/domain-id/delete"));
+    }
+
+    #[test]
+    fn admin_overview_page_preserves_filters_metrics_table_and_escaping() {
+        let nav_sections = crate::dashboard::nav::admin_nav_items("/admin");
+        let tenants = [TenantOverviewRow {
+            id: Uuid::now_v7().as_bytes().to_vec(),
+            name: "Acme <Ops>".to_owned(),
+            slug: "acme".to_owned(),
+            owner_email: "owner<ops>@example.com".to_owned(),
+            status: TenantStatus::Active,
+            plan_name: "Launch".to_owned(),
+            mau_count: 42,
+            created_at: chrono::Utc::now(),
+            last_seen_at: None,
+        }];
+        let tenant_views = [AdminTenantRowView::from_row(&tenants[0])];
+        let plans = [AdminPlanView {
+            id_hex: "plan-id".to_owned(),
+            name: "Launch <Plan>".to_owned(),
+            price_cents: 1900,
+            mau_limit: 1000,
+        }];
+
+        let html = admin_overview_page(&AdminOverviewPageView {
+            nav_sections: &nav_sections,
+            tenants: &tenant_views,
+            total: 26,
+            page: 2,
+            total_pages: 3,
+            active_count: 10,
+            suspended_count: 2,
+            new_30d: 4,
+            dormant_count: 1,
+            plans: &plans,
+            q: "owner@example.com",
+            status: "active",
+            plan: "Launch <Plan>",
+            sort: "mau",
+            dir: "desc",
+            has_filters: true,
+            status_session: Some("super@example.com"),
+            is_production: false,
+        })
+        .expect("render admin overview page")
+        .0;
+
+        assert!(html.contains("Active"));
+        assert!(html.contains(">10<"));
+        assert!(html.contains("Suspended"));
+        assert!(html.contains("New (30d)"));
+        assert!(html.contains("Dormant (90d)"));
+        assert!(html.contains(r#"action="/admin""#));
+        assert!(html.contains(r#"name="q" value="owner@example.com""#));
+        assert!(html.contains(r#"class="wf-table sticky""#));
+        assert!(html.contains(r#"href="/admin/tenants/"#));
+        assert!(html.contains("Page 2 of 3"));
+        assert!(html.contains("26 tenants"));
+        assert!(html.contains("q=owner%40example.com"));
+        assert!(!html.contains("Acme <Ops>"));
+        assert!(!html.contains("owner<ops>@example.com"));
+        assert!(!html.contains("Launch <Plan>"));
+    }
+
+    #[test]
+    fn admin_tenant_detail_page_preserves_flash_actions_and_plan_change() {
+        let nav_sections = crate::dashboard::nav::admin_nav_items("/admin");
+        let tenant_id = Uuid::now_v7();
+        let plan = TenantPlan {
+            id: Uuid::now_v7().as_bytes().to_vec(),
+            name: "Launch <Plan>".to_owned(),
+            mau_limit: 1000,
+            price_cents: 1900,
+            features: "[]".to_owned(),
+        };
+        let tenant = Tenant {
+            id: tenant_id.as_bytes().to_vec(),
+            name: "Acme <Ops>".to_owned(),
+            slug: "acme".to_owned(),
+            owner_email: "owner<ops>@example.com".to_owned(),
+            plan_id: plan.id.clone(),
+            status: TenantStatus::Active,
+            db_path: "/tmp/acme.db".to_owned(),
+            last_seen_at: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let all_plans = [AdminPlanView::from_plan(&plan)];
+        let usage = PeriodAggregate {
+            period: "2026-05".to_owned(),
+            total_mau: 42,
+            active_tenants: 1,
+        };
+
+        let html = admin_tenant_detail_page(&AdminTenantDetailPageView {
+            nav_sections: &nav_sections,
+            tenant: &tenant,
+            tenant_uuid: &tenant_id.to_string(),
+            usage: &usage,
+            plan: Some(&plan),
+            current_plan_id_hex: &hex::encode(&plan.id),
+            all_plans: &all_plans,
+            info: "Tenant updated <ok>.",
+            error: "Plan failed <bad>.",
+            csrf_token: "csrf-detail",
+            status_session: Some("super@example.com"),
+            is_production: false,
+        })
+        .expect("render admin tenant detail page")
+        .0;
+
+        assert!(html.contains("Actions"));
+        assert!(html.contains("Change Plan"));
+        assert!(html.contains("Current MAU"));
+        assert!(html.contains(">42<"));
+        assert!(html.contains(&format!(r#"action="/admin/tenants/{tenant_id}/suspend""#)));
+        assert!(html.contains(&format!(r#"action="/admin/tenants/{tenant_id}/delete""#)));
+        assert!(html.contains(&format!(
+            r#"action="/admin/tenants/{tenant_id}/change-plan""#
+        )));
+        assert!(html.contains(r#"name="csrf_token" value="csrf-detail""#));
+        assert!(html.contains("Permanently delete this tenant?"));
+        assert!(!html.contains("Acme <Ops>"));
+        assert!(!html.contains("owner<ops>@example.com"));
+        assert!(!html.contains("Tenant updated <ok>."));
+        assert!(!html.contains("Plan failed <bad>."));
+    }
+
+    #[test]
+    fn admin_analytics_pages_preserve_usage_revenue_and_health_tables() {
+        let usage_nav = crate::dashboard::nav::admin_nav_items("/admin/usage");
+        let current = PeriodAggregate {
+            period: "2026-05".to_owned(),
+            total_mau: 100,
+            active_tenants: 3,
+        };
+        let history = [PeriodAggregate {
+            period: "2026-04".to_owned(),
+            total_mau: 80,
+            active_tenants: 2,
+        }];
+        let usage_html = admin_usage_page(&AdminUsagePageView {
+            nav_sections: &usage_nav,
+            current: &current,
+            history: &history,
+            current_period: "2026-05",
+            status_session: Some("super@example.com"),
+            is_production: false,
+        })
+        .expect("render admin usage page")
+        .0;
+        assert!(usage_html.contains("MAU (2026-05)"));
+        assert!(usage_html.contains("Active tenants"));
+        assert!(usage_html.contains("Monthly history"));
+        assert!(usage_html.contains("2026-04"));
+        assert!(usage_html.contains(r#"class="wf-table""#));
+
+        let revenue_nav = crate::dashboard::nav::admin_nav_items("/admin/revenue");
+        let plans = [AdminPlanView {
+            id_hex: "plan-id".to_owned(),
+            name: "Launch <Plan>".to_owned(),
+            price_cents: 1900,
+            mau_limit: 1000,
+        }];
+        let by_plan = [("Launch <Plan>".to_owned(), 2_i64)];
+        let revenue_html = admin_revenue_page(&AdminRevenuePageView {
+            nav_sections: &revenue_nav,
+            by_plan: &by_plan,
+            plans: &plans,
+            mrr_cents: 3800,
+            status_session: Some("super@example.com"),
+            is_production: false,
+        })
+        .expect("render admin revenue page")
+        .0;
+        assert!(revenue_html.contains("Estimated MRR"));
+        assert!(revenue_html.contains("$38"));
+        assert!(revenue_html.contains("Plan distribution"));
+        assert!(revenue_html.contains("$19"));
+        assert!(!revenue_html.contains("Launch <Plan>"));
+
+        let health_nav = crate::dashboard::nav::admin_nav_items("/admin/health");
+        let top_files = [("tenant<bad>".to_owned(), 4096_u64)];
+        let health_html = admin_health_page(&AdminHealthPageView {
+            nav_sections: &health_nav,
+            total_bytes: 8192,
+            top_files: &top_files,
+            slug_cache_entries: 2,
+            handle_cache_entries: 1,
+            status_session: Some("super@example.com"),
+            is_production: false,
+        })
+        .expect("render admin health page")
+        .0;
+        assert!(health_html.contains("Slug cache entries"));
+        assert!(health_html.contains("Handle cache entries"));
+        assert!(health_html.contains("Tenant data dir"));
+        assert!(health_html.contains("Largest tenant databases"));
+        assert!(health_html.contains(">4096<"));
+        assert!(!health_html.contains("tenant<bad>"));
     }
 
     #[test]
