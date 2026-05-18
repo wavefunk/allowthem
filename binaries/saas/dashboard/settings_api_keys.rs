@@ -10,23 +10,20 @@
 
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use minijinja::context;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use allowthem_saas::TenantId;
 use allowthem_saas::api_keys::ApiKeyScope;
+use allowthem_saas::{Tenant, TenantId, TenantRole};
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{
-    HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope, current_tenant_ctx,
-    workspaces_for_user,
-};
+use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
+use super::views::{self, ApiKeySettingsPageView, ApiKeyView, WorkspaceView};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -52,37 +49,43 @@ pub struct MintForm {
 // Local helpers
 // ---------------------------------------------------------------------------
 
-fn render(
+async fn workspace_pairs_for_user(
     state: &DashboardRouterState,
-    template: &str,
-    session: &str,
-    ctx: minijinja::value::Value,
-) -> Result<Html<String>, BrowserError> {
-    let tmpl = state
-        .templates
-        .get_template(template)
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! { status_session => session, ..ctx })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body))
+    scope: &TenantScope,
+) -> Vec<(Tenant, TenantRole)> {
+    state
+        .control_db
+        .tenants_for_member(scope.user.email.as_str())
+        .await
+        .unwrap_or_default()
 }
 
-fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
-    context! {
-        id => tenant.id.clone(),
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
-    }
+fn workspace_views<'a>(
+    pairs: &'a [(Tenant, TenantRole)],
+    active_slug: &str,
+) -> Vec<WorkspaceView<'a>> {
+    pairs
+        .iter()
+        .map(|(workspace, role)| WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == active_slug,
+        })
+        .collect()
 }
 
-fn role_str(role: allowthem_saas::TenantRole) -> &'static str {
-    use allowthem_saas::TenantRole;
-    match role {
-        TenantRole::Owner => "owner",
-        TenantRole::Admin => "admin",
-        TenantRole::Viewer => "viewer",
-    }
+fn api_key_rows(keys: &[allowthem_saas::api_keys::ApiKey]) -> Vec<ApiKeyView> {
+    keys.iter()
+        .map(|key| ApiKeyView {
+            id: key.id.to_string(),
+            name: key.name.clone(),
+            created_at: key.created_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+            expires_at: key
+                .expires_at
+                .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()),
+        })
+        .collect()
 }
 
 async fn log_api_key_audit(
@@ -105,6 +108,43 @@ async fn log_api_key_audit(
     }
 }
 
+async fn render_api_keys(
+    state: &DashboardRouterState,
+    scope: &TenantScope,
+    csrf_token: &str,
+    new_key_secret: Option<&str>,
+    error: &str,
+) -> Result<Response, BrowserError> {
+    let keys = if let Some(tenant_id) = tenant_id_from_scope(scope) {
+        state
+            .control_db
+            .list_api_keys_for_tenant(&tenant_id)
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let key_rows = api_key_rows(&keys);
+    let workspace_pairs = workspace_pairs_for_user(state, scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
+    let path = format!("/t/{}/settings/api-keys", scope.tenant.slug);
+    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
+    let html = views::api_key_settings_page(&ApiKeySettingsPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        csrf_token,
+        keys: &key_rows,
+        new_key_secret,
+        error,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -114,48 +154,7 @@ async fn list(
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
-    let api_keys = if let Some(tid) = tenant_id_from_scope(&scope) {
-        state
-            .control_db
-            .list_api_keys_for_tenant(&tid)
-            .await
-            .unwrap_or_default()
-    } else {
-        vec![]
-    };
-
-    let key_views = api_keys
-        .iter()
-        .map(|k| {
-            context! {
-                id => k.id.to_string(),
-                name => k.name.clone(),
-                created_at => k.created_at.format("%Y-%m-%d %H:%M UTC").to_string(),
-                expires_at => k.expires_at.map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()),
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let workspaces = workspaces_for_user(&state, &scope).await;
-    let path = format!("/t/{}/settings/api-keys", scope.tenant.slug);
-    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-    render(
-        &state,
-        "settings/api_keys/list.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            nav_sections => nav,
-            role => role_str(scope.role),
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf.as_str(),
-            keys => key_views,
-            new_key_secret => Option::<String>::None,
-            error => "",
-        },
-    )
-    .map(IntoResponse::into_response)
+    render_api_keys(&state, &scope, csrf.as_str(), None, "").await
 }
 
 async fn mint(
@@ -173,43 +172,14 @@ async fn mint(
     };
 
     if name.is_empty() || name.len() > 80 {
-        let api_keys = state
-            .control_db
-            .list_api_keys_for_tenant(&tenant_id)
-            .await
-            .unwrap_or_default();
-        let key_views = api_keys
-            .iter()
-            .map(|k| {
-                context! {
-                    id => k.id.to_string(),
-                    name => k.name.clone(),
-                    created_at => k.created_at.format("%Y-%m-%d %H:%M UTC").to_string(),
-                    expires_at => k.expires_at.map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()),
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let workspaces = workspaces_for_user(&state, &scope).await;
-        let path = format!("/t/{}/settings/api-keys", scope.tenant.slug);
-        let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-        return render(
+        return render_api_keys(
             &state,
-            "settings/api_keys/list.html",
-            scope.user.email.as_str(),
-            context! {
-                tenant => tenant_ctx(&scope.tenant),
-                nav_sections => nav,
-                role => role_str(scope.role),
-                current_tenant => current_tenant_ctx(&scope.tenant),
-                workspaces,
-                csrf_token => csrf.as_str(),
-                keys => key_views,
-                new_key_secret => Option::<String>::None,
-                error => "Key name must be 1–80 characters.",
-            },
+            &scope,
+            csrf.as_str(),
+            None,
+            "Key name must be 1-80 characters.",
         )
-        .map(IntoResponse::into_response);
+        .await;
     }
 
     let result = state
@@ -234,44 +204,14 @@ async fn mint(
     )
     .await;
 
-    // Re-fetch list (does not include new raw key).
-    let api_keys = state
-        .control_db
-        .list_api_keys_for_tenant(&tenant_id)
-        .await
-        .unwrap_or_default();
-    let key_views = api_keys
-        .iter()
-        .map(|k| {
-            context! {
-                id => k.id.to_string(),
-                name => k.name.clone(),
-                created_at => k.created_at.format("%Y-%m-%d %H:%M UTC").to_string(),
-                expires_at => k.expires_at.map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()),
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let workspaces = workspaces_for_user(&state, &scope).await;
-    let path = format!("/t/{}/settings/api-keys", scope.tenant.slug);
-    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-    render(
+    render_api_keys(
         &state,
-        "settings/api_keys/list.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            nav_sections => nav,
-            role => role_str(scope.role),
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf.as_str(),
-            keys => key_views,
-            new_key_secret => Some(result.raw_key),
-            error => "",
-        },
+        &scope,
+        csrf.as_str(),
+        Some(result.raw_key.as_str()),
+        "",
     )
-    .map(IntoResponse::into_response)
+    .await
 }
 
 async fn revoke(

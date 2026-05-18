@@ -344,6 +344,27 @@ pub struct TeamSettingsPageView<'a> {
     pub is_production: bool,
 }
 
+pub struct ApiKeyView {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub expires_at: Option<String>,
+}
+
+pub struct ApiKeySettingsPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub csrf_token: &'a str,
+    pub keys: &'a [ApiKeyView],
+    pub new_key_secret: Option<&'a str>,
+    pub error: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
 pub struct GeneralSettingsPageView<'a> {
     pub tenant_name: &'a str,
     pub tenant_slug: &'a str,
@@ -3035,6 +3056,161 @@ pub fn team_settings_page(view: &TeamSettingsPageView<'_>) -> Result<Html<String
     })
 }
 
+fn api_key_mint_form(view: &ApiKeySettingsPageView<'_>) -> Result<String, BrowserError> {
+    let name_attrs = [
+        HtmlAttr::new("maxlength", "80"),
+        HtmlAttr::new("placeholder", "e.g. CI/CD pipeline"),
+    ];
+    let name = field(
+        "Key name",
+        &Input::new("name")
+            .with_type("text")
+            .with_attrs(&name_attrs)
+            .required(),
+        None,
+    )?;
+    let button = render(
+        &Button::primary("Mint key")
+            .with_size(ButtonSize::Small)
+            .with_button_type("submit"),
+    )?;
+    let body = format!(
+        "{}{name}{button}",
+        hidden_input("csrf_token", view.csrf_token)
+    );
+    let action = format!("/t/{}/settings/api-keys", view.tenant_slug);
+    let attrs = [HtmlAttr::new(
+        "style",
+        "display:flex; gap:12px; align-items:flex-end; padding:12px 16px; flex-wrap:wrap;",
+    )];
+    render(
+        &Form::new(trusted_html(&body))
+            .with_action(&action)
+            .with_attrs(&attrs),
+    )
+}
+
+fn api_key_revoke_form(
+    view: &ApiKeySettingsPageView<'_>,
+    key: &ApiKeyView,
+) -> Result<String, BrowserError> {
+    let button = render(
+        &Button::new("Revoke")
+            .with_variant(ButtonVariant::Danger)
+            .with_size(ButtonSize::Small)
+            .with_button_type("submit"),
+    )?;
+    let action = format!(
+        "/t/{}/settings/api-keys/{}/revoke",
+        view.tenant_slug, key.id
+    );
+    Ok(format!(
+        r#"<form method="post" action="{}" style="display:inline" onsubmit="return confirm('Revoke this API key? This cannot be undone.')">{}{button}</form>"#,
+        attr(&action),
+        hidden_input("csrf_token", view.csrf_token)
+    ))
+}
+
+pub fn api_key_settings_page(
+    view: &ApiKeySettingsPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    let mut content = String::new();
+    if let Some(secret) = view.new_key_secret {
+        let secret = render(
+            &SecretValue::new("New API key", "new-api-key-secret", secret)
+                .revealed()
+                .copy_raw_value()
+                .with_warning(
+                    "This is the only time you'll see this key. Copy it now - it will not be shown again.",
+                )
+                .with_button_label("Copy key"),
+        )?;
+        write!(
+            content,
+            r#"<div style="margin:16px 24px 0;">{secret}</div>"#
+        )
+        .unwrap();
+    }
+
+    let mut panel_body = String::new();
+    if can_manage(view.role) {
+        panel_body.push_str(&api_key_mint_form(view)?);
+        if !view.error.is_empty() {
+            write!(
+                panel_body,
+                r#"<div style="margin:0 16px 12px;">{}</div>"#,
+                alert(FeedbackKind::Error, view.error)?
+            )
+            .unwrap();
+        }
+    }
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    content.push_str(&render(
+        &Panel::new("API Keys", trusted_html(&panel_body)).with_attrs(&panel_attrs),
+    )?);
+
+    if view.keys.is_empty() {
+        content.push_str(r#"<p class="wf-empty" style="margin:12px 24px;">No API keys yet.</p>"#);
+    } else {
+        let mut headers = vec![
+            DataTableHeader::new("Name").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Created").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Expires").with_width(TableColumnWidth::Medium),
+        ];
+        if can_manage(view.role) {
+            headers.push(DataTableHeader::new("Actions").action_column());
+        }
+        let expires: Vec<String> = view
+            .keys
+            .iter()
+            .map(|key| key.expires_at.clone().unwrap_or_else(|| "Never".to_owned()))
+            .collect();
+        let actions: Vec<String> = if can_manage(view.role) {
+            view.keys
+                .iter()
+                .map(|key| api_key_revoke_form(view, key))
+                .collect::<Result<_, _>>()?
+        } else {
+            Vec::new()
+        };
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .keys
+            .iter()
+            .enumerate()
+            .map(|(idx, key)| {
+                let mut cells = vec![
+                    DataTableCell::new(key.name.as_str()),
+                    DataTableCell::new(key.created_at.as_str()),
+                    DataTableCell::new(expires[idx].as_str()),
+                ];
+                if can_manage(view.role) {
+                    cells.push(DataTableCell::html(trusted_html(&actions[idx])));
+                }
+                cells
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows).sticky())?;
+        content.push_str(&render(&TableWrap::new(trusted_html(&table)))?);
+    }
+
+    let title = format!("API Keys - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "API Keys",
+        content_html: &content,
+    })
+}
+
 pub fn general_settings_page(
     view: &GeneralSettingsPageView<'_>,
 ) -> Result<Html<String>, BrowserError> {
@@ -3893,6 +4069,64 @@ mod tests {
         assert!(!viewer_html.contains(r#"settings/team/invite"#));
         assert!(!viewer_html.contains("Actions"));
         assert!(!viewer_html.contains("Remove this member"));
+    }
+
+    #[test]
+    fn api_key_settings_page_preserves_secret_table_and_role_actions() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/settings/api-keys", TenantRole::Owner);
+        let workspaces = workspaces();
+        let keys = [ApiKeyView {
+            id: "key-id".to_owned(),
+            name: "CI key <unsafe>".to_owned(),
+            created_at: "2026-05-18 10:00 UTC".to_owned(),
+            expires_at: None,
+        }];
+        let html = api_key_settings_page(&ApiKeySettingsPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-key",
+            keys: &keys,
+            new_key_secret: Some("sak_secret"),
+            error: "Key name must be 1-80 characters.",
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render api key settings page")
+        .0;
+
+        assert!(html.contains("New API key"));
+        assert!(html.contains("sak_secret"));
+        assert!(html.contains("Copy key"));
+        assert!(html.contains(r#"action="/t/acme/settings/api-keys""#));
+        assert!(html.contains(r#"name="csrf_token" value="csrf-key""#));
+        assert!(html.contains("Key name must be 1-80 characters."));
+        assert!(html.contains(r#"action="/t/acme/settings/api-keys/key-id/revoke""#));
+        assert!(html.contains("Revoke this API key? This cannot be undone."));
+        assert!(!html.contains("CI key <unsafe>"));
+
+        let viewer_html = api_key_settings_page(&ApiKeySettingsPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Viewer,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-key",
+            keys: &keys,
+            new_key_secret: None,
+            error: "",
+            status_session: Some("viewer@example.com"),
+            is_production: false,
+        })
+        .expect("render viewer api key settings page")
+        .0;
+        assert!(viewer_html.contains("API Keys"));
+        assert!(viewer_html.contains("CI key"));
+        assert!(!viewer_html.contains("CI key <unsafe>"));
+        assert!(!viewer_html.contains("Mint key"));
+        assert!(!viewer_html.contains("Revoke this API key"));
     }
 
     #[test]
