@@ -21,9 +21,9 @@ name = "seed-branding"
 path = "standalone/bin/seed_branding.rs"
 
 [dependencies]
-allowthem-core = { path = "../crates/core" }
-allowthem-server = { path = "../crates/server" }
-allowthem-saas = { path = "../crates/saas" }
+allowthem-core.workspace = true
+allowthem-server.workspace = true
+allowthem-saas.workspace = true
 axum.workspace = true
 base64ct.workspace = true
 chrono.workspace = true
@@ -47,7 +47,7 @@ serde_html_form.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
-allowthem-saas = { path = "../crates/saas", features = ["test-util"] }
+allowthem-saas = { workspace = true, features = ["test-util"] }
 tower.workspace = true
 totp-rs.workspace = true
 regex.workspace = true
