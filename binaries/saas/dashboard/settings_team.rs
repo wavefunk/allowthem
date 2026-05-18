@@ -8,9 +8,8 @@
 
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use minijinja::context;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
@@ -18,16 +17,16 @@ use uuid::Uuid;
 
 use allowthem_core::email::{EmailMessage, EmailTemplate};
 use allowthem_core::sessions::generate_token;
-use allowthem_saas::{MemberId, SaasError, TenantId, TenantRole};
+use allowthem_saas::{MemberId, SaasError, Tenant, TenantId, TenantRole};
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
 use super::extractors::{
     HtmlForm, RequireTenantAdmin, RequireTenantMember, RequireTenantOwner, TenantScope,
-    current_tenant_ctx, workspaces_for_user,
 };
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
+use super::views::{self, TeamMemberView, TeamSettingsPageView, WorkspaceView};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -66,57 +65,47 @@ pub struct UpdateRoleForm {
 // Local helpers
 // ---------------------------------------------------------------------------
 
-fn render(
+async fn workspace_pairs_for_user(
     state: &DashboardRouterState,
-    session: &str,
-    ctx: minijinja::value::Value,
-) -> Result<Html<String>, BrowserError> {
-    let tmpl = state
-        .templates
-        .get_template("settings/team/list.html")
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! { status_session => session, ..ctx })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body))
+    scope: &TenantScope,
+) -> Vec<(Tenant, TenantRole)> {
+    state
+        .control_db
+        .tenants_for_member(scope.user.email.as_str())
+        .await
+        .unwrap_or_default()
 }
 
-fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
-    context! {
-        id => tenant.id.clone(),
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
-    }
+fn workspace_views<'a>(
+    pairs: &'a [(Tenant, TenantRole)],
+    active_slug: &str,
+) -> Vec<WorkspaceView<'a>> {
+    pairs
+        .iter()
+        .map(|(workspace, role)| WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == active_slug,
+        })
+        .collect()
 }
 
-fn role_str(role: TenantRole) -> &'static str {
-    match role {
-        TenantRole::Owner => "owner",
-        TenantRole::Admin => "admin",
-        TenantRole::Viewer => "viewer",
-    }
-}
-
-fn can_manage(scope: &TenantScope) -> bool {
-    matches!(scope.role, TenantRole::Owner | TenantRole::Admin)
-}
-
-fn member_rows(members: &[allowthem_saas::TenantMember]) -> Vec<minijinja::value::Value> {
+fn member_rows(members: &[allowthem_saas::TenantMember]) -> Vec<TeamMemberView> {
     members
         .iter()
-        .map(|m| {
-            let id_str = m
+        .map(|member| TeamMemberView {
+            id: member
                 .id_as_member_id()
                 .map(|mid| mid.as_uuid().to_string())
-                .unwrap_or_default();
-            context! {
-                id => id_str,
-                email => m.email.clone(),
-                role => m.role.as_str(),
-                status => if m.accepted_at.is_some() { "accepted" } else { "invited" },
-                invited_at => m.invited_at.format("%Y-%m-%d %H:%M UTC").to_string(),
-                accepted_at => m.accepted_at.map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()),
-            }
+                .unwrap_or_default(),
+            email: member.email.clone(),
+            role: member.role,
+            accepted: member.accepted_at.is_some(),
+            invited_at: member.invited_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+            accepted_at: member
+                .accepted_at
+                .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()),
         })
         .collect()
 }
@@ -134,6 +123,33 @@ async fn fetch_members(
         .list_tenant_members(&tenant_id)
         .await
         .unwrap_or_default()
+}
+
+async fn render_team_settings(
+    state: &DashboardRouterState,
+    scope: &TenantScope,
+    csrf_token: &str,
+    invite_error: &str,
+) -> Result<Response, BrowserError> {
+    let members = fetch_members(state, scope).await;
+    let member_rows = member_rows(&members);
+    let workspace_pairs = workspace_pairs_for_user(state, scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
+    let path = format!("/t/{}/settings/team", scope.tenant.slug);
+    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
+    let html = views::team_settings_page(&TeamSettingsPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        csrf_token,
+        members: &member_rows,
+        invite_error,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
 }
 
 async fn log_team_audit(
@@ -174,31 +190,7 @@ pub async fn list(
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
-    let members = fetch_members(&state, &scope).await;
-    let owner_count = members
-        .iter()
-        .filter(|m| m.role.as_str() == "owner")
-        .count();
-    let workspaces = workspaces_for_user(&state, &scope).await;
-    let path = format!("/t/{}/settings/team", scope.tenant.slug);
-    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-    render(
-        &state,
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            nav_sections => nav,
-            role => role_str(scope.role),
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf.as_str(),
-            members => member_rows(&members),
-            can_manage => can_manage(&scope),
-            owner_count,
-            invite_error => "",
-        },
-    )
-    .map(IntoResponse::into_response)
+    render_team_settings(&state, &scope, csrf.as_str(), "").await
 }
 
 pub async fn invite(
@@ -323,27 +315,13 @@ pub async fn update_role(
     {
         Ok(()) => {}
         Err(SaasError::CannotDemoteLastOwner) => {
-            // Re-render list with a flash error.
-            let members = fetch_members(&state, &scope).await;
-            let workspaces = workspaces_for_user(&state, &scope).await;
-            let path = format!("/t/{}/settings/team", scope.tenant.slug);
-            let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-            return render(
+            return render_team_settings(
                 &state,
-                scope.user.email.as_str(),
-                context! {
-                    tenant => tenant_ctx(&scope.tenant),
-                    nav_sections => nav,
-                    role => role_str(scope.role),
-                    current_tenant => current_tenant_ctx(&scope.tenant),
-                    workspaces,
-                    csrf_token => csrf.as_str(),
-                    members => member_rows(&members),
-                    can_manage => true,
-                    invite_error => "Cannot demote the last owner of this workspace.",
-                },
+                &scope,
+                csrf.as_str(),
+                "Cannot demote the last owner of this workspace.",
             )
-            .map(IntoResponse::into_response);
+            .await;
         }
         Err(e) => {
             tracing::error!(error = %e, "update_member_role failed");
@@ -396,26 +374,13 @@ pub async fn remove(
     match state.control_db.remove_member(&member_id).await {
         Ok(()) => {}
         Err(SaasError::CannotRemoveLastOwner) => {
-            let members = fetch_members(&state, &scope).await;
-            let workspaces = workspaces_for_user(&state, &scope).await;
-            let path = format!("/t/{}/settings/team", scope.tenant.slug);
-            let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-            return render(
+            return render_team_settings(
                 &state,
-                scope.user.email.as_str(),
-                context! {
-                    tenant => tenant_ctx(&scope.tenant),
-                    nav_sections => nav,
-                    role => role_str(scope.role),
-                    current_tenant => current_tenant_ctx(&scope.tenant),
-                    workspaces,
-                    csrf_token => csrf.as_str(),
-                    members => member_rows(&members),
-                    can_manage => true,
-                    invite_error => "Cannot remove the last owner of this workspace.",
-                },
+                &scope,
+                csrf.as_str(),
+                "Cannot remove the last owner of this workspace.",
             )
-            .map(IntoResponse::into_response);
+            .await;
         }
         Err(SaasError::MemberNotFound) => {
             tracing::warn!(member_id = %raw_member_id, "remove_member: member not found");
@@ -449,24 +414,5 @@ async fn render_invite_error(
     csrf_str: &str,
     error: &str,
 ) -> Result<Response, BrowserError> {
-    let members = fetch_members(state, scope).await;
-    let workspaces = workspaces_for_user(state, scope).await;
-    let path = format!("/t/{}/settings/team", scope.tenant.slug);
-    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-    render(
-        state,
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            nav_sections => nav,
-            role => role_str(scope.role),
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf_str,
-            members => member_rows(&members),
-            can_manage => true,
-            invite_error => error,
-        },
-    )
-    .map(IntoResponse::into_response)
+    render_team_settings(state, scope, csrf_str, error).await
 }

@@ -23,11 +23,49 @@
           config.allowUnfree = true;
         };
         toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        playwrightRuntimeDeps = with pkgs; [
+          alsa-lib
+          at-spi2-atk
+          at-spi2-core
+          atk
+          cairo
+          cups
+          dbus
+          expat
+          fontconfig
+          freetype
+          gdk-pixbuf
+          glib
+          gtk3
+          libdrm
+          libgbm
+          libxkbcommon
+          libxshmfence
+          mesa
+          nspr
+          nss
+          pango
+          systemd
+          libX11
+          libXScrnSaver
+          libXcomposite
+          libXcursor
+          libXdamage
+          libXext
+          libXfixes
+          libXi
+          libXrandr
+          libXrender
+          libXtst
+          libxcb
+        ];
       in
       {
         devShells.default =
           with pkgs;
           mkShell {
+            LD_LIBRARY_PATH = lib.makeLibraryPath playwrightRuntimeDeps;
+
             packages = [
               nil
               just

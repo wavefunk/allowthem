@@ -3,9 +3,8 @@
 //! - `GET /admin/usage` — platform-wide MAU history (Step 10 of 99c.6)
 
 use axum::extract::State;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use chrono::Utc;
-use minijinja::context;
 
 use allowthem_core::AuthError;
 use allowthem_saas::SaasError;
@@ -14,6 +13,7 @@ use allowthem_server::browser_error::BrowserError;
 use crate::dashboard::extractors::RequireSuperAdmin;
 use crate::dashboard::nav::admin_nav_items;
 use crate::dashboard::state::DashboardRouterState;
+use crate::dashboard::views;
 
 fn saas_err(e: SaasError) -> BrowserError {
     match e {
@@ -46,18 +46,13 @@ pub async fn page(
 
     let nav = admin_nav_items("/admin/usage");
 
-    let tmpl = state
-        .templates
-        .get_template("admin/usage.html")
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! {
-            status_session => scope.user.email.as_str(),
-            nav_sections => nav,
-            current => current,
-            history => history,
-            current_period => current_period,
-        })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body).into_response())
+    Ok(views::admin_usage_page(&views::AdminUsagePageView {
+        nav_sections: &nav,
+        current: &current,
+        history: &history,
+        current_period: current_period.as_str(),
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
+    .into_response())
 }

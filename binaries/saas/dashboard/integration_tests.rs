@@ -23,7 +23,6 @@ use super::quickstart::quickstart_routes;
 use super::quickstart_cache::QuickstartCache;
 use super::signup::signup_routes;
 use super::state::SignupState;
-use super::templates::build_dashboard_env;
 
 const BASE_DOMAIN: &str = "example.com";
 
@@ -86,7 +85,6 @@ impl Fixture {
             handle_cache: handle_cache.clone(),
             quickstart_cache: QuickstartCache::new(),
             base_domain: BASE_DOMAIN.into(),
-            templates: build_dashboard_env(),
             email_sender,
             is_production: false,
         };
@@ -490,8 +488,8 @@ async fn quickstart_renders_with_correct_session() {
     assert!(body.contains("Client secret"));
     // The plaintext secret is in the page body.
     assert!(
-        body.contains("data-secret"),
-        "secret card marker should be present"
+        body.contains("data-wf-copy-value"),
+        "secret copy value should be present"
     );
 }
 
@@ -755,6 +753,29 @@ async fn applications_list_for_owner_renders_with_create_button() {
         html.contains("Registered applications") || html.contains("No applications"),
         "list panel rendered"
     );
+}
+
+#[tokio::test]
+async fn dashboard_shell_navigation_renders_workspaces_and_role_filtered_nav() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (viewer_cookie, _) = signup_and_get_session(&fx, "viewer@example.com", "viewer-ws").await;
+    insert_tenant_member(&fx, "acme", "viewer@example.com", "viewer").await;
+
+    let resp = get_authed(&fx, "/t/acme/applications", &viewer_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let html = body_string(resp).await;
+    assert!(html.contains(r#"aria-label="Dashboard navigation""#));
+    assert!(html.contains(
+        r#"class="wf-context-switcher-item is-active" href="/t/acme/applications" aria-current="page""#
+    ));
+    assert!(html.contains(r#"class="wf-context-switcher-item" href="/t/viewer-ws/applications">"#));
+    assert!(!html.contains(r#"href="/t/viewer-ws/applications" aria-current="page""#));
+    assert!(html.contains(">viewer<"));
+    assert!(html.contains(">owner<"));
+    assert!(html.contains(r#"href="/t/acme/applications" aria-current="page""#));
+    assert!(html.contains(r#"href="/t/acme/settings/team""#));
 }
 
 #[tokio::test]
@@ -1361,6 +1382,20 @@ async fn suspended_tenant_renders_suspended_page() {
     assert!(
         body.contains("Workspace suspended"),
         "suspended page must contain 'Workspace suspended'"
+    );
+    assert!(
+        body.contains(r#"aria-label="Dashboard navigation""#),
+        "suspended page should use the typed dashboard shell"
+    );
+    assert!(
+        body.contains(
+            r#"class="wf-context-switcher-item is-active" href="/t/acme/applications" aria-current="page""#
+        ),
+        "suspended page should preserve the workspace switcher"
+    );
+    assert!(
+        body.contains(r#"href="/t/acme/logout""#),
+        "suspended page should expose the tenant logout affordance"
     );
 }
 
@@ -2070,6 +2105,20 @@ async fn invite_existing_user_full_flow() {
     );
 }
 
+#[tokio::test]
+async fn team_settings_page_renders_members_and_invite_controls() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = get_authed(&fx, "/t/acme/settings/team", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Team Members"));
+    assert!(body.contains("owner@acme.com"));
+    assert!(body.contains(r#"action="/t/acme/settings/team/invite""#));
+    assert!(body.contains(r#"name="role""#));
+}
+
 /// POST to demote the last owner via the HTTP route must re-render the team
 /// page with a friendly error — not 500 or a silent no-op.
 #[tokio::test]
@@ -2153,6 +2202,40 @@ async fn stub_pages_return_200_with_coming_soon() {
             "stub page {path} must contain 'Coming soon'"
         );
     }
+}
+
+#[tokio::test]
+async fn general_settings_page_updates_workspace_name() {
+    let fx = Fixture::new().await;
+    let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+
+    let resp = get_authed(&fx, "/t/acme/settings", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Workspace name"));
+    assert!(body.contains(r#"name="slug""#));
+
+    let csrf = fetch_csrf_for_authed_form(&fx, "/t/acme/settings", &session_cookie).await;
+    let resp = fx
+        .post_form(
+            "/t/acme/settings",
+            &[("csrf_token", csrf.as_str()), ("name", "Renamed Workspace")],
+            Some(&session_cookie),
+        )
+        .await;
+
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let location = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(location, "/t/acme/settings?saved=1");
+
+    let resp = get_authed(&fx, "/t/acme/settings", &session_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Renamed Workspace"));
 }
 
 /// The custom-domain settings page (38y.1) returns 200 and shows the domains UI.
@@ -2365,6 +2448,10 @@ async fn domains_page_renders_for_member() {
         body.contains("Custom Domain"),
         "domains page should render for viewer"
     );
+    assert!(
+        !body.contains("Register domain"),
+        "viewer must see the custom-domain page read-only"
+    );
 }
 
 /// A successful CNAME lookup via MockDnsResolver flips the domain status to
@@ -2503,6 +2590,29 @@ async fn authz_smoke_viewer_and_admin_enforcement() {
         StatusCode::FORBIDDEN,
         "admin must not access billing/upgrade (owner-only)"
     );
+}
+
+#[tokio::test]
+async fn billing_settings_page_renders_plan_and_owner_upgrade() {
+    let fx = Fixture::new().await;
+    let (owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (viewer_cookie, _) = signup_and_get_session(&fx, "viewer@viewer-ws.com", "viewer-ws").await;
+    insert_tenant_member(&fx, "acme", "viewer@viewer-ws.com", "viewer").await;
+
+    let owner_resp = get_authed(&fx, "/t/acme/settings/billing", &owner_cookie).await;
+    assert_eq!(owner_resp.status(), StatusCode::OK);
+    let owner_body = body_string(owner_resp).await;
+    assert!(owner_body.contains("Plan"));
+    assert!(owner_body.contains("Usage"));
+    assert!(owner_body.contains("Upgrade plan"));
+    assert!(owner_body.contains(r#"action="/t/acme/settings/billing/upgrade""#));
+
+    let viewer_resp = get_authed(&fx, "/t/acme/settings/billing", &viewer_cookie).await;
+    assert_eq!(viewer_resp.status(), StatusCode::OK);
+    let viewer_body = body_string(viewer_resp).await;
+    assert!(viewer_body.contains("Plan"));
+    assert!(viewer_body.contains("Usage"));
+    assert!(!viewer_body.contains("Upgrade plan"));
 }
 
 // ---------------------------------------------------------------------------

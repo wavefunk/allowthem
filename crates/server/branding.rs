@@ -157,26 +157,6 @@ pub fn default_branding_ref(
     ext.as_ref().map(|Extension(d)| &d.0)
 }
 
-/// Project branding into the flat template keys every pre-auth page reads:
-/// `branding` (raw, for dotted access to `splash_*`/`forced_mode`/`font_*`),
-/// `app_name`, `logo_url`, and the accent quad.
-///
-/// Use with minijinja's spread syntax to compose with page-specific keys:
-/// `context! { ..branding_context(b), csrf_token, next, ... }`.
-pub fn branding_context(branding: Option<&BrandingConfig>) -> minijinja::Value {
-    let ctx = BrandingCtx::from_branding(branding);
-    minijinja::context! {
-        branding,
-        app_name => ctx.app_name,
-        title_brand => ctx.title_brand,
-        logo_url => ctx.logo_url,
-        accent => ctx.accent,
-        accent_ink => ctx.accent_ink,
-        accent_light => ctx.accent_light,
-        accent_ink_light => ctx.accent_ink_light,
-    }
-}
-
 fn parse_hex(hex: &str) -> Option<(u8, u8, u8)> {
     let bytes = hex.as_bytes();
     if bytes.len() != 7 || bytes[0] != b'#' {
@@ -417,49 +397,5 @@ mod tests {
         let ctx = BrandingCtx::from_branding(Some(&b));
         assert_eq!(ctx.app_name, "Acme Corp");
         assert_eq!(ctx.title_brand, "Acme");
-    }
-
-    #[test]
-    fn branding_context_none_emits_allowthem_defaults() {
-        let v = branding_context(None);
-        assert_eq!(v.get_attr("app_name").unwrap().as_str(), Some("allowthem"));
-        assert_eq!(
-            v.get_attr("title_brand").unwrap().as_str(),
-            Some("allowthem")
-        );
-        assert_eq!(v.get_attr("accent").unwrap().as_str(), Some("#ffffff"));
-        assert_eq!(v.get_attr("accent_ink").unwrap().as_str(), Some("#000000"));
-        assert_eq!(
-            v.get_attr("accent_light").unwrap().as_str(),
-            Some("#000000")
-        );
-        assert_eq!(
-            v.get_attr("accent_ink_light").unwrap().as_str(),
-            Some("#ffffff")
-        );
-        assert!(v.get_attr("logo_url").unwrap().is_none());
-        // `branding` key must still be present (raw, for dotted access).
-        assert!(v.get_attr("branding").is_ok());
-    }
-
-    #[test]
-    fn branding_context_some_projects_all_keys() {
-        let b = BrandingConfig::new("Fixture Co")
-            .with_accent("#ff00aa", AccentInk::Black)
-            .with_logo_url("https://cdn.example/logo.svg");
-        let v = branding_context(Some(&b));
-        assert_eq!(v.get_attr("app_name").unwrap().as_str(), Some("Fixture Co"));
-        assert_eq!(v.get_attr("accent").unwrap().as_str(), Some("#ff00aa"));
-        assert_eq!(v.get_attr("accent_ink").unwrap().as_str(), Some("#000000"));
-        assert_eq!(
-            v.get_attr("logo_url").unwrap().as_str(),
-            Some("https://cdn.example/logo.svg")
-        );
-        // `branding` serializes the raw struct — dotted access should work.
-        let inner = v.get_attr("branding").unwrap();
-        assert_eq!(
-            inner.get_attr("application_name").unwrap().as_str(),
-            Some("Fixture Co")
-        );
     }
 }

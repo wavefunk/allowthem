@@ -8,14 +8,14 @@
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
-use axum::response::{Html, IntoResponse, Response};
-use minijinja::context;
+use axum::response::{IntoResponse, Response};
 
 use allowthem_server::browser_error::BrowserError;
 
 use crate::dashboard::extractors::RequireSuperAdmin;
 use crate::dashboard::nav::admin_nav_items;
 use crate::dashboard::state::{DashboardRouterState, FsStats};
+use crate::dashboard::views;
 
 const FS_CACHE_TTL: Duration = Duration::from_secs(60);
 
@@ -88,21 +88,16 @@ pub async fn page(
 
     let nav = admin_nav_items("/admin/health");
 
-    let tmpl = state
-        .templates
-        .get_template("admin/health.html")
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! {
-            status_session => scope.user.email.as_str(),
-            nav_sections => nav,
-            total_bytes => fs_stats.total_bytes,
-            top_files => fs_stats.top,
-            slug_cache_entries => slug_cache_entries,
-            handle_cache_entries => handle_cache_entries,
-        })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body).into_response())
+    Ok(views::admin_health_page(&views::AdminHealthPageView {
+        nav_sections: &nav,
+        total_bytes: fs_stats.total_bytes,
+        top_files: &fs_stats.top,
+        slug_cache_entries,
+        handle_cache_entries,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
+    .into_response())
 }
 
 #[cfg(test)]

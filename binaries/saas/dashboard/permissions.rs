@@ -10,22 +10,19 @@
 
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use minijinja::context;
 use serde::Deserialize;
 
 use allowthem_core::types::{PermissionId, PermissionName};
-use allowthem_saas::TenantId;
+use allowthem_saas::{Tenant, TenantId, TenantRole};
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{
-    HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope, current_tenant_ctx,
-    workspaces_for_user,
-};
+use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
+use super::views::{self, PermissionListPageView, PermissionNewPageView, WorkspaceView};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -50,43 +47,6 @@ pub struct PermissionForm {
     pub description: String,
 }
 
-// ---------------------------------------------------------------------------
-// Local helpers
-// ---------------------------------------------------------------------------
-
-fn render(
-    state: &DashboardRouterState,
-    name: &str,
-    session: &str,
-    ctx: minijinja::value::Value,
-) -> Result<Html<String>, BrowserError> {
-    let tmpl = state
-        .templates
-        .get_template(name)
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! { status_session => session, ..ctx })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body))
-}
-
-fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
-    context! {
-        id => tenant.id.clone(),
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
-    }
-}
-
-fn role_str(role: allowthem_saas::TenantRole) -> &'static str {
-    use allowthem_saas::TenantRole;
-    match role {
-        TenantRole::Owner => "owner",
-        TenantRole::Admin => "admin",
-        TenantRole::Viewer => "viewer",
-    }
-}
-
 async fn log_permission_audit(
     state: &DashboardRouterState,
     scope: &TenantScope,
@@ -107,6 +67,59 @@ async fn log_permission_audit(
     }
 }
 
+async fn workspace_pairs_for_user(
+    state: &DashboardRouterState,
+    scope: &TenantScope,
+) -> Vec<(Tenant, TenantRole)> {
+    state
+        .control_db
+        .tenants_for_member(scope.user.email.as_str())
+        .await
+        .unwrap_or_default()
+}
+
+fn workspace_views<'a>(
+    pairs: &'a [(Tenant, TenantRole)],
+    active_slug: &str,
+) -> Vec<WorkspaceView<'a>> {
+    pairs
+        .iter()
+        .map(|(workspace, role)| WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == active_slug,
+        })
+        .collect()
+}
+
+async fn render_permission_new_form(
+    state: &DashboardRouterState,
+    scope: &TenantScope,
+    csrf: &CsrfToken,
+    name: &str,
+    description: &str,
+    error: &str,
+) -> Result<Response, BrowserError> {
+    let workspace_pairs = workspace_pairs_for_user(state, scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
+    let path = format!("/t/{}/permissions/new", scope.tenant.slug);
+    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
+    let html = views::permission_new_page(&PermissionNewPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        csrf_token: csrf.as_str(),
+        name,
+        description,
+        error,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -118,35 +131,22 @@ async fn list(
 ) -> Result<Response, BrowserError> {
     let permissions = scope.ath.db().list_permissions().await?;
 
-    let perm_views: Vec<_> = permissions
-        .iter()
-        .map(|p| {
-            context! {
-                id => p.id.to_string(),
-                name => p.name.as_str(),
-                description => p.description.clone(),
-            }
-        })
-        .collect();
-
-    let workspaces = workspaces_for_user(&state, &scope).await;
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let path = format!("/t/{}/permissions", scope.tenant.slug);
     let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-    render(
-        &state,
-        "permissions/list.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            nav_sections => nav,
-            role => role_str(scope.role),
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf.as_str(),
-            permissions => perm_views,
-        },
-    )
-    .map(IntoResponse::into_response)
+    let html = views::permission_list_page(&PermissionListPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        permissions: &permissions,
+        csrf_token: csrf.as_str(),
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
 }
 
 async fn new_form(
@@ -154,26 +154,7 @@ async fn new_form(
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
-    let workspaces = workspaces_for_user(&state, &scope).await;
-    let path = format!("/t/{}/permissions/new", scope.tenant.slug);
-    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-    render(
-        &state,
-        "permissions/new.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            nav_sections => nav,
-            role => role_str(scope.role),
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf.as_str(),
-            error => "",
-            name => "",
-            description => "",
-        },
-    )
-    .map(IntoResponse::into_response)
+    render_permission_new_form(&state, &scope, &csrf, "", "", "").await
 }
 
 async fn create(
@@ -186,26 +167,15 @@ async fn create(
     let desc = form.description.trim().to_owned();
 
     if name.is_empty() || name.len() > 120 {
-        let workspaces = workspaces_for_user(&state, &scope).await;
-        let path = format!("/t/{}/permissions/new", scope.tenant.slug);
-        let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-        return render(
+        return render_permission_new_form(
             &state,
-            "permissions/new.html",
-            scope.user.email.as_str(),
-            context! {
-                tenant => tenant_ctx(&scope.tenant),
-                nav_sections => nav,
-                role => role_str(scope.role),
-                current_tenant => current_tenant_ctx(&scope.tenant),
-                workspaces,
-                csrf_token => csrf.as_str(),
-                error => "Permission name must be 1–120 characters.",
-                name => &name,
-                description => &desc,
-            },
+            &scope,
+            &csrf,
+            &name,
+            &desc,
+            "Permission name must be 1-120 characters.",
         )
-        .map(IntoResponse::into_response);
+        .await;
     }
 
     let perm_name = PermissionName::new(&name);
@@ -217,26 +187,15 @@ async fn create(
     {
         Ok(p) => p,
         Err(allowthem_core::error::AuthError::Conflict(_)) => {
-            let workspaces = workspaces_for_user(&state, &scope).await;
-            let path = format!("/t/{}/permissions/new", scope.tenant.slug);
-            let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-            return render(
+            return render_permission_new_form(
                 &state,
-                "permissions/new.html",
-                scope.user.email.as_str(),
-                context! {
-                    tenant => tenant_ctx(&scope.tenant),
-                    nav_sections => nav,
-                    role => role_str(scope.role),
-                    current_tenant => current_tenant_ctx(&scope.tenant),
-                    workspaces,
-                    csrf_token => csrf.as_str(),
-                    error => "A permission with that name already exists.",
-                    name => &name,
-                    description => &desc,
-                },
+                &scope,
+                &csrf,
+                &name,
+                &desc,
+                "A permission with that name already exists.",
             )
-            .map(IntoResponse::into_response);
+            .await;
         }
         Err(e) => return Err(BrowserError::from(e)),
     };

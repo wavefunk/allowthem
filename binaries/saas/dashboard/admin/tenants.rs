@@ -10,63 +10,22 @@
 //! Steps 7 and 8 of 99c.6 implement the read paths; Step 9 adds the mutations.
 
 use axum::extract::{Path, Query, State};
-use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use chrono::Utc;
-use minijinja::context;
 use serde::Deserialize;
 use uuid::Uuid;
 
 use allowthem_core::AuthError;
-use allowthem_saas::{
-    SearchTenantsParams, SortDir, TenantId, TenantOverviewRow, TenantSortCol, TenantStatus,
-};
+use allowthem_saas::{SearchTenantsParams, SortDir, TenantId, TenantSortCol, TenantStatus};
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
 use crate::dashboard::extractors::{HtmlForm, RequireSuperAdmin};
 use crate::dashboard::nav::admin_nav_items;
 use crate::dashboard::state::DashboardRouterState;
+use crate::dashboard::views::{self, AdminPlanView, AdminTenantRowView};
 
 const PAGE_SIZE: u32 = 25;
-
-/// Template-safe view of a [`TenantOverviewRow`] that adds the UUID string
-/// so templates can build links without dealing with raw BLOB bytes.
-#[derive(serde::Serialize)]
-struct TenantRowView<'a> {
-    #[serde(flatten)]
-    row: &'a TenantOverviewRow,
-    id_str: String,
-}
-
-impl<'a> TenantRowView<'a> {
-    fn new(row: &'a TenantOverviewRow) -> Self {
-        let id_str = uuid::Uuid::from_slice(&row.id)
-            .map(|u| u.to_string())
-            .unwrap_or_default();
-        Self { row, id_str }
-    }
-}
-
-/// Template-safe view of a [`allowthem_saas::TenantPlan`] that adds the hex
-/// plan ID string so templates can use it in form values.
-#[derive(serde::Serialize)]
-struct PlanView {
-    id_hex: String,
-    name: String,
-    price_cents: i64,
-    mau_limit: i64,
-}
-
-impl PlanView {
-    fn from_plan(p: &allowthem_saas::TenantPlan) -> Self {
-        Self {
-            id_hex: hex::encode(&p.id),
-            name: p.name.clone(),
-            price_cents: p.price_cents,
-            mau_limit: p.mau_limit,
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -85,22 +44,6 @@ fn saas_err(e: allowthem_saas::SaasError) -> BrowserError {
             BrowserError::Auth(AuthError::Conflict(other.to_string()))
         }
     }
-}
-
-fn render(
-    state: &DashboardRouterState,
-    name: &str,
-    session: &str,
-    ctx: minijinja::value::Value,
-) -> Result<Html<String>, BrowserError> {
-    let tmpl = state
-        .templates
-        .get_template(name)
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! { status_session => session, ..ctx })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body))
 }
 
 fn parse_sort_col(s: &str) -> TenantSortCol {
@@ -216,7 +159,6 @@ pub struct DetailQuery {
 pub async fn overview(
     RequireSuperAdmin(scope): RequireSuperAdmin,
     Query(q): Query<OverviewQuery>,
-    csrf: CsrfToken,
     State(state): State<DashboardRouterState>,
 ) -> Result<Response, BrowserError> {
     let page = q.page.max(1);
@@ -242,12 +184,6 @@ pub async fn overview(
         .count_dormant_tenants(Utc::now() - chrono::Duration::days(90))
         .await
         .map_err(saas_err)?;
-    let by_plan = state
-        .control_db
-        .count_tenants_grouped_by_plan()
-        .await
-        .map_err(saas_err)?;
-
     let plans = state.control_db.list_plans().await.map_err(saas_err)?;
 
     // Resolve plan filter string to raw plan_id bytes.
@@ -287,34 +223,33 @@ pub async fn overview(
     let has_filters = !q_trimmed.is_empty() || !q.status.is_empty() || !q.plan.is_empty();
     let nav = admin_nav_items("/admin");
 
-    let tenant_views: Vec<TenantRowView> = result.rows.iter().map(TenantRowView::new).collect();
-    let plan_views: Vec<PlanView> = plans.iter().map(PlanView::from_plan).collect();
+    let tenant_views: Vec<AdminTenantRowView> = result
+        .rows
+        .iter()
+        .map(AdminTenantRowView::from_row)
+        .collect();
+    let plan_views: Vec<AdminPlanView> = plans.iter().map(AdminPlanView::from_plan).collect();
 
-    Ok(render(
-        &state,
-        "admin/overview.html",
-        scope.user.email.as_str(),
-        context! {
-            nav_sections => nav,
-            tenants => tenant_views,
-            total => result.total,
-            page => page,
-            total_pages => total_pages,
-            active_count => active_count,
-            suspended_count => suspended_count,
-            new_30d => new_30d,
-            dormant_count => dormant_count,
-            by_plan => by_plan,
-            plans => plan_views,
-            q => q_trimmed,
-            status => q.status,
-            plan => q.plan,
-            sort => q.sort,
-            dir => q.dir,
-            has_filters => has_filters,
-            csrf_token => csrf.as_str(),
-        },
-    )?
+    Ok(views::admin_overview_page(&views::AdminOverviewPageView {
+        nav_sections: &nav,
+        tenants: &tenant_views,
+        total: result.total,
+        page,
+        total_pages,
+        active_count,
+        suspended_count,
+        new_30d,
+        dormant_count,
+        plans: &plan_views,
+        q: q_trimmed.as_str(),
+        status: q.status.as_str(),
+        plan: q.plan.as_str(),
+        sort: q.sort.as_str(),
+        dir: q.dir.as_str(),
+        has_filters,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
     .into_response())
 }
 
@@ -358,27 +293,27 @@ pub async fn detail(
         .map(|u| u.to_string())
         .unwrap_or_default();
     let current_plan_id_hex = hex::encode(&tenant.plan_id);
-    let all_plan_views: Vec<PlanView> = all_plans.iter().map(PlanView::from_plan).collect();
+    let all_plan_views: Vec<AdminPlanView> =
+        all_plans.iter().map(AdminPlanView::from_plan).collect();
     let nav = admin_nav_items("/admin");
 
-    Ok(render(
-        &state,
-        "admin/tenant_detail.html",
-        scope.user.email.as_str(),
-        context! {
-            nav_sections => nav,
-            tenant => &tenant,
-            tenant_uuid => tenant_uuid,
-            usage => usage,
-            plan => plan,
-            current_plan_id_hex => current_plan_id_hex,
-            all_plans => all_plan_views,
-            info => q.info,
-            error => q.error,
-            csrf_token => csrf.as_str(),
-        },
-    )?
-    .into_response())
+    Ok(
+        views::admin_tenant_detail_page(&views::AdminTenantDetailPageView {
+            nav_sections: &nav,
+            tenant: &tenant,
+            tenant_uuid: tenant_uuid.as_str(),
+            usage: &usage,
+            plan: plan.as_ref(),
+            current_plan_id_hex: current_plan_id_hex.as_str(),
+            all_plans: &all_plan_views,
+            info: q.info.as_str(),
+            error: q.error.as_str(),
+            csrf_token: csrf.as_str(),
+            status_session: Some(scope.user.email.as_str()),
+            is_production: state.is_production,
+        })?
+        .into_response(),
+    )
 }
 
 // ---------------------------------------------------------------------------

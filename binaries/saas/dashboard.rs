@@ -27,8 +27,8 @@ pub mod settings_team;
 pub mod signup;
 pub mod state;
 pub mod stubs;
-pub mod templates;
 pub mod users;
+pub mod views;
 
 #[cfg(test)]
 mod integration_tests;
@@ -50,7 +50,6 @@ use allowthem_saas::dashboard_cookie_name;
 // are reachable via their submodule paths (e.g. `dashboard::extractors::HtmlForm`).
 pub use quickstart_cache::{QuickstartCache, QuickstartEntry};
 pub use state::SignupState;
-pub use templates::build_dashboard_env;
 
 /// Open `<tenant_data_dir>/dashboard.db` (creating + migrating if missing) and
 /// build the dashboard's `AllowThem` handle.
@@ -324,8 +323,8 @@ mod tests {
         // must not handle any of the dashboard's own paths — that would
         // be a route collision that `Router::merge` panics on at boot.
         //
-        // We don't build the auth router here (it requires templates and
-        // a real `AllowThem`). Instead we spot-check the path *prefixes*
+        // We don't build the auth router here (it requires a real
+        // `AllowThem`). Instead we spot-check the path *prefixes*
         // the auth router owns are disjoint from `DASHBOARD_PATHS` by
         // string match — sufficient for this guard, since axum-level
         // collision would manifest at boot anyway.

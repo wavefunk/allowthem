@@ -19,22 +19,22 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use minijinja::context;
 use serde::Deserialize;
 
 use allowthem_core::applications::{Application, CreateApplicationParams, UpdateApplication};
 use allowthem_core::error::AuthError;
 use allowthem_core::types::{ApplicationId, ClientType};
-use allowthem_saas::TenantId;
+use allowthem_saas::{Tenant, TenantId, TenantRole};
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{
-    HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope, current_tenant_ctx,
-    workspaces_for_user,
-};
+use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
+use super::views::{
+    self, ApplicationDetailPageView, ApplicationEditPageView, ApplicationListPageView,
+    ApplicationNewPageView, WorkspaceView,
+};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -116,26 +116,24 @@ async fn list(
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
     let apps = scope.ath.db().list_applications().await?;
-    let workspaces = workspaces_for_user(&state, &scope).await;
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
         scope.role,
     );
-    let html = render(
-        &state,
-        "applications/list.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(&scope),
-            nav_sections => nav,
-            applications => apps,
-            current_tenant => tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf.as_str(),
-        },
-    )?;
+    let html = views::application_list_page(&ApplicationListPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        applications: &apps,
+        csrf_token: csrf.as_str(),
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
     Ok(html.into_response())
 }
 
@@ -144,30 +142,28 @@ async fn new_form(
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
-    let workspaces = workspaces_for_user(&state, &scope).await;
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
         scope.role,
     );
-    Ok(render(
-        &state,
-        "applications/new.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(&scope),
-            nav_sections => nav,
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf.as_str(),
-            client_type => "confidential",
-            name => "",
-            redirect_uris => Vec::<String>::new(),
-            logo_url => "",
-            error => Option::<String>::None,
-        },
-    )?
+    Ok(views::new_application_page(&ApplicationNewPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        csrf_token: csrf.as_str(),
+        name: "",
+        client_type: "confidential",
+        redirect_uris: &[],
+        logo_url: "",
+        error: None,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
     .into_response())
 }
 
@@ -188,29 +184,27 @@ async fn detail(
     };
     let connected_users = scope.ath.db().count_users_for_application(app.id).await?;
     let redirect_uris = app.redirect_uri_list()?;
-    let workspaces = workspaces_for_user(&state, &scope).await;
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
         scope.role,
     );
-    Ok(render(
-        &state,
-        "applications/detail.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(&scope),
-            nav_sections => nav,
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            app => &app,
-            redirect_uris,
-            connected_users,
-            csrf_token => csrf.as_str(),
-            client_secret => Option::<String>::None,
-        },
-    )?
+    Ok(views::application_detail_page(&ApplicationDetailPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        app: &app,
+        redirect_uris: &redirect_uris,
+        connected_users,
+        csrf_token: csrf.as_str(),
+        client_secret: None,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
     .into_response())
 }
 
@@ -222,28 +216,26 @@ async fn edit_form(
 ) -> Result<Response, BrowserError> {
     let app = scope.ath.db().get_application(app_id).await?;
     let redirect_uris = app.redirect_uri_list()?;
-    let workspaces = workspaces_for_user(&state, &scope).await;
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
         scope.role,
     );
-    Ok(render(
-        &state,
-        "applications/edit.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(&scope),
-            nav_sections => nav,
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            app => &app,
-            redirect_uris,
-            csrf_token => csrf.as_str(),
-            error => Option::<String>::None,
-        },
-    )?
+    Ok(views::edit_application_page(&ApplicationEditPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        app: &app,
+        redirect_uris: &redirect_uris,
+        csrf_token: csrf.as_str(),
+        error: None,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
     .into_response())
 }
 
@@ -321,23 +313,27 @@ async fn create(
     .await;
 
     let redirect_uris = app.redirect_uri_list()?;
-    let workspaces = workspaces_for_user(&state, &scope).await;
-    let mut resp = render(
-        &state,
-        "applications/detail.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(&scope),
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            app => &app,
-            redirect_uris,
-            connected_users => 0u64,
-            client_secret => secret.as_ref().map(|s| s.as_str().to_owned()),
-            csrf_token => csrf.as_str(),
-        },
-    )?
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/applications", scope.tenant.slug),
+        scope.role,
+    );
+    let mut resp = views::application_detail_page(&ApplicationDetailPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        app: &app,
+        redirect_uris: &redirect_uris,
+        connected_users: 0,
+        csrf_token: csrf.as_str(),
+        client_secret: secret.as_ref().map(|s| s.as_str()),
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
     .into_response();
     cache_no_store(resp.headers_mut());
     Ok(resp)
@@ -429,23 +425,27 @@ async fn regenerate_secret(
     .await;
     let connected_users = scope.ath.db().count_users_for_application(app_id).await?;
     let redirect_uris = app.redirect_uri_list()?;
-    let workspaces = workspaces_for_user(&state, &scope).await;
-    let mut resp = render(
-        &state,
-        "applications/detail.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(&scope),
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            app => &app,
-            redirect_uris,
-            connected_users,
-            client_secret => Some(secret.as_str().to_owned()),
-            csrf_token => csrf.as_str(),
-        },
-    )?
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
+    let nav = tenant_nav_items(
+        &scope.tenant.slug,
+        &format!("/t/{}/applications", scope.tenant.slug),
+        scope.role,
+    );
+    let mut resp = views::application_detail_page(&ApplicationDetailPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        app: &app,
+        redirect_uris: &redirect_uris,
+        connected_users,
+        csrf_token: csrf.as_str(),
+        client_secret: Some(secret.as_str()),
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
     .into_response();
     cache_no_store(resp.headers_mut());
     Ok(resp)
@@ -483,30 +483,33 @@ async fn rerender_new(
     form: &CreateAppForm,
     error: &str,
 ) -> Result<Response, BrowserError> {
-    let workspaces = workspaces_for_user(state, scope).await;
+    let workspace_pairs = workspace_pairs_for_user(state, scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
         scope.role,
     );
-    Ok(render(
-        state,
-        "applications/new.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(scope),
-            nav_sections => nav,
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf.as_str(),
-            client_type => if form.client_type.is_empty() { "confidential" } else { form.client_type.as_str() },
-            name => form.name.as_str(),
-            redirect_uris => filter_uris(form.redirect_uris.clone()),
-            logo_url => form.logo_url.as_deref().unwrap_or(""),
-            error => Some(error.to_owned()),
+    let redirect_uris = filter_uris(form.redirect_uris.clone());
+    Ok(views::new_application_page(&ApplicationNewPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        csrf_token: csrf.as_str(),
+        name: form.name.as_str(),
+        client_type: if form.client_type.is_empty() {
+            "confidential"
+        } else {
+            form.client_type.as_str()
         },
-    )?
+        redirect_uris: &redirect_uris,
+        logo_url: form.logo_url.as_deref().unwrap_or(""),
+        error: Some(error),
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
     .into_response())
 }
 
@@ -518,28 +521,27 @@ async fn rerender_edit(
     form: &EditAppForm,
     error: &str,
 ) -> Result<Response, BrowserError> {
-    let workspaces = workspaces_for_user(state, scope).await;
+    let workspace_pairs = workspace_pairs_for_user(state, scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/applications", scope.tenant.slug),
         scope.role,
     );
-    Ok(render(
-        state,
-        "applications/edit.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(scope),
-            nav_sections => nav,
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            app => existing,
-            redirect_uris => filter_uris(form.redirect_uris.clone()),
-            csrf_token => csrf.as_str(),
-            error => Some(error.to_owned()),
-        },
-    )?
+    let redirect_uris = filter_uris(form.redirect_uris.clone());
+    Ok(views::edit_application_page(&ApplicationEditPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        app: existing,
+        redirect_uris: &redirect_uris,
+        csrf_token: csrf.as_str(),
+        error: Some(error),
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?
     .into_response())
 }
 
@@ -577,38 +579,31 @@ fn cache_no_store(headers: &mut HeaderMap) {
 }
 
 // ---------------------------------------------------------------------------
-// Render + context shaping
+// View context shaping
 // ---------------------------------------------------------------------------
 
-fn render(
+async fn workspace_pairs_for_user(
     state: &DashboardRouterState,
-    name: &str,
-    session: &str,
-    ctx: minijinja::value::Value,
-) -> Result<axum::response::Html<String>, BrowserError> {
-    let tmpl = state
-        .templates
-        .get_template(name)
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! { status_session => session, ..ctx })
-        .map_err(BrowserError::from)?;
-    Ok(axum::response::Html(body))
+    scope: &TenantScope,
+) -> Vec<(Tenant, TenantRole)> {
+    state
+        .control_db
+        .tenants_for_member(scope.user.email.as_str())
+        .await
+        .unwrap_or_default()
 }
 
-fn role_str(scope: &TenantScope) -> &'static str {
-    use allowthem_saas::TenantRole;
-    match scope.role {
-        TenantRole::Owner => "owner",
-        TenantRole::Admin => "admin",
-        TenantRole::Viewer => "viewer",
-    }
-}
-
-fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
-    context! {
-        id => tenant.id.clone(),
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
-    }
+fn workspace_views<'a>(
+    pairs: &'a [(Tenant, TenantRole)],
+    active_slug: &str,
+) -> Vec<WorkspaceView<'a>> {
+    pairs
+        .iter()
+        .map(|(workspace, role)| WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == active_slug,
+        })
+        .collect()
 }

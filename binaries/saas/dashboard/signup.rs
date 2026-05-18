@@ -15,7 +15,6 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use minijinja::Environment;
 use serde::Deserialize;
 
 use allowthem_core::Email;
@@ -30,6 +29,7 @@ use allowthem_server::csrf::{CsrfToken, csrf_middleware};
 use super::QuickstartEntry;
 use super::SignupState;
 use super::auth_helpers::is_authenticated;
+use super::views::{self, SignupPageView};
 
 const MIN_PASSWORD_LEN: usize = 8;
 const MAX_TENANT_NAME_LEN: usize = 80;
@@ -45,8 +45,20 @@ pub fn signup_routes(state: SignupState) -> Router {
 async fn get_signup(
     State(state): State<SignupState>,
     csrf: CsrfToken,
+    headers: HeaderMap,
 ) -> Result<Response, BrowserError> {
-    let html = render_signup_form(&state, csrf.as_str(), "", "", "", None)?;
+    if is_authenticated(&state.ath, &headers).await {
+        return Ok(redirect_to("/"));
+    }
+
+    let html = views::signup_page(&SignupPageView {
+        csrf_token: csrf.as_str(),
+        email: "",
+        tenant_name: "",
+        slug: "",
+        error: None,
+        is_production: state.is_production,
+    })?;
     Ok(no_store(html.into_response()))
 }
 
@@ -255,7 +267,14 @@ fn form_err(
     slug: &str,
     error: &str,
 ) -> Result<Response, BrowserError> {
-    let html = render_signup_form(state, csrf.as_str(), email, tenant_name, slug, Some(error))?;
+    let html = views::signup_page(&SignupPageView {
+        csrf_token: csrf.as_str(),
+        email,
+        tenant_name,
+        slug,
+        error: Some(error),
+        is_production: state.is_production,
+    })?;
     Ok(no_store(html.into_response()))
 }
 
@@ -272,41 +291,22 @@ async fn get_slug_check(
     Query(q): Query<SlugCheckQuery>,
 ) -> Result<Response, BrowserError> {
     let slug = q.slug.trim().to_lowercase();
-    let env = state.templates.as_ref();
 
     // `validate_slug` already checks the reserved list internally
     // (crates/saas/tenants.rs:17-19), so one call covers format + reserved.
     let html = match validate_slug(&slug) {
-        Err(SaasError::SlugReserved) => render_slug_err(env, "Reserved")?,
+        Err(SaasError::SlugReserved) => views::slug_check_err("Reserved"),
         Err(SaasError::SlugInvalid(_)) => {
-            render_slug_err(env, "Use 3–40 lowercase letters, digits, or `-`")?
+            views::slug_check_err("Use 3–40 lowercase letters, digits, or `-`")
         }
         Err(other) => return Err(saas_to_browser_error(other)),
         Ok(()) => match state.control_db.tenant_by_slug(&slug).await {
-            Ok(Some(_)) => render_slug_err(env, "Already taken")?,
-            Ok(None) => render_slug_ok(env, &slug)?,
+            Ok(Some(_)) => views::slug_check_err("Already taken"),
+            Ok(None) => views::slug_check_ok(&slug),
             Err(e) => return Err(saas_to_browser_error(e)),
         },
     };
     Ok(html.into_response())
-}
-
-fn render_slug_ok(
-    env: &Environment<'static>,
-    slug: &str,
-) -> Result<axum::response::Html<String>, BrowserError> {
-    let tmpl = env.get_template("_partials/_slug_check_ok.html")?;
-    let html = tmpl.render(minijinja::context! { slug => slug })?;
-    Ok(axum::response::Html(html))
-}
-
-fn render_slug_err(
-    env: &Environment<'static>,
-    msg: &str,
-) -> Result<axum::response::Html<String>, BrowserError> {
-    let tmpl = env.get_template("_partials/_slug_check_err.html")?;
-    let html = tmpl.render(minijinja::context! { msg => msg })?;
-    Ok(axum::response::Html(html))
 }
 
 /// Bridge a `SaasError` into the existing `BrowserError` types without
@@ -315,26 +315,6 @@ fn render_slug_err(
 /// non-Slug Saas error reaching this handler.
 fn saas_to_browser_error(err: SaasError) -> BrowserError {
     BrowserError::Auth(AuthError::Validation(err.to_string()))
-}
-
-/// Render the signup form into a full HTML page.
-fn render_signup_form(
-    state: &SignupState,
-    csrf_token: &str,
-    email: &str,
-    tenant_name: &str,
-    slug: &str,
-    error: Option<&str>,
-) -> Result<axum::response::Html<String>, BrowserError> {
-    let tmpl = state.templates.get_template("signup.html")?;
-    let html = tmpl.render(minijinja::context! {
-        csrf_token => csrf_token,
-        email => email,
-        tenant_name => tenant_name,
-        slug => slug,
-        error => error.unwrap_or(""),
-    })?;
-    Ok(axum::response::Html(html))
 }
 
 fn redirect_to(location: &str) -> Response {

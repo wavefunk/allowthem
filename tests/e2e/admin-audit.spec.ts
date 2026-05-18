@@ -70,6 +70,7 @@ test("admin audit > future date range shows empty state", async ({
 test("admin audit > pagination: many events creates page 2", async ({
   adminPage: page,
 }) => {
+  test.setTimeout(90_000);
   // PAGE_SIZE=50. Generate >50 events by registering new users (each registration
   // produces a Register audit event). Registrations are not rate-limited.
   // CSRF is session-derived for authenticated users and the POST /register

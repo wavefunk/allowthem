@@ -18,7 +18,6 @@ use axum::body::Bytes;
 use axum::extract::{FromRequest, FromRequestParts, Path, Request};
 use axum::http::{StatusCode, header, request::Parts};
 use axum::response::{IntoResponse, Response};
-use minijinja::context;
 use serde::Deserialize;
 
 use allowthem_core::{AllowThem, User};
@@ -28,53 +27,6 @@ use allowthem_saas::{
 
 use super::auth_helpers::current_dashboard_user;
 use super::state::DashboardRouterState;
-
-// ---------------------------------------------------------------------------
-// Workspace context helpers — used by every dashboard page that renders
-// `_dashboard_shell.html` (which includes `_workspace_switcher.html`).
-// ---------------------------------------------------------------------------
-
-/// Build the `workspaces` template context: all tenants the current user
-/// belongs to, shaped as `[{tenant: {id, name, slug}, role: "owner"|…}]`.
-pub async fn workspaces_for_user(
-    state: &DashboardRouterState,
-    scope: &TenantScope,
-) -> Vec<minijinja::value::Value> {
-    let Ok(pairs) = state
-        .control_db
-        .tenants_for_member(scope.user.email.as_str())
-        .await
-    else {
-        return Vec::new();
-    };
-    pairs
-        .into_iter()
-        .map(|(t, r)| {
-            let role = match r {
-                TenantRole::Owner => "owner",
-                TenantRole::Admin => "admin",
-                TenantRole::Viewer => "viewer",
-            };
-            context! {
-                tenant => context! {
-                    id => t.id.clone(),
-                    name => t.name.clone(),
-                    slug => t.slug.clone(),
-                },
-                role,
-            }
-        })
-        .collect()
-}
-
-/// Build the `current_tenant` template context from the resolved scope.
-pub fn current_tenant_ctx(tenant: &Tenant) -> minijinja::value::Value {
-    context! {
-        id => tenant.id.clone(),
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
-    }
-}
 
 // ---------------------------------------------------------------------------
 // HtmlForm
@@ -170,7 +122,9 @@ async fn resolve_scope(
 
     match tenant.status {
         TenantStatus::Deleted => return Err(StatusCode::NOT_FOUND.into_response()),
-        TenantStatus::Suspended => return Err(render_suspended(state, &tenant)),
+        TenantStatus::Suspended => {
+            return Err(render_suspended(state, &tenant, &user, parts.uri.path()).await);
+        }
         TenantStatus::Active => {}
     }
 
@@ -378,21 +332,55 @@ impl FromRequestParts<DashboardRouterState> for RequireSuperAdmin {
     }
 }
 
-fn render_suspended(state: &DashboardRouterState, tenant: &Tenant) -> Response {
-    match state
-        .templates
-        .get_template("_partials/_suspended.html")
-        .and_then(|tmpl| {
-            tmpl.render(context! {
-                tenant => context! {
-                    name => tenant.name.clone(),
-                    slug => tenant.slug.clone(),
-                },
-            })
-        }) {
-        Ok(body) => (StatusCode::SERVICE_UNAVAILABLE, axum::response::Html(body)).into_response(),
+async fn render_suspended(
+    state: &DashboardRouterState,
+    tenant: &Tenant,
+    user: &User,
+    current_path: &str,
+) -> Response {
+    let pairs = match state
+        .control_db
+        .tenants_for_member(user.email.as_str())
+        .await
+    {
+        Ok(pairs) => pairs,
         Err(e) => {
-            tracing::error!(error = %e, "suspended template render failed");
+            tracing::warn!(
+                error = %e,
+                tenant_slug = %tenant.slug,
+                "workspace switcher lookup failed for suspended page"
+            );
+            Vec::new()
+        }
+    };
+    let role = pairs
+        .iter()
+        .find(|(candidate, _)| candidate.slug == tenant.slug)
+        .map(|(_, role)| *role)
+        .unwrap_or(TenantRole::Owner);
+    let workspaces: Vec<super::views::WorkspaceView<'_>> = pairs
+        .iter()
+        .map(|(workspace, role)| super::views::WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == tenant.slug,
+        })
+        .collect();
+    let nav_sections = super::nav::tenant_nav_items(&tenant.slug, current_path, role);
+    let logout_href = format!("/t/{}/logout", tenant.slug);
+    match super::views::suspended_page(&super::views::SuspendedPageView {
+        tenant_name: tenant.name.as_str(),
+        tenant_slug: tenant.slug.as_str(),
+        logout_href: &logout_href,
+        nav_sections: &nav_sections,
+        workspaces: &workspaces,
+        status_session: Some(user.email.as_str()),
+        is_production: state.is_production,
+    }) {
+        Ok(body) => (StatusCode::SERVICE_UNAVAILABLE, body).into_response(),
+        Err(e) => {
+            tracing::error!(error = ?e, "suspended view render failed");
             (StatusCode::SERVICE_UNAVAILABLE, "Workspace suspended").into_response()
         }
     }

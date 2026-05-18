@@ -6,6 +6,7 @@ data/
 *.db-wal
 *.db-shm
 .envrc.private
+/.cargo/config.toml
 
 # Dolt database files (added by bd init)
 .dolt/

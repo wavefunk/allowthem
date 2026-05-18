@@ -1,9 +1,0 @@
-{# _auth_oob_head.html — OOB fragments appended to HTMX auth-fragment responses.
-   Updates document <title> and a modeline segment.
-
-   Expected context:
-     - page_title  (string)
-     - status_hint (string)
-#}
-<title hx-swap-oob="true">{{ page_title }}</title>
-<span id="wf-screen-label" hx-swap-oob="true" class="wf-ml-seg">{{ status_hint | default("") }}</span>

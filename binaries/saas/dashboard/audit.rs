@@ -14,19 +14,18 @@ use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
-use minijinja::context;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use allowthem_core::Email;
 use allowthem_core::audit::{AuditEvent, AuditListEntry, SearchAuditParams};
 use allowthem_core::types::UserId;
+use allowthem_saas::{Tenant, TenantRole};
 use allowthem_server::browser_error::BrowserError;
 
-use super::extractors::{
-    RequireTenantMember, TenantScope, current_tenant_ctx, workspaces_for_user,
-};
+use super::extractors::{RequireTenantMember, TenantScope};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
+use super::views::{self, AuditListPageView, WorkspaceView};
 
 const PAGE_SIZE: u32 = 50;
 const EXPORT_MAX_ROWS: u32 = 10_000;
@@ -148,50 +147,6 @@ fn event_label(event: &AuditEvent) -> &'static str {
     }
 }
 
-#[derive(Serialize)]
-struct EntryDisplay {
-    event_label: String,
-    event_slug: String,
-    is_failure: bool,
-    user_id: Option<String>,
-    user_email: Option<String>,
-    ip_address: Option<String>,
-    detail: Option<String>,
-    created_at: String,
-    created_at_iso: String,
-}
-
-fn to_entry_displays(entries: &[AuditListEntry]) -> Vec<EntryDisplay> {
-    entries
-        .iter()
-        .map(|e| EntryDisplay {
-            event_label: event_label(&e.event_type).to_string(),
-            event_slug: format!("{:?}", e.event_type)
-                .chars()
-                .flat_map(|c| {
-                    if c.is_uppercase() {
-                        vec!['_', c.to_ascii_lowercase()]
-                    } else {
-                        vec![c]
-                    }
-                })
-                .collect::<String>()
-                .trim_start_matches('_')
-                .to_string(),
-            is_failure: matches!(
-                e.event_type,
-                AuditEvent::LoginFailed | AuditEvent::MfaChallengeFailed
-            ),
-            user_id: e.user_id.map(|u| u.to_string()),
-            user_email: e.user_email.clone(),
-            ip_address: e.ip_address.clone(),
-            detail: e.detail.clone(),
-            created_at: e.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-            created_at_iso: e.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-        })
-        .collect()
-}
-
 /// Resolve `user_email` (exact match) → `UserId`. Returns:
 /// - `Ok(Some(uid))` — match found, restrict the query.
 /// - `Ok(None)` — no email filter requested.
@@ -253,7 +208,6 @@ async fn list(
             Err(()) => (Vec::new(), 0, true),
         };
 
-    let entries_view = to_entry_displays(&entries);
     let total_pages = total.div_ceil(PAGE_SIZE).max(1);
     let has_filters = nonempty(&query.event_type).is_some()
         || nonempty(&query.user_email).is_some()
@@ -261,37 +215,38 @@ async fn list(
         || nonempty(&query.from).is_some()
         || nonempty(&query.to).is_some();
 
-    let workspaces = workspaces_for_user(&state, &scope).await;
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/audit", scope.tenant.slug),
         scope.role,
     );
-    let body = render(
-        &state,
-        "audit/list.html",
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(&scope),
-            nav_sections => nav,
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            entries => entries_view,
-            total => total,
-            page => page,
-            total_pages => total_pages,
-            page_size => PAGE_SIZE,
-            event_type => query.event_type.clone().unwrap_or_default(),
-            user_email => query.user_email.clone().unwrap_or_default(),
-            outcome => query.outcome.clone().unwrap_or_default(),
-            from => query.from.clone().unwrap_or_default(),
-            to => query.to.clone().unwrap_or_default(),
-            has_filters => has_filters,
-            no_user => no_user,
-        },
-    )?;
-    Ok(body.into_response())
+    let event_type = query.event_type.clone().unwrap_or_default();
+    let user_email = query.user_email.clone().unwrap_or_default();
+    let outcome = query.outcome.clone().unwrap_or_default();
+    let from = query.from.clone().unwrap_or_default();
+    let to = query.to.clone().unwrap_or_default();
+    let html = views::audit_list_page(&AuditListPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        entries: &entries,
+        total,
+        page,
+        total_pages,
+        event_type: &event_type,
+        user_email: &user_email,
+        outcome: &outcome,
+        from: &from,
+        to: &to,
+        has_filters,
+        no_user,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
 }
 
 async fn export_csv(
@@ -378,42 +333,30 @@ fn build_csv(entries: &[AuditListEntry]) -> String {
     out
 }
 
-// ---------------------------------------------------------------------------
-// Local helpers (kept private; mirror applications.rs without re-using
-// across modules until the duplication actually matters).
-// ---------------------------------------------------------------------------
-
-fn render(
+async fn workspace_pairs_for_user(
     state: &DashboardRouterState,
-    name: &str,
-    session: &str,
-    ctx: minijinja::value::Value,
-) -> Result<axum::response::Html<String>, BrowserError> {
-    let tmpl = state
-        .templates
-        .get_template(name)
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! { status_session => session, ..ctx })
-        .map_err(BrowserError::from)?;
-    Ok(axum::response::Html(body))
+    scope: &TenantScope,
+) -> Vec<(Tenant, TenantRole)> {
+    state
+        .control_db
+        .tenants_for_member(scope.user.email.as_str())
+        .await
+        .unwrap_or_default()
 }
 
-fn role_str(scope: &TenantScope) -> &'static str {
-    use allowthem_saas::TenantRole;
-    match scope.role {
-        TenantRole::Owner => "owner",
-        TenantRole::Admin => "admin",
-        TenantRole::Viewer => "viewer",
-    }
-}
-
-fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
-    context! {
-        id => tenant.id.clone(),
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
-    }
+fn workspace_views<'a>(
+    pairs: &'a [(Tenant, TenantRole)],
+    active_slug: &str,
+) -> Vec<WorkspaceView<'a>> {
+    pairs
+        .iter()
+        .map(|(workspace, role)| WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == active_slug,
+        })
+        .collect()
 }
 
 #[cfg(test)]

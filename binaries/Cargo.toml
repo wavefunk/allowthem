@@ -8,6 +8,9 @@ license-file = "LICENSE"
 repository.workspace = true
 publish = false
 
+[features]
+default = []
+
 [[bin]]
 name = "allowthem"
 path = "standalone/main.rs"
@@ -32,6 +35,7 @@ dashmap.workspace = true
 eyre.workspace = true
 figment.workspace = true
 hex.workspace = true
+html-escape.workspace = true
 moka.workspace = true
 rand.workspace = true
 uuid.workspace = true
@@ -41,10 +45,11 @@ sqlx.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-minijinja.workspace = true
 tower-http.workspace = true
+url.workspace = true
 serde_html_form.workspace = true
 sha2.workspace = true
+wavefunk-ui.workspace = true
 
 [dev-dependencies]
 allowthem-saas = { workspace = true, features = ["test-util"] }

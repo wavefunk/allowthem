@@ -6,15 +6,15 @@ import {
   extractResetToken,
 } from "./fixtures";
 
-// M3 frontend revamp — visual QA for the 8 migrated auth templates.
+// M3 frontend revamp — visual QA for the migrated auth pages.
 //
-// Asserts shell inheritance (wf-auth + wf-auth-splash + wf-statusbar), bans
+// Asserts SplitShell inheritance, bans
 // a curated set of Tailwind / at-* / legacy-shell substrings, and exercises
 // the dark/light mode toggle. Covers the same ground as the Rust-side
-// auth_template_guard_tests.rs but against a running browser.
+// auth view tests but against a running browser.
 //
-// M6.2 flipped the polarity: at-auth-shell / at-form-pane / at-form-wrap are
-// now forbidden; wf-auth + wf-auth-splash are required.
+// The wavefunk-ui migration replaced the old auth shell classes with
+// SplitShell-owned markup.
 
 const FORBIDDEN = [
   "bg-gray-50",
@@ -39,9 +39,11 @@ const FORBIDDEN = [
 ];
 
 async function expectShellStructure(page: Page) {
-  await expect(page.locator("body.wf-auth")).toHaveCount(1);
-  await expect(page.locator(".wf-auth-splash")).toHaveCount(1);
-  await expect(page.locator(".wf-statusbar")).toHaveCount(1);
+  await expect(page.locator(".wf-split-shell")).toHaveCount(1);
+  await expect(page.locator(".wf-split-shell-visual")).toHaveCount(1);
+  await expect(page.locator("main.wf-auth-form")).toHaveCount(1);
+  await expect(page.locator(".wf-modeline")).toHaveCount(1);
+  await expect(page.locator(".wf-minibuffer")).toHaveCount(1);
 }
 
 async function expectNoForbiddenSubstrings(page: Page) {
@@ -53,8 +55,8 @@ async function expectNoForbiddenSubstrings(page: Page) {
   }
 }
 
-test.describe("M3 auth templates — shell + no Tailwind residue", () => {
-  test("/login renders _auth_shell with no Tailwind residue", async ({
+test.describe("M3 auth pages — shell + no Tailwind residue", () => {
+  test("/login renders SplitShell with no Tailwind residue", async ({
     page,
   }) => {
     await page.goto("/login");
@@ -62,7 +64,7 @@ test.describe("M3 auth templates — shell + no Tailwind residue", () => {
     await expectNoForbiddenSubstrings(page);
   });
 
-  test("/register renders _auth_shell with no Tailwind residue", async ({
+  test("/register renders SplitShell with no Tailwind residue", async ({
     page,
   }) => {
     await page.goto("/register");
@@ -70,7 +72,7 @@ test.describe("M3 auth templates — shell + no Tailwind residue", () => {
     await expectNoForbiddenSubstrings(page);
   });
 
-  test("/forgot-password renders _auth_shell with no Tailwind residue", async ({
+  test("/forgot-password renders SplitShell with no Tailwind residue", async ({
     page,
   }) => {
     await page.goto("/forgot-password");
@@ -123,7 +125,9 @@ test.describe("M3 auth templates — shell + no Tailwind residue", () => {
     await page.goto("/settings/mfa/setup");
     await expectShellStructure(page);
     await expectNoForbiddenSubstrings(page);
-    await expect(page.locator('[data-testid="totp-uri"]')).toBeVisible();
+    await expect(page.locator('[data-testid="totp-uri"]')).toContainText(
+      "otpauth://totp/",
+    );
     await expect(page.locator('[data-testid="totp-secret"]')).toBeVisible();
   });
 
@@ -146,7 +150,7 @@ test.describe("M3 auth templates — shell + no Tailwind residue", () => {
   // auth_template_guard_tests.rs suite.
 });
 
-test.describe("M3 auth templates — dark/light mode toggle", () => {
+test.describe("M3 auth pages — dark/light mode toggle", () => {
   test("toggle flips the document mode and persists across navigations", async ({
     page,
   }) => {
@@ -178,7 +182,7 @@ test.describe("M3 auth templates — dark/light mode toggle", () => {
   });
 });
 
-test.describe("M3 auth templates — no console errors on first paint", () => {
+test.describe("M3 auth pages — no console errors on first paint", () => {
   const pages = [
     "/login",
     "/register",

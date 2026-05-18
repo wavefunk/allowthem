@@ -7,12 +7,8 @@ import { registerUser, oauthLogin } from "./fixtures";
 
 test("oauth > login page renders OAuth provider buttons", async ({ page }) => {
   await page.goto("/login");
-  await expect(
-    page.getByRole("link", { name: /^\s*GOOGLE\s*$/ })
-  ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: /^\s*GITHUB\s*$/ })
-  ).toBeVisible();
+  await expect(page.getByRole("link", { name: /^\s*google\s*$/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^\s*github\s*$/ })).toBeVisible();
 });
 
 // -------------------------------------------------------------------------
@@ -112,7 +108,7 @@ test("oauth > email-based linking: verified OAuth email links to existing passwo
 
   // Settings page should show Google in linked accounts
   await page.goto("/settings");
-  await expect(page.locator("text=google")).toBeVisible();
+  await expect(page.locator(".wf-dl dt", { hasText: /^google$/ })).toHaveCount(1);
 });
 
 // -------------------------------------------------------------------------
@@ -184,7 +180,7 @@ test("oauth > unlink: linked account removed via POST /oauth/unlink", async ({
 
   // Confirm linked
   await page.goto("/settings");
-  await expect(page.locator("text=google")).toBeVisible();
+  await expect(page.locator(".wf-dl dt", { hasText: /^google$/ })).toHaveCount(1);
 
   // Unlink via POST /oauth/unlink (outside csrf_middleware, no CSRF token needed)
   const resp = await page.request.post("/oauth/unlink", {
@@ -195,7 +191,7 @@ test("oauth > unlink: linked account removed via POST /oauth/unlink", async ({
 
   // Linked accounts section no longer shows google
   await page.goto("/settings");
-  await expect(page.locator("text=google")).not.toBeVisible();
+  await expect(page.locator(".wf-dl dt", { hasText: /^google$/ })).toHaveCount(0);
 });
 
 // -------------------------------------------------------------------------

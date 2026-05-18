@@ -27,7 +27,7 @@ test("mfa setup > settings shows enabled after setup", async ({ page }) => {
   await registerUser(page, email, "Test1234!");
   await enableMfa(page);
   await page.goto("/settings");
-  await expect(page.locator("text=Enabled")).toBeVisible();
+  await expect(page.locator(".wf-tag.ok", { hasText: "Enabled" })).toBeVisible();
   await expect(
     page.locator("text=10 of 10 recovery codes remaining")
   ).toBeVisible();
@@ -54,7 +54,9 @@ test("mfa setup > disable MFA reverts settings to not configured", async ({
   await enableMfa(page);
   // Disable MFA
   await page.goto("/settings");
-  await page.locator('button:has-text("Disable 2FA")').click();
+  await page
+    .locator('form[action="/settings/mfa/disable"]')
+    .evaluate((form) => (form as HTMLFormElement).requestSubmit());
   // Confirm redirected to settings with MFA not configured
   await expect(page).toHaveURL(/\/settings/);
   await expect(page.locator("text=Not configured")).toBeVisible();

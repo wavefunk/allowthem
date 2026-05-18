@@ -7,59 +7,21 @@
 //! - `POST /t/{slug}/settings/domains/{id}/delete`  — RequireTenantAdmin
 
 use axum::extract::{Path, State};
-use axum::response::{Html, IntoResponse, Redirect, Response};
-use minijinja::context;
-use serde::{Deserialize, Serialize};
+use axum::response::{IntoResponse, Redirect, Response};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use allowthem_saas::{
-    DomainId, DomainStatus, SaasError, TenantDomain, TenantId, normalize_domain, verify_domain,
+    DomainId, DomainStatus, SaasError, Tenant, TenantDomain, TenantId, TenantRole,
+    normalize_domain, verify_domain,
 };
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{
-    HtmlForm, RequireTenantAdmin, RequireTenantMember, current_tenant_ctx, workspaces_for_user,
-};
+use super::extractors::{HtmlForm, RequireTenantAdmin, RequireTenantMember, TenantScope};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
-
-// ---------------------------------------------------------------------------
-// Template view model
-// ---------------------------------------------------------------------------
-
-/// Flattened domain row ready for template rendering — UUIDs as strings,
-/// timestamps formatted, status as a human-readable label.
-#[derive(Serialize)]
-struct DomainEntry {
-    id: String,
-    domain: String,
-    status: DomainStatus,
-    status_label: &'static str,
-    verified_at: Option<String>,
-    last_error: Option<String>,
-    created_at: String,
-}
-
-impl DomainEntry {
-    fn from_row(row: &TenantDomain) -> Option<Self> {
-        let uuid = Uuid::from_slice(&row.id).ok()?;
-        Some(Self {
-            id: uuid.to_string(),
-            domain: row.domain.clone(),
-            status: row.status,
-            status_label: match row.status {
-                DomainStatus::PendingVerification => "Pending",
-                DomainStatus::Verified => "Verified",
-                DomainStatus::Active => "Active",
-                DomainStatus::Failed => "Failed",
-            },
-            verified_at: row.verified_at.map(|t| t.to_rfc3339()),
-            last_error: row.last_error.clone(),
-            created_at: row.created_at.to_rfc3339(),
-        })
-    }
-}
+use super::views::{self, DomainEntryView, DomainSettingsPageView, WorkspaceView};
 
 // ---------------------------------------------------------------------------
 // Forms
@@ -76,21 +38,6 @@ pub struct EmptyForm {}
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn render(
-    state: &DashboardRouterState,
-    session: &str,
-    ctx: minijinja::value::Value,
-) -> Result<Html<String>, BrowserError> {
-    let tmpl = state
-        .templates
-        .get_template("settings/domains.html")
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! { status_session => session, ..ctx })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body))
-}
 
 fn not_found() -> BrowserError {
     BrowserError::from(allowthem_core::error::AuthError::NotFound)
@@ -114,41 +61,87 @@ fn dns_target(slug: &str, base_domain: &str) -> String {
     format!("{slug}.{base_domain}")
 }
 
-async fn load_entries(state: &DashboardRouterState, tenant_id: &TenantId) -> Vec<DomainEntry> {
+fn domain_entry_from_row(row: &TenantDomain) -> Option<DomainEntryView> {
+    let uuid = Uuid::from_slice(&row.id).ok()?;
+    Some(DomainEntryView {
+        id: uuid.to_string(),
+        domain: row.domain.clone(),
+        status: row.status,
+        status_label: match row.status {
+            DomainStatus::PendingVerification => "Pending",
+            DomainStatus::Verified => "Verified",
+            DomainStatus::Active => "Active",
+            DomainStatus::Failed => "Failed",
+        },
+        verified_at: row.verified_at.map(|t| t.to_rfc3339()),
+        last_error: row.last_error.clone(),
+    })
+}
+
+async fn load_entries(state: &DashboardRouterState, tenant_id: &TenantId) -> Vec<DomainEntryView> {
     state
         .control_db
         .list_tenant_domains(tenant_id)
         .await
         .unwrap_or_default()
         .iter()
-        .filter_map(DomainEntry::from_row)
+        .filter_map(domain_entry_from_row)
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn page_ctx(
-    slug: &str,
-    name: &str,
-    role: allowthem_saas::TenantRole,
-    entries: Vec<DomainEntry>,
-    dns_tgt: &str,
+async fn workspace_pairs_for_user(
+    state: &DashboardRouterState,
+    scope: &TenantScope,
+) -> Vec<(Tenant, TenantRole)> {
+    state
+        .control_db
+        .tenants_for_member(scope.user.email.as_str())
+        .await
+        .unwrap_or_default()
+}
+
+fn workspace_views<'a>(
+    pairs: &'a [(Tenant, TenantRole)],
+    active_slug: &str,
+) -> Vec<WorkspaceView<'a>> {
+    pairs
+        .iter()
+        .map(|(workspace, role)| WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == active_slug,
+        })
+        .collect()
+}
+
+async fn render_domains(
+    state: &DashboardRouterState,
+    scope: &TenantScope,
     csrf_token: &str,
     error: &str,
-    current_tenant: minijinja::value::Value,
-    workspaces: Vec<minijinja::value::Value>,
-) -> minijinja::value::Value {
-    let path = format!("/t/{slug}/settings/domains");
-    let nav = tenant_nav_items(slug, &path, role);
-    context! {
-        tenant => context! { name => name, slug => slug },
-        nav_sections => nav,
-        current_tenant,
-        workspaces,
-        csrf_token => csrf_token,
-        domains => entries,
-        dns_target => dns_tgt,
-        error => error,
-    }
+) -> Result<Response, BrowserError> {
+    let tenant_id = extract_tenant_id(&scope.tenant)?;
+    let entries = load_entries(state, &tenant_id).await;
+    let workspace_pairs = workspace_pairs_for_user(state, scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
+    let dns_tgt = dns_target(&scope.tenant.slug, &state.base_domain);
+    let path = format!("/t/{}/settings/domains", scope.tenant.slug);
+    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
+    let html = views::domain_settings_page(&DomainSettingsPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        csrf_token,
+        domains: &entries,
+        dns_target: &dns_tgt,
+        error,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -160,26 +153,7 @@ pub async fn show(
     State(state): State<DashboardRouterState>,
     csrf: CsrfToken,
 ) -> Result<Response, BrowserError> {
-    let tenant_id = extract_tenant_id(&scope.tenant)?;
-    let entries = load_entries(&state, &tenant_id).await;
-    let workspaces = workspaces_for_user(&state, &scope).await;
-    let dns_tgt = dns_target(&scope.tenant.slug, &state.base_domain);
-    render(
-        &state,
-        scope.user.email.as_str(),
-        page_ctx(
-            &scope.tenant.slug,
-            &scope.tenant.name,
-            scope.role,
-            entries,
-            &dns_tgt,
-            csrf.as_str(),
-            "",
-            current_tenant_ctx(&scope.tenant),
-            workspaces,
-        ),
-    )
-    .map(IntoResponse::into_response)
+    render_domains(&state, &scope, csrf.as_str(), "").await
 }
 
 pub async fn register(
@@ -189,31 +163,15 @@ pub async fn register(
     HtmlForm(form): HtmlForm<RegisterDomainForm>,
 ) -> Result<Response, BrowserError> {
     let tenant_id = extract_tenant_id(&scope.tenant)?;
-    let dns_tgt = dns_target(&scope.tenant.slug, &state.base_domain);
 
     let domain = match normalize_domain(form.domain.trim(), &state.base_domain) {
         Ok(d) => d,
         Err(e) => {
-            let entries = load_entries(&state, &tenant_id).await;
-            let workspaces = workspaces_for_user(&state, &scope).await;
-            return render(
-                &state,
-                scope.user.email.as_str(),
-                page_ctx(
-                    &scope.tenant.slug,
-                    &scope.tenant.name,
-                    scope.role,
-                    entries,
-                    &dns_tgt,
-                    csrf.as_str(),
-                    &e.to_string(),
-                    current_tenant_ctx(&scope.tenant),
-                    workspaces,
-                ),
-            )
-            .map(IntoResponse::into_response);
+            let message = e.to_string();
+            return render_domains(&state, &scope, csrf.as_str(), message.as_str()).await;
         }
     };
+    let dns_tgt = dns_target(&scope.tenant.slug, &state.base_domain);
 
     match state
         .control_db
@@ -222,24 +180,13 @@ pub async fn register(
     {
         Ok(_) => {}
         Err(SaasError::DomainAlreadyExists) => {
-            let entries = load_entries(&state, &tenant_id).await;
-            let workspaces = workspaces_for_user(&state, &scope).await;
-            return render(
+            return render_domains(
                 &state,
-                scope.user.email.as_str(),
-                page_ctx(
-                    &scope.tenant.slug,
-                    &scope.tenant.name,
-                    scope.role,
-                    entries,
-                    &dns_tgt,
-                    csrf.as_str(),
-                    "That domain is already registered.",
-                    current_tenant_ctx(&scope.tenant),
-                    workspaces,
-                ),
+                &scope,
+                csrf.as_str(),
+                "That domain is already registered.",
             )
-            .map(IntoResponse::into_response);
+            .await;
         }
         Err(e) => {
             tracing::error!(error = %e, "create_tenant_domain failed");

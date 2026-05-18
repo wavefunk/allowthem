@@ -6,13 +6,8 @@ mod config;
 mod error;
 mod mock_oauth;
 mod state;
-mod templates;
 mod test_oauth_routes;
-
-#[cfg(test)]
-mod admin_template_render_tests;
-#[cfg(test)]
-mod all_standalone_templates_guard_tests;
+mod views;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -24,8 +19,6 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::{Router, routing::get};
 use chrono::Duration;
 use eyre::Result;
-use minijinja::context;
-use minijinja::value::Value;
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
@@ -38,7 +31,7 @@ use allowthem_core::{
     AllowThemBuilder, AuthClient, EmbeddedAuthClient, LogEmailSender, OAuthProvider,
 };
 use allowthem_server::{
-    AllRoutesBuilder, OptionalAuthUser, ShellContext, csrf_middleware, inject_ath_into_extensions,
+    AllRoutesBuilder, OptionalAuthUser, csrf_middleware, inject_ath_into_extensions,
     render_error_page,
 };
 
@@ -111,9 +104,6 @@ async fn main() -> Result<()> {
     // 4d. Bootstrap OIDC application (dev/test only — no-op when env vars are unset)
     seed_oidc_app(&ath, &config).await?;
 
-    // 5. Templates
-    let templates = templates::build_template_env()?;
-
     // 5b. OAuth providers
     let mut providers: HashMap<String, Box<dyn OAuthProvider>> = HashMap::new();
 
@@ -151,7 +141,6 @@ async fn main() -> Result<()> {
 
     // 6. Build all auth routes via AllRoutesBuilder
     let routes = AllRoutesBuilder::new()
-        .templates(templates.clone())
         .is_production(config.is_production)
         .base_url(&config.base_url)
         .max_login_attempts(config.max_login_attempts)
@@ -162,12 +151,11 @@ async fn main() -> Result<()> {
         .build(&ath)
         .map_err(|e| eyre::eyre!("{e}"))?;
 
-    // 7. App state (admin routes need AuthClient + templates)
+    // 7. App state (admin routes need AuthClient)
     let auth_client: Arc<dyn AuthClient> = Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
     let state = AppState {
         ath: ath.clone(),
         auth_client,
-        templates: templates.clone(),
         is_production: config.is_production,
     };
 
@@ -244,12 +232,7 @@ async fn root(
 ) -> Result<Response, AppError> {
     match maybe_user {
         None => {
-            let html = crate::templates::render(
-                &state.templates,
-                "welcome.html",
-                context! {},
-                state.is_production,
-            )?;
+            let html = views::welcome_page(state.is_production)?;
             Ok(html.into_response())
         }
         Some(user) => {
@@ -258,21 +241,14 @@ async fn root(
             let is_admin = db.has_role(&user.id, &admin_role).await?;
             let mfa_enabled = db.has_mfa_enabled(user.id).await?;
             let oauth_account_count = db.get_user_oauth_accounts(user.id).await?.len();
-            let shell = ShellContext::new(is_admin, "/", "allowthem");
-
-            let html = crate::templates::render(
-                &state.templates,
-                "dashboard.html",
-                context! {
-                    shell => Value::from_serialize(&shell),
-                    email => user.email.as_str(),
-                    is_active => user.is_active,
-                    is_admin,
-                    mfa_enabled,
-                    oauth_account_count,
-                },
-                state.is_production,
-            )?;
+            let html = views::dashboard_page(&views::DashboardView {
+                email: user.email.as_str(),
+                is_active: user.is_active,
+                is_admin,
+                mfa_enabled,
+                oauth_account_count,
+                is_production: state.is_production,
+            })?;
             Ok(html.into_response())
         }
     }
@@ -280,23 +256,13 @@ async fn root(
 
 /// GET /terms — Terms of Service page.
 async fn terms(State(state): State<AppState>) -> Result<Response, AppError> {
-    let html = crate::templates::render(
-        &state.templates,
-        "terms.html",
-        context! {},
-        state.is_production,
-    )?;
+    let html = views::terms_page(state.is_production)?;
     Ok(html.into_response())
 }
 
 /// GET /privacy — Privacy Policy page.
 async fn privacy(State(state): State<AppState>) -> Result<Response, AppError> {
-    let html = crate::templates::render(
-        &state.templates,
-        "privacy.html",
-        context! {},
-        state.is_production,
-    )?;
+    let html = views::privacy_page(state.is_production)?;
     Ok(html.into_response())
 }
 
@@ -508,11 +474,9 @@ mod tests {
             .unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = Arc::new(minijinja::Environment::new());
         let state = AppState {
             ath,
             auth_client,
-            templates,
             is_production: false,
         };
         let app = Router::new()
@@ -576,11 +540,9 @@ mod tests {
             .unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = Arc::new(minijinja::Environment::new());
         let state = AppState {
             ath,
             auth_client,
-            templates,
             is_production: false,
         };
 
@@ -596,119 +558,6 @@ mod tests {
         );
     }
 
-    // --- M30: Template engine and CSS switching tests ---
-
-    #[test]
-    fn template_env_loads() {
-        let env = crate::templates::build_template_env();
-        assert!(env.is_ok(), "template env should build: {:?}", env.err());
-    }
-
-    #[test]
-    fn base_html_renders_without_tailwind() {
-        let env = crate::templates::build_template_env().unwrap();
-        let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
-            .unwrap()
-            .0;
-        assert!(
-            !html.contains("tailwindcss"),
-            "Tailwind references must be gone"
-        );
-        assert!(
-            !html.contains("/static/css/style.css"),
-            "prod-only CSS path must be gone"
-        );
-        assert!(
-            html.contains("/__allowthem/static/css/04-components.css"),
-            "design system components CSS still served"
-        );
-    }
-
-    #[test]
-    fn render_helper_injects_shared_context() {
-        let mut env = minijinja::Environment::new();
-        env.add_template("test.html", "production={{ is_production }}")
-            .unwrap();
-        let result = crate::templates::render(&env, "test.html", minijinja::context! {}, true);
-        let html = result.unwrap().0;
-        assert_eq!(html, "production=true");
-    }
-
-    #[test]
-    fn render_preserves_caller_context() {
-        let mut env = minijinja::Environment::new();
-        env.add_template(
-            "test.html",
-            "title={{ page_title }} prod={{ is_production }}",
-        )
-        .unwrap();
-        let result = crate::templates::render(
-            &env,
-            "test.html",
-            minijinja::context! { page_title => "Login" },
-            false,
-        );
-        assert_eq!(result.unwrap().0, "title=Login prod=false");
-    }
-
-    #[test]
-    fn app_error_template_returns_500() {
-        use axum::response::IntoResponse;
-        let env = minijinja::Environment::new();
-        let result =
-            crate::templates::render(&env, "nonexistent.html", minijinja::context! {}, false);
-        let err = result.unwrap_err();
-        let response = err.into_response();
-        assert_eq!(
-            response.status(),
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR
-        );
-    }
-
-    #[test]
-    fn base_html_has_fouc_free_mode_bootstrap() {
-        let env = crate::templates::build_template_env().unwrap();
-        let result = crate::templates::render(&env, "base.html", minijinja::context! {}, true);
-        let html = result.unwrap().0;
-        assert!(
-            html.contains("allowthem:mode"),
-            "base.html must contain the localStorage key for the FOUC-free mode bootstrap"
-        );
-        assert!(
-            html.contains("data-mode-locked"),
-            "FOUC bootstrap must respect data-mode-locked"
-        );
-        let script_at = html.find("allowthem:mode").unwrap();
-        let css_at = html.find("rel=\"stylesheet\"").unwrap();
-        assert!(script_at < css_at, "bootstrap must precede stylesheets");
-    }
-
-    #[test]
-    fn base_html_renders_unchanged_when_body_content_not_overridden() {
-        let env = crate::templates::build_template_env().unwrap();
-        let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
-            .unwrap()
-            .0;
-        assert_eq!(html.matches("<body").count(), 1, "no nested <body> tags");
-        assert!(html.contains("<html"), "html element present");
-    }
-
-    #[test]
-    fn base_html_without_forced_mode_emits_no_html_attrs() {
-        let env = crate::templates::build_template_env().unwrap();
-        let html = crate::templates::render(&env, "base.html", minijinja::context! {}, false)
-            .unwrap()
-            .0;
-        // Scope the check to the <html> tag itself — the `[data-mode="light"]`
-        // CSS selector inside <style> is legal and must not trip this test.
-        let html_tag_end = html.find('>').unwrap();
-        let html_tag = &html[..html_tag_end];
-        assert!(
-            !html_tag.contains("data-mode"),
-            "no data-mode attrs on <html> when branding.forced_mode is unset"
-        );
-    }
-
     #[tokio::test]
     async fn static_file_serving() {
         let ath = AllowThemBuilder::new("sqlite::memory:")
@@ -719,11 +568,9 @@ mod tests {
             .unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = Arc::new(minijinja::Environment::new());
         let state = AppState {
             ath,
             auth_client,
-            templates,
             is_production: false,
         };
         let static_dir = if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
@@ -766,11 +613,9 @@ mod consent_tests {
             .unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
-        let templates = crate::templates::build_template_env().unwrap();
         let state = AppState {
             ath: ath.clone(),
             auth_client,
-            templates,
             is_production: false,
         };
         (ath, state)
@@ -778,10 +623,9 @@ mod consent_tests {
 
     fn consent_router(state: AppState) -> Router {
         let ath = state.ath.clone();
-        let templates = state.templates.clone();
         let is_production = state.is_production;
         Router::new()
-            .merge(consent_routes(templates, is_production))
+            .merge(consent_routes(is_production))
             .layer(axum::middleware::from_fn(csrf_middleware))
             .layer(axum::middleware::from_fn_with_state(
                 ath.clone(),
@@ -1018,8 +862,6 @@ mod consent_tests {
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
         assert!(body.contains("<img"), "should render img");
-        // MiniJinja HTML-escapes attribute values; check that the img tag and a recognizable
-        // portion of the URL are present
         assert!(
             body.contains("cdn.example.com"),
             "logo url should contain domain"

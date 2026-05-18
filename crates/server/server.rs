@@ -1,15 +1,11 @@
 // allowthem-server: HTTP routes, middleware, and extractors
 
 pub mod all_routes;
-#[cfg(test)]
-mod all_server_templates_guard_tests;
-#[cfg(test)]
-mod auth_template_guard_tests;
+pub(crate) mod auth_views;
 pub mod authorize_routes;
 pub mod bearer;
 pub mod branding;
 pub mod browser_error;
-pub mod browser_templates;
 pub mod consent_routes;
 pub mod cors;
 pub mod csrf;
@@ -25,8 +21,6 @@ pub mod middleware;
 pub mod nav;
 pub mod oauth_bearer;
 pub mod oauth_routes;
-#[cfg(test)]
-mod partials_tests;
 pub mod password_reset_page_routes;
 pub mod password_reset_routes;
 pub mod rate_limit;
@@ -35,6 +29,7 @@ pub mod settings_routes;
 pub mod shell_context;
 pub mod static_routes;
 pub mod token_route;
+pub mod ui;
 pub mod userinfo_route;
 pub mod well_known_routes;
 
@@ -49,7 +44,6 @@ pub use branding::{
     resolve_branding,
 };
 pub use browser_error::{BrowserError, render_error_page};
-pub use browser_templates::{build_default_browser_env, render as render_template};
 pub use consent_routes::consent_routes;
 pub use cors::inject_ath_into_extensions;
 pub use csrf::{CsrfToken, csrf_middleware};
@@ -72,5 +66,6 @@ pub use settings_routes::settings_routes;
 pub use shell_context::ShellContext;
 pub use static_routes::router as static_router;
 pub use token_route::token_route;
+pub use ui::{RenderedUi, render_component, trusted_html};
 pub use userinfo_route::userinfo_route;
 pub use well_known_routes::well_known_routes;

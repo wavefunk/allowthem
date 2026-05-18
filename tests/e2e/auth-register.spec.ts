@@ -23,7 +23,7 @@ test("register > error: duplicate email shows inline message", async ({
   await registerExpectingError(page, email, "Test1234!");
   await expect(page).toHaveURL(/\/register/);
   await expect(
-    page.locator("text=An account with this email already exists")
+    page.locator("text=Registration could not be completed")
   ).toBeVisible();
 });
 

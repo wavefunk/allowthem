@@ -10,7 +10,7 @@ test.describe("M5 accent override", () => {
     const seededClientId = fs.readFileSync(seededClientIdFile, "utf8").trim();
     expect(seededClientId).not.toBe("");
     await page.goto(`/login?client_id=${encodeURIComponent(seededClientId)}`);
-    await expect(page.locator("body")).toHaveClass(/wf-auth/);
+    await expect(page.locator(".wf-split-shell")).toHaveCount(1);
     const accent = await page.evaluate(() =>
       getComputedStyle(document.documentElement)
         .getPropertyValue("--accent")

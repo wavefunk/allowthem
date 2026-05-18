@@ -47,7 +47,6 @@ pub(crate) mod tests {
     use crate::dashboard::open_dashboard_handle;
     use crate::dashboard::quickstart_cache::QuickstartCache;
     use crate::dashboard::state::{DashboardRouterState, SignupState};
-    use crate::dashboard::templates::build_dashboard_env;
 
     const BASE_DOMAIN: &str = "example.com";
 
@@ -151,7 +150,6 @@ pub(crate) mod tests {
                 handle_cache: HandleCache::new(10),
                 quickstart_cache: QuickstartCache::new(),
                 base_domain: BASE_DOMAIN.into(),
-                templates: build_dashboard_env(),
                 email_sender,
                 is_production: false,
             };

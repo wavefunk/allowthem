@@ -82,10 +82,15 @@ export async function extractResetToken(email: string): Promise<string> {
     for (const line of lines.reverse()) {
       // Anchor to body=" to avoid matching the html= field (both carry the same URL
       // on the same tracing span line). LogEmailSender logs: body=<URL> html=<URL>.
-      const m = line.match(
+      const bodyMatch = line.match(
         /body="[^"]*auth\/reset-password\?token=([A-Za-z0-9_-]{43})/
       );
-      if (m) return m[1];
+      if (bodyMatch) return bodyMatch[1];
+
+      const templateMatch = line.match(
+        /url: "[^"]*auth\/reset-password\?token=([A-Za-z0-9_-]{43})/
+      );
+      if (templateMatch) return templateMatch[1];
     }
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -151,7 +156,7 @@ export async function enableMfa(page: Page): Promise<string[]> {
   // Navigate to MFA setup — expects an already-authenticated page
   await page.goto("/settings/mfa/setup");
   const secret = await page
-    .locator('[data-testid="totp-secret"]')
+    .locator('[data-testid="totp-secret"] code')
     .textContent();
   if (!secret) throw new Error("TOTP secret not found on setup page");
 
@@ -161,10 +166,10 @@ export async function enableMfa(page: Page): Promise<string[]> {
   await page.locator('button[type="submit"]').click();
   // post_mfa_confirm renders mfa_recovery.html directly (no redirect) —
   // wait for recovery codes to appear in the DOM rather than a URL change.
-  await page.locator('[data-testid="recovery-code"]').first().waitFor();
+  await page.locator('[data-testid="recovery-code-grid"] code').first().waitFor();
 
   // Read and return recovery codes
-  const codeElements = page.locator('[data-testid="recovery-code"]');
+  const codeElements = page.locator('[data-testid="recovery-code-grid"] code');
   const count = await codeElements.count();
   const codes: string[] = [];
   for (let i = 0; i < count; i++) {

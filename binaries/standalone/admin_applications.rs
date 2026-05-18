@@ -4,14 +4,12 @@ use axum::extract::{FromRequest, Path, Request, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use minijinja::context;
 use serde::Deserialize;
 
 use allowthem_core::AuthError;
 use allowthem_core::applications::{CreateApplicationParams, UpdateApplication};
 use allowthem_core::types::{ApplicationId, ClientType, UserId};
 use allowthem_server::{BrowserAdminUser, CsrfToken, ShellContext};
-use minijinja::value::Value;
 
 /// Parse an application ID from a path segment.
 ///
@@ -128,15 +126,7 @@ pub async fn list(
     let applications = state.ath.db().list_applications().await?;
     let shell = ShellContext::new(true, "/admin/applications", "allowthem")
         .with_session(user.email.as_str());
-    let html = crate::templates::render(
-        &state.templates,
-        "admin/applications_list.html",
-        context! {
-            shell => Value::from_serialize(&shell),
-            applications => &applications,
-        },
-        state.is_production,
-    )?;
+    let html = crate::views::applications_list_page(&shell, &applications, state.is_production)?;
     Ok(html.into_response())
 }
 
@@ -221,17 +211,13 @@ pub async fn create(
             let created_by_email = resolve_user_email(&state, app.created_by).await;
             let shell = ShellContext::new(true, "/admin/applications", "allowthem")
                 .with_session(user.email.as_str());
-            let html = crate::templates::render(
-                &state.templates,
-                "admin/application_detail.html",
-                context! {
-                    shell => Value::from_serialize(&shell),
-                    app => &app,
-                    redirect_uris => &uris,
-                    client_secret => secret.as_ref().map(|s| s.as_str()).unwrap_or(""),
-                    csrf_token => csrf.as_str(),
-                    created_by_email,
-                },
+            let html = crate::views::application_detail_page(
+                &shell,
+                &app,
+                &uris,
+                Some(secret.as_ref().map(|s| s.as_str()).unwrap_or("")),
+                csrf.as_str(),
+                created_by_email.as_deref(),
                 state.is_production,
             )?;
             Ok(html.into_response())
@@ -287,16 +273,13 @@ pub async fn detail(
 
     let shell = ShellContext::new(true, "/admin/applications", "allowthem")
         .with_session(user.email.as_str());
-    let html = crate::templates::render(
-        &state.templates,
-        "admin/application_detail.html",
-        context! {
-            shell => Value::from_serialize(&shell),
-            app => &app,
-            redirect_uris => &uris,
-            csrf_token => csrf.as_str(),
-            created_by_email,
-        },
+    let html = crate::views::application_detail_page(
+        &shell,
+        &app,
+        &uris,
+        None,
+        csrf.as_str(),
+        created_by_email.as_deref(),
         state.is_production,
     )?;
     Ok(html.into_response())
@@ -317,17 +300,7 @@ pub async fn edit_form(
     let uris = app.redirect_uri_list()?;
     let shell = ShellContext::new(true, "/admin/applications", "allowthem")
         .with_session(user.email.as_str());
-    let html = crate::templates::render(
-        &state.templates,
-        "admin/application_edit.html",
-        context! {
-            shell => Value::from_serialize(&shell),
-            app => &app,
-            redirect_uris => &uris,
-            csrf_token => csrf.as_str(),
-        },
-        state.is_production,
-    )?;
+    let html = render_edit_form(&state, &shell, &app, &uris, csrf.as_str(), None)?;
     Ok(html.into_response())
 }
 
@@ -376,18 +349,8 @@ pub async fn update(
             let uris = app.redirect_uri_list()?;
             let shell = ShellContext::new(true, "/admin/applications", "allowthem")
                 .with_session(user.email.as_str());
-            let html = crate::templates::render(
-                &state.templates,
-                "admin/application_edit.html",
-                context! {
-                    shell => Value::from_serialize(&shell),
-                    app => &app,
-                    redirect_uris => &uris,
-                    error => format!("Invalid redirect URI: {msg}"),
-                    csrf_token => csrf.as_str(),
-                },
-                state.is_production,
-            )?;
+            let error = format!("Invalid redirect URI: {msg}");
+            let html = render_edit_form(&state, &shell, &app, &uris, csrf.as_str(), Some(&error))?;
             Ok(html.into_response())
         }
         Err(AuthError::Validation(msg)) => {
@@ -395,18 +358,7 @@ pub async fn update(
             let uris = app.redirect_uri_list()?;
             let shell = ShellContext::new(true, "/admin/applications", "allowthem")
                 .with_session(user.email.as_str());
-            let html = crate::templates::render(
-                &state.templates,
-                "admin/application_edit.html",
-                context! {
-                    shell => Value::from_serialize(&shell),
-                    app => &app,
-                    redirect_uris => &uris,
-                    error => msg,
-                    csrf_token => csrf.as_str(),
-                },
-                state.is_production,
-            )?;
+            let html = render_edit_form(&state, &shell, &app, &uris, csrf.as_str(), Some(&msg))?;
             Ok(html.into_response())
         }
         Err(e) => Err(AppError::Auth(e)),
@@ -429,17 +381,13 @@ pub async fn regenerate_secret(
     let created_by_email = resolve_user_email(&state, app.created_by).await;
     let shell = ShellContext::new(true, "/admin/applications", "allowthem")
         .with_session(user.email.as_str());
-    let html = crate::templates::render(
-        &state.templates,
-        "admin/application_detail.html",
-        context! {
-            shell => Value::from_serialize(&shell),
-            app => &app,
-            redirect_uris => &uris,
-            client_secret => secret.as_str(),
-            csrf_token => csrf.as_str(),
-            created_by_email,
-        },
+    let html = crate::views::application_detail_page(
+        &shell,
+        &app,
+        &uris,
+        Some(secret.as_str()),
+        csrf.as_str(),
+        created_by_email.as_deref(),
         state.is_production,
     )?;
     Ok(html.into_response())
@@ -474,21 +422,57 @@ fn render_new_form(
 ) -> Result<axum::response::Html<String>, AppError> {
     let shell =
         ShellContext::new(true, "/admin/applications", "allowthem").with_session(admin_email);
-    crate::templates::render(
-        &state.templates,
-        "admin/application_new.html",
-        context! {
-            shell => Value::from_serialize(&shell),
-            csrf_token,
-            error,
-            form_name,
-            form_redirect_uris,
-            form_is_trusted,
-            form_logo_url,
-            form_primary_color,
-        },
-        state.is_production,
-    )
+    crate::views::application_form_page(&crate::views::ApplicationFormView {
+        shell: &shell,
+        title: "New Application - allowthem".to_owned(),
+        page_title: "NEW APPLICATION".to_owned(),
+        crumbs: "ALLOWTHEM &middot; ADMIN &middot; APPLICATIONS &middot; NEW".to_owned(),
+        action: "/admin/applications".to_owned(),
+        submit_label: "Create application",
+        csrf_token,
+        error: if error.is_empty() { None } else { Some(error) },
+        name: form_name,
+        redirect_uris: form_redirect_uris,
+        is_trusted: form_is_trusted,
+        is_active: None,
+        logo_url: form_logo_url,
+        primary_color: form_primary_color,
+        cancel_href: "/admin/applications".to_owned(),
+        is_production: state.is_production,
+    })
+}
+
+fn render_edit_form(
+    state: &AppState,
+    shell: &ShellContext,
+    app: &allowthem_core::applications::Application,
+    redirect_uris: &[String],
+    csrf_token: &str,
+    error: Option<&str>,
+) -> Result<axum::response::Html<String>, AppError> {
+    let action = format!("/admin/applications/{}", app.id);
+    let cancel_href = action.clone();
+    crate::views::application_form_page(&crate::views::ApplicationFormView {
+        shell,
+        title: format!("Edit {} - allowthem", app.name),
+        page_title: format!("EDIT {}", app.name.to_uppercase()),
+        crumbs: format!(
+            "ALLOWTHEM &middot; ADMIN &middot; APPLICATIONS &middot; {} &middot; EDIT",
+            app.client_id
+        ),
+        action,
+        submit_label: "Save changes",
+        csrf_token,
+        error,
+        name: &app.name,
+        redirect_uris,
+        is_trusted: app.is_trusted,
+        is_active: Some(app.is_active),
+        logo_url: app.logo_url.as_deref().unwrap_or(""),
+        primary_color: app.primary_color.as_deref().unwrap_or(""),
+        cancel_href,
+        is_production: state.is_production,
+    })
 }
 
 #[cfg(test)]
@@ -543,13 +527,11 @@ mod tests {
         let cookie = ath.session_cookie(&token);
         let cookie_value = cookie.split(';').next().unwrap().to_string();
 
-        let templates = crate::templates::build_template_env().unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
         let state = AppState {
             ath: ath.clone(),
             auth_client,
-            templates,
             is_production: false,
         };
 
@@ -639,7 +621,7 @@ mod tests {
         assert!(
             !body.contains("class=\"at-app-shell\"") && !body.contains("class=\"at-app-shell ")
         );
-        assert!(body.contains("&#x2f;admin&#x2f;audit"));
+        assert!(body.contains("href=\"/admin/audit\""));
     }
 
     #[tokio::test]
@@ -821,7 +803,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body_string(resp).await;
         assert!(body.contains("Edit App"));
-        // MiniJinja HTML-escapes `/` as `&#x2f;` in attribute values
         assert!(body.contains("example.com"));
     }
 
@@ -1037,13 +1018,11 @@ mod tests {
         let cookie = ath.session_cookie(&token);
         let cookie_value = cookie.split(';').next().unwrap().to_string();
 
-        let templates = crate::templates::build_template_env().unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
         let state = AppState {
             ath,
             auth_client,
-            templates,
             is_production: false,
         };
         let app = test_app(state);
