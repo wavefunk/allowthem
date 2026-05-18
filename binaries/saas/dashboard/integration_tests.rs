@@ -2598,6 +2598,29 @@ async fn authz_smoke_viewer_and_admin_enforcement() {
     );
 }
 
+#[tokio::test]
+async fn billing_settings_page_renders_plan_and_owner_upgrade() {
+    let fx = Fixture::new().await;
+    let (owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (viewer_cookie, _) = signup_and_get_session(&fx, "viewer@viewer-ws.com", "viewer-ws").await;
+    insert_tenant_member(&fx, "acme", "viewer@viewer-ws.com", "viewer").await;
+
+    let owner_resp = get_authed(&fx, "/t/acme/settings/billing", &owner_cookie).await;
+    assert_eq!(owner_resp.status(), StatusCode::OK);
+    let owner_body = body_string(owner_resp).await;
+    assert!(owner_body.contains("Plan"));
+    assert!(owner_body.contains("Usage"));
+    assert!(owner_body.contains("Upgrade plan"));
+    assert!(owner_body.contains(r#"action="/t/acme/settings/billing/upgrade""#));
+
+    let viewer_resp = get_authed(&fx, "/t/acme/settings/billing", &viewer_cookie).await;
+    assert_eq!(viewer_resp.status(), StatusCode::OK);
+    let viewer_body = body_string(viewer_resp).await;
+    assert!(viewer_body.contains("Plan"));
+    assert!(viewer_body.contains("Usage"));
+    assert!(!viewer_body.contains("Upgrade plan"));
+}
+
 // ---------------------------------------------------------------------------
 // 99c.6 — super-admin panel integration tests
 // ---------------------------------------------------------------------------

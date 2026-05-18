@@ -6,19 +6,20 @@
 
 use axum::Router;
 use axum::extract::State;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use minijinja::context;
 
-use allowthem_saas::TenantId;
+use allowthem_saas::{Tenant, TenantId, TenantPlan, TenantRole};
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
-use super::extractors::{
-    RequireTenantMember, RequireTenantOwner, current_tenant_ctx, workspaces_for_user,
-};
+use super::extractors::{RequireTenantMember, RequireTenantOwner, TenantScope};
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
+use super::views::{
+    self, BillingPlanView, BillingSettingsPageView, BillingUsageView, ComingSoonPageView,
+    WorkspaceView,
+};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -34,36 +35,103 @@ pub fn billing_routes() -> Router<DashboardRouterState> {
 // Local helpers
 // ---------------------------------------------------------------------------
 
-fn render(
+async fn workspace_pairs_for_user(
     state: &DashboardRouterState,
-    session: &str,
-    ctx: minijinja::value::Value,
-) -> Result<Html<String>, BrowserError> {
-    let tmpl = state
-        .templates
-        .get_template("settings/billing.html")
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! { status_session => session, ..ctx })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body))
+    scope: &TenantScope,
+) -> Vec<(Tenant, TenantRole)> {
+    state
+        .control_db
+        .tenants_for_member(scope.user.email.as_str())
+        .await
+        .unwrap_or_default()
 }
 
-fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
-    context! {
-        id => tenant.id.clone(),
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
-    }
+fn workspace_views<'a>(
+    pairs: &'a [(Tenant, TenantRole)],
+    active_slug: &str,
+) -> Vec<WorkspaceView<'a>> {
+    pairs
+        .iter()
+        .map(|(workspace, role)| WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == active_slug,
+        })
+        .collect()
 }
 
-fn role_str(role: allowthem_saas::TenantRole) -> &'static str {
-    use allowthem_saas::TenantRole;
-    match role {
-        TenantRole::Owner => "owner",
-        TenantRole::Admin => "admin",
-        TenantRole::Viewer => "viewer",
-    }
+fn plan_view(plan: Option<&TenantPlan>) -> Option<BillingPlanView> {
+    plan.map(|plan| BillingPlanView {
+        name: plan.name.clone(),
+        mau_limit: plan.mau_limit,
+        price_cents: plan.price_cents,
+    })
+}
+
+fn usage_views(usage: &[allowthem_saas::control_db::TenantUsage]) -> Vec<BillingUsageView> {
+    usage
+        .iter()
+        .take(12)
+        .map(|usage| BillingUsageView {
+            period: usage.period.clone(),
+            mau_count: usage.mau_count,
+            limit_reached_at: usage.limit_reached_at.map(|dt| dt.to_rfc3339()),
+        })
+        .collect()
+}
+
+async fn render_billing(
+    state: &DashboardRouterState,
+    scope: &TenantScope,
+    csrf_token: &str,
+    plan: Option<&TenantPlan>,
+    current_usage: i64,
+    usage: &[allowthem_saas::control_db::TenantUsage],
+) -> Result<Response, BrowserError> {
+    let plan = plan_view(plan);
+    let usage = usage_views(usage);
+    let workspace_pairs = workspace_pairs_for_user(state, scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
+    let path = format!("/t/{}/settings/billing", scope.tenant.slug);
+    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
+    let html = views::billing_settings_page(&BillingSettingsPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        csrf_token,
+        plan: plan.as_ref(),
+        current_usage,
+        usage: &usage,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
+}
+
+async fn render_upgrade_coming_soon(
+    state: &DashboardRouterState,
+    scope: &TenantScope,
+) -> Result<Response, BrowserError> {
+    let workspace_pairs = workspace_pairs_for_user(state, scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
+    let path = format!("/t/{}/settings/billing", scope.tenant.slug);
+    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
+    let html = views::coming_soon_page(&ComingSoonPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        title: "Plan Upgrade",
+        epic_ref: "eua",
+        description: "Subscription management and plan upgrades are coming soon.",
+        wireframe: None,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -99,67 +167,20 @@ pub async fn show(
         .map(|u| u.mau_count)
         .unwrap_or(0);
 
-    let last_12: Vec<_> = usage
-        .iter()
-        .take(12)
-        .map(|u| {
-            context! {
-                period => u.period.clone(),
-                mau_count => u.mau_count,
-                limit_reached_at => u.limit_reached_at.map(|dt| dt.to_rfc3339()),
-            }
-        })
-        .collect();
-
-    let plan_ctx = plan.as_ref().map(|p| {
-        context! {
-            name => p.name.clone(),
-            mau_limit => p.mau_limit,
-            price_cents => p.price_cents,
-        }
-    });
-
-    let workspaces = workspaces_for_user(&state, &scope).await;
-    let path = format!("/t/{}/settings/billing", scope.tenant.slug);
-    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-    render(
+    render_billing(
         &state,
-        scope.user.email.as_str(),
-        context! {
-            tenant => tenant_ctx(&scope.tenant),
-            nav_sections => nav,
-            role => role_str(scope.role),
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            csrf_token => csrf.as_str(),
-            plan => plan_ctx,
-            current_usage => current_usage,
-            last_12 => last_12,
-        },
+        &scope,
+        csrf.as_str(),
+        plan.as_ref(),
+        current_usage,
+        &usage,
     )
-    .map(IntoResponse::into_response)
+    .await
 }
 
 pub async fn upgrade(
     RequireTenantOwner(scope): RequireTenantOwner,
     State(state): State<DashboardRouterState>,
 ) -> Result<Response, BrowserError> {
-    let path = format!("/t/{}/settings/billing", scope.tenant.slug);
-    let nav = tenant_nav_items(&scope.tenant.slug, &path, scope.role);
-    let tmpl = state
-        .templates
-        .get_template("_partials/_coming_soon.html")
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! {
-            status_session => scope.user.email.as_str(),
-            tenant => tenant_ctx(&scope.tenant),
-            nav_sections => nav,
-            role => role_str(scope.role),
-            title => "Plan Upgrade",
-            epic_ref => "eua",
-            description => "Subscription management and plan upgrades are coming soon.",
-        })
-        .map_err(BrowserError::from)?;
-    Ok(Html(body).into_response())
+    render_upgrade_coming_soon(&state, &scope).await
 }

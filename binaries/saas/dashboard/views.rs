@@ -365,6 +365,32 @@ pub struct ApiKeySettingsPageView<'a> {
     pub is_production: bool,
 }
 
+pub struct BillingPlanView {
+    pub name: String,
+    pub mau_limit: i64,
+    pub price_cents: i64,
+}
+
+pub struct BillingUsageView {
+    pub period: String,
+    pub mau_count: i64,
+    pub limit_reached_at: Option<String>,
+}
+
+pub struct BillingSettingsPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub csrf_token: &'a str,
+    pub plan: Option<&'a BillingPlanView>,
+    pub current_usage: i64,
+    pub usage: &'a [BillingUsageView],
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
 pub struct GeneralSettingsPageView<'a> {
     pub tenant_name: &'a str,
     pub tenant_slug: &'a str,
@@ -3211,6 +3237,126 @@ pub fn api_key_settings_page(
     })
 }
 
+fn billing_plan_panel(view: &BillingSettingsPageView<'_>) -> Result<String, BrowserError> {
+    let mut body = String::new();
+    if let Some(plan) = view.plan {
+        let pct = if plan.mau_limit > 0 {
+            view.current_usage.saturating_mul(100) / plan.mau_limit
+        } else {
+            0
+        };
+        let pct_kind = if pct >= 90 {
+            FeedbackKind::Error
+        } else if pct >= 75 {
+            FeedbackKind::Warn
+        } else {
+            FeedbackKind::Ok
+        };
+        let pct_tag = render(&Tag::status(pct_kind, &format!("{pct}%")))?;
+        let price = if plan.price_cents == 0 {
+            "Free".to_owned()
+        } else {
+            format!("${}/mo", plan.price_cents / 100)
+        };
+        write!(
+            body,
+            r#"<dl class="wf-dl"><div class="wf-dl-row"><dt>Plan</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>MAU this month</dt><dd>{} / {} {pct_tag}</dd></div><div class="wf-dl-row"><dt>Price</dt><dd>{}</dd></div></dl>"#,
+            text(plan.name.as_str()),
+            view.current_usage,
+            plan.mau_limit,
+            text(&price)
+        )
+        .unwrap();
+    } else {
+        body.push_str(r#"<p class="wf-empty">Plan information unavailable.</p>"#);
+    }
+
+    let actions = if view.role == TenantRole::Owner {
+        let button = render(
+            &Button::primary("Upgrade plan")
+                .with_size(ButtonSize::Small)
+                .with_button_type("submit"),
+        )?;
+        let action = format!("/t/{}/settings/billing/upgrade", view.tenant_slug);
+        format!(
+            r#"<form method="post" action="{}" style="display:inline">{}{button}</form>"#,
+            attr(&action),
+            hidden_input("csrf_token", view.csrf_token)
+        )
+    } else {
+        String::new()
+    };
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    let mut panel = Panel::new("Plan & Usage", trusted_html(&body)).with_attrs(&panel_attrs);
+    if !actions.is_empty() {
+        panel = panel.with_action(trusted_html(&actions));
+    }
+    render(&panel)
+}
+
+pub fn billing_settings_page(
+    view: &BillingSettingsPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    let mut content = billing_plan_panel(view)?;
+    if !view.usage.is_empty() {
+        let headers = [
+            DataTableHeader::new("Period").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("MAU").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Limit reached").with_width(TableColumnWidth::Medium),
+        ];
+        let limit_reached: Vec<String> = view
+            .usage
+            .iter()
+            .map(|usage| {
+                usage
+                    .limit_reached_at
+                    .clone()
+                    .unwrap_or_else(|| "-".to_owned())
+            })
+            .collect();
+        let mau_counts: Vec<String> = view
+            .usage
+            .iter()
+            .map(|usage| usage.mau_count.to_string())
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .usage
+            .iter()
+            .enumerate()
+            .map(|(idx, usage)| {
+                vec![
+                    DataTableCell::new(usage.period.as_str()),
+                    DataTableCell::numeric(mau_counts[idx].as_str()),
+                    DataTableCell::new(limit_reached[idx].as_str()),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows))?;
+        let table = render(&TableWrap::new(trusted_html(&table)))?;
+        let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+        content.push_str(&render(
+            &Panel::new("Usage history", trusted_html(&table)).with_attrs(&panel_attrs),
+        )?);
+    }
+
+    let title = format!("Billing - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "Billing",
+        content_html: &content,
+    })
+}
+
 pub fn general_settings_page(
     view: &GeneralSettingsPageView<'_>,
 ) -> Result<Html<String>, BrowserError> {
@@ -4127,6 +4273,65 @@ mod tests {
         assert!(!viewer_html.contains("CI key <unsafe>"));
         assert!(!viewer_html.contains("Mint key"));
         assert!(!viewer_html.contains("Revoke this API key"));
+    }
+
+    #[test]
+    fn billing_settings_page_preserves_plan_usage_and_owner_action() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/settings/billing", TenantRole::Owner);
+        let workspaces = workspaces();
+        let plan = BillingPlanView {
+            name: "Launch <Plan>".to_owned(),
+            mau_limit: 100,
+            price_cents: 1900,
+        };
+        let usage = [BillingUsageView {
+            period: "2026-05".to_owned(),
+            mau_count: 50,
+            limit_reached_at: None,
+        }];
+        let html = billing_settings_page(&BillingSettingsPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-billing",
+            plan: Some(&plan),
+            current_usage: 50,
+            usage: &usage,
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render billing settings page")
+        .0;
+
+        assert!(html.contains("Plan"));
+        assert!(html.contains("Usage"));
+        assert!(html.contains("50%"));
+        assert!(html.contains("$19/mo"));
+        assert!(html.contains(r#"action="/t/acme/settings/billing/upgrade""#));
+        assert!(html.contains(r#"name="csrf_token" value="csrf-billing""#));
+        assert!(html.contains("Usage history"));
+        assert!(!html.contains("Launch <Plan>"));
+
+        let viewer_html = billing_settings_page(&BillingSettingsPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Viewer,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-billing",
+            plan: Some(&plan),
+            current_usage: 50,
+            usage: &usage,
+            status_session: Some("viewer@example.com"),
+            is_production: false,
+        })
+        .expect("render viewer billing settings page")
+        .0;
+        assert!(viewer_html.contains("Plan"));
+        assert!(viewer_html.contains("Usage"));
+        assert!(!viewer_html.contains("Upgrade plan"));
     }
 
     #[test]
