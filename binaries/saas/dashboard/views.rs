@@ -5,17 +5,21 @@ use chrono::{DateTime, Utc};
 use html_escape::{encode_double_quoted_attribute as esc_attr, encode_text as esc_text};
 
 use allowthem_core::applications::Application;
-use allowthem_core::types::ClientType;
+use allowthem_core::audit::{AuditEvent, AuditListEntry};
+use allowthem_core::sessions::SessionListEntry;
+use allowthem_core::types::{ClientType, Permission, Role, User};
+use allowthem_core::users::UserListEntry;
 use allowthem_saas::TenantRole;
 use allowthem_server::BrowserError;
 use allowthem_server::ui::{render_component, trusted_html};
 use wavefunk_ui::components::{
-    Alert, Button, ButtonSize, ButtonVariant, CheckRow, CodeGrid, ContextSwitcher,
+    Alert, Badge, Button, ButtonSize, ButtonVariant, CheckRow, CodeGrid, ContextSwitcher,
     ContextSwitcherItem, CopyableValue, CredentialStatusItem, CredentialStatusList, DataTable,
-    DataTableCell, DataTableHeader, DataTableRow, FeedbackKind, Field, Form, FormActions,
-    FormPanel, FormSection, HtmlAttr, Input, Modeline, ModelineSegment, PageHeader,
-    RepeatableArray, RepeatableItem, SecretValue, Sidenav, SidenavItem, SidenavSection, SnippetTab,
-    SnippetTabs, SplitShell, TableColumnWidth, TableWrap, Tag,
+    DataTableCell, DataTableHeader, DataTableRow, FeedbackKind, Field, FilterBar, Form,
+    FormActions, FormPanel, FormSection, HtmlAttr, Input, Modeline, ModelineSegment, PageHeader,
+    PageLink, Pagination, Panel, RepeatableArray, RepeatableItem, SecretValue, Select,
+    SelectOption, Sidenav, SidenavItem, SidenavSection, SnippetTab, SnippetTabs, SplitShell,
+    TableColumnWidth, TableFooter, TableWrap, Tag,
 };
 use wavefunk_ui::layouts::AppShell;
 
@@ -174,6 +178,66 @@ pub struct ApplicationEditPageView<'a> {
     pub redirect_uris: &'a [String],
     pub csrf_token: &'a str,
     pub error: Option<&'a str>,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct UserListPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub users: &'a [UserListEntry],
+    pub total: u32,
+    pub page: u32,
+    pub total_pages: u32,
+    pub q: &'a str,
+    pub status: &'a str,
+    pub mfa: &'a str,
+    pub verified: &'a str,
+    pub has_filters: bool,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct UserDetailPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub user: &'a User,
+    pub roles: &'a [Role],
+    pub direct_permissions: &'a [Permission],
+    pub mfa_enabled: bool,
+    pub sessions: &'a [SessionListEntry],
+    pub last_login: Option<&'a str>,
+    pub audit_entries: &'a [AuditListEntry],
+    pub all_roles: &'a [Role],
+    pub all_permissions: &'a [Permission],
+    pub csrf_token: &'a str,
+    pub flash_info: &'a str,
+    pub flash_error: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct AuditListPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub entries: &'a [AuditListEntry],
+    pub total: u32,
+    pub page: u32,
+    pub total_pages: u32,
+    pub event_type: &'a str,
+    pub user_email: &'a str,
+    pub outcome: &'a str,
+    pub from: &'a str,
+    pub to: &'a str,
+    pub has_filters: bool,
+    pub no_user: bool,
     pub status_session: Option<&'a str>,
     pub is_production: bool,
 }
@@ -1234,11 +1298,984 @@ fn application_form(
     render(&Form::new(trusted_html(&body)).with_action(action))
 }
 
+fn field_html(label: &str, control_html: &str, hint: Option<&str>) -> Result<String, BrowserError> {
+    let mut field = Field::new(label, trusted_html(control_html));
+    if let Some(hint) = hint {
+        field = field.with_hint(hint);
+    }
+    render(&field)
+}
+
+fn selected_option<'a>(value: &'a str, label: &'a str, current: &str) -> SelectOption<'a> {
+    let option = SelectOption::new(value, label);
+    if value == current {
+        option.selected()
+    } else {
+        option
+    }
+}
+
+fn pagination_footer(
+    label: &str,
+    page: u32,
+    total_pages: u32,
+    prev_href: &str,
+    next_href: &str,
+) -> Result<String, BrowserError> {
+    let current = page.to_string();
+    let prev = if page > 1 {
+        PageLink::link("Previous", prev_href)
+    } else {
+        PageLink::disabled("Previous")
+    };
+    let next = if page < total_pages {
+        PageLink::link("Next", next_href)
+    } else {
+        PageLink::disabled("Next")
+    };
+    let pages = [prev, PageLink::disabled(&current).active(), next];
+    let pagination = render(&Pagination::new(&pages))?;
+    let escaped_label = text(label);
+    render(&TableFooter::new(trusted_html(&escaped_label)).with_actions(trusted_html(&pagination)))
+}
+
+fn filter_form(action: &str, body_html: &str) -> Result<String, BrowserError> {
+    let attrs = [HtmlAttr::new(
+        "style",
+        "display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;",
+    )];
+    render(
+        &Form::new(trusted_html(body_html))
+            .with_action(action)
+            .with_method("get")
+            .with_attrs(&attrs),
+    )
+}
+
+pub fn user_list_page(view: &UserListPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let action = format!("/t/{}/users", view.tenant_slug);
+    let search = field(
+        "Search",
+        &Input::new("q")
+            .with_type("text")
+            .with_value(view.q)
+            .with_placeholder("email or username"),
+        None,
+    )?;
+    let status_options = [
+        selected_option("", "Any", view.status),
+        selected_option("active", "Active", view.status),
+        selected_option("blocked", "Blocked", view.status),
+    ];
+    let status = field_html(
+        "Status",
+        &render(&Select::new("status", &status_options))?,
+        None,
+    )?;
+    let mfa_options = [
+        selected_option("", "Any", view.mfa),
+        selected_option("yes", "Enrolled", view.mfa),
+        selected_option("no", "Not enrolled", view.mfa),
+    ];
+    let mfa = field_html("MFA", &render(&Select::new("mfa", &mfa_options))?, None)?;
+    let verified_options = [
+        selected_option("", "Any", view.verified),
+        selected_option("yes", "Verified", view.verified),
+        selected_option("no", "Unverified", view.verified),
+    ];
+    let verified = field_html(
+        "Email verified",
+        &render(&Select::new("verified", &verified_options))?,
+        None,
+    )?;
+    let filter_button = render(
+        &Button::primary("Filter")
+            .with_button_type("submit")
+            .with_size(ButtonSize::Small),
+    )?;
+    let mut controls =
+        format!("{search}{status}{mfa}{verified}<div class=\"wf-actions\">{filter_button}");
+    if view.has_filters {
+        let reset = render(&Button::link("Reset", &action).with_size(ButtonSize::Small))?;
+        controls.push_str(&reset);
+    }
+    controls.push_str("</div>");
+    let form = filter_form(&action, &controls)?;
+    let filterbar = render(&FilterBar::new(trusted_html(&form)))?;
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    let filter_panel = render(
+        &Panel::new(&format!("Users ({})", view.total), trusted_html(&filterbar))
+            .with_attrs(&panel_attrs),
+    )?;
+
+    let mut content = filter_panel;
+    if view.users.is_empty() {
+        let empty = if view.has_filters {
+            "No users match these filters."
+        } else {
+            "No users yet."
+        };
+        write!(
+            content,
+            r#"<p class="wf-empty" style="margin:12px 24px;">{}</p>"#,
+            text(empty),
+        )
+        .unwrap();
+    } else {
+        let headers = [
+            DataTableHeader::new("Email").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Username").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Status").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("MFA").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Created").with_width(TableColumnWidth::Medium),
+        ];
+        let links: Vec<String> = view
+            .users
+            .iter()
+            .map(|user| {
+                format!(
+                    r#"<a class="wf-link" href="/t/{}/users/{}">{}</a>"#,
+                    attr(view.tenant_slug),
+                    user.id,
+                    text(user.email.as_str())
+                )
+            })
+            .collect();
+        let usernames: Vec<String> = view
+            .users
+            .iter()
+            .map(|user| {
+                user.username
+                    .as_ref()
+                    .map(|username| format!("@{}", username.as_str()))
+                    .unwrap_or_else(|| "-".to_owned())
+            })
+            .collect();
+        let statuses: Vec<String> = view
+            .users
+            .iter()
+            .map(|user| {
+                if user.is_active {
+                    render(&Tag::status(FeedbackKind::Ok, "Active"))
+                } else {
+                    render(&Tag::status(FeedbackKind::Error, "Blocked"))
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        let mfa_tags: Vec<String> = view
+            .users
+            .iter()
+            .map(|user| {
+                if user.has_mfa {
+                    render(&Tag::new("Enrolled"))
+                } else {
+                    render(&Badge::muted("-"))
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        let created: Vec<String> = view
+            .users
+            .iter()
+            .map(|user| datefmt(&user.created_at))
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .users
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                vec![
+                    DataTableCell::html(trusted_html(&links[idx])),
+                    DataTableCell::new(usernames[idx].as_str()),
+                    DataTableCell::html(trusted_html(&statuses[idx])),
+                    DataTableCell::html(trusted_html(&mfa_tags[idx])),
+                    DataTableCell::new(created[idx].as_str()),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows).sticky())?;
+        let query = format!(
+            "q={}&status={}&mfa={}&verified={}&page=",
+            url_encode(view.q),
+            url_encode(view.status),
+            url_encode(view.mfa),
+            url_encode(view.verified)
+        );
+        let prev_href = format!(
+            "/t/{}/users?{}{}",
+            view.tenant_slug,
+            query,
+            view.page.saturating_sub(1)
+        );
+        let next_href = format!("/t/{}/users?{}{}", view.tenant_slug, query, view.page + 1);
+        let footer_label = format!(
+            "Page {} of {} - {} users",
+            view.page, view.total_pages, view.total
+        );
+        let footer = pagination_footer(
+            &footer_label,
+            view.page,
+            view.total_pages,
+            &prev_href,
+            &next_href,
+        )?;
+        content.push_str(&render(
+            &TableWrap::new(trusted_html(&table)).with_footer_component(trusted_html(&footer)),
+        )?);
+    }
+
+    let title = format!("Users - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "Users",
+        content_html: &content,
+    })
+}
+
+pub fn user_detail_page(view: &UserDetailPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let mut content = String::new();
+    if !view.flash_info.is_empty() {
+        write!(
+            content,
+            r#"<div style="margin:16px 24px 0;">{}</div>"#,
+            alert(FeedbackKind::Ok, view.flash_info)?
+        )
+        .unwrap();
+    }
+    if !view.flash_error.is_empty() {
+        write!(
+            content,
+            r#"<div style="margin:16px 24px 0;">{}</div>"#,
+            alert(FeedbackKind::Error, view.flash_error)?
+        )
+        .unwrap();
+    }
+
+    content.push_str(&user_summary_panel(view)?);
+    if can_manage(view.role) {
+        content.push_str(&user_actions_panel(view)?);
+    }
+    content.push_str(&user_roles_panel(view)?);
+    content.push_str(&user_permissions_panel(view)?);
+    content.push_str(&user_sessions_panel(view)?);
+    content.push_str(&user_recent_audit_panel(view)?);
+
+    let title = format!("{} - {}", view.user.email.as_str(), view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: view.user.email.as_str(),
+        content_html: &content,
+    })
+}
+
+fn user_summary_panel(view: &UserDetailPageView<'_>) -> Result<String, BrowserError> {
+    let mut body = String::from(r#"<dl class="wf-dl">"#);
+    if let Some(username) = view.user.username.as_ref() {
+        write!(
+            body,
+            r#"<div class="wf-dl-row"><dt>Username</dt><dd>@{}</dd></div>"#,
+            text(username.as_str())
+        )
+        .unwrap();
+    }
+    let status = if view.user.is_active {
+        render(&Tag::status(FeedbackKind::Ok, "Active"))?
+    } else {
+        render(&Tag::status(FeedbackKind::Error, "Blocked"))?
+    };
+    let email_verified = if view.user.email_verified {
+        "Yes"
+    } else {
+        "No"
+    };
+    let mfa = if view.mfa_enabled {
+        "Enabled"
+    } else {
+        "Not enabled"
+    };
+    let last_login = view.last_login.unwrap_or("Never");
+    write!(
+        body,
+        r#"<div class="wf-dl-row"><dt>Status</dt><dd>{status}</dd></div><div class="wf-dl-row"><dt>Email verified</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>MFA</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>Last login</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>Registered</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>Updated</dt><dd>{}</dd></div></dl>"#,
+        text(email_verified),
+        text(mfa),
+        text(last_login),
+        text(&datefmt(&view.user.created_at)),
+        text(&datefmt(&view.user.updated_at)),
+    )
+    .unwrap();
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    render(&Panel::new(view.user.email.as_str(), trusted_html(&body)).with_attrs(&panel_attrs))
+}
+
+fn user_action_form(action: &str, csrf_token: &str, confirm: &str, button_html: &str) -> String {
+    format!(
+        r#"<form method="POST" action="{}" onsubmit="return confirm('{}');">{}{button_html}</form>"#,
+        attr(action),
+        attr(confirm),
+        hidden_input("csrf_token", csrf_token),
+    )
+}
+
+fn user_actions_panel(view: &UserDetailPageView<'_>) -> Result<String, BrowserError> {
+    let base = format!("/t/{}/users/{}", view.tenant_slug, view.user.id);
+    let mut body = String::from(
+        r#"<div class="wf-actions" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start;">"#,
+    );
+    if view.user.is_active {
+        let button = render(
+            &Button::new("Block")
+                .with_variant(ButtonVariant::Danger)
+                .with_size(ButtonSize::Small)
+                .with_button_type("submit"),
+        )?;
+        body.push_str(&user_action_form(
+            &format!("{base}/block"),
+            view.csrf_token,
+            "Block this user? Their sessions will be terminated.",
+            &button,
+        ));
+    } else {
+        let button = render(
+            &Button::primary("Unblock")
+                .with_size(ButtonSize::Small)
+                .with_button_type("submit"),
+        )?;
+        body.push_str(&user_action_form(
+            &format!("{base}/unblock"),
+            view.csrf_token,
+            "Unblock this user?",
+            &button,
+        ));
+    }
+    let reset = render(
+        &Button::new("Force password reset")
+            .with_size(ButtonSize::Small)
+            .with_button_type("submit"),
+    )?;
+    body.push_str(&user_action_form(
+        &format!("{base}/force-password-reset"),
+        view.csrf_token,
+        "Force a password reset for this user? Their sessions will be terminated and a reset email will be sent.",
+        &reset,
+    ));
+    let revoke = render(
+        &Button::new("Revoke all sessions")
+            .with_size(ButtonSize::Small)
+            .with_button_type("submit"),
+    )?;
+    body.push_str(&user_action_form(
+        &format!("{base}/revoke-sessions"),
+        view.csrf_token,
+        "Revoke all sessions for this user?",
+        &revoke,
+    ));
+    if view.role == TenantRole::Owner {
+        let delete = render(
+            &Button::new("Delete user")
+                .with_variant(ButtonVariant::Danger)
+                .with_size(ButtonSize::Small)
+                .with_button_type("submit"),
+        )?;
+        let action = format!("{base}/delete");
+        write!(
+            body,
+            r#"<form method="POST" action="{}" onsubmit="return confirm('Permanently delete this user? This cannot be undone.');">{}{}{delete}</form>"#,
+            attr(&action),
+            hidden_input("csrf_token", view.csrf_token),
+            hidden_input("confirm", "DELETE"),
+        )
+        .unwrap();
+    }
+    body.push_str("</div>");
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    render(&Panel::new("Actions", trusted_html(&body)).with_attrs(&panel_attrs))
+}
+
+fn removable_tag(
+    label: &str,
+    action: &str,
+    csrf_token: &str,
+    confirm: &str,
+) -> Result<String, BrowserError> {
+    Ok(format!(
+        r#"<span class="wf-tag accent">{}<form method="POST" action="{}" style="display:inline; margin-left:4px;" onsubmit="return confirm('{}');">{}<button type="submit" class="wf-tag-remove" title="Remove">&times;</button></form></span>"#,
+        text(label),
+        attr(action),
+        attr(confirm),
+        hidden_input("csrf_token", csrf_token)
+    ))
+}
+
+fn user_roles_panel(view: &UserDetailPageView<'_>) -> Result<String, BrowserError> {
+    let mut body = String::new();
+    if view.roles.is_empty() {
+        body.push_str(r#"<p class="wf-empty">No roles assigned.</p>"#);
+    } else {
+        body.push_str(
+            r#"<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">"#,
+        );
+        for role in view.roles {
+            if can_manage(view.role) {
+                let action = format!(
+                    "/t/{}/users/{}/roles/{}/remove",
+                    view.tenant_slug, view.user.id, role.id
+                );
+                body.push_str(&removable_tag(
+                    role.name.as_str(),
+                    &action,
+                    view.csrf_token,
+                    "Remove this role?",
+                )?);
+            } else {
+                write!(
+                    body,
+                    r#"<span class="wf-tag accent">{}</span>"#,
+                    text(role.name.as_str())
+                )
+                .unwrap();
+            }
+        }
+        body.push_str("</div>");
+    }
+
+    if can_manage(view.role) {
+        if view.all_roles.is_empty() {
+            body.push_str(
+                r#"<p class="wf-empty" style="font-size:0.85em;">No roles defined yet.</p>"#,
+            );
+        } else {
+            let option_values: Vec<String> = view
+                .all_roles
+                .iter()
+                .map(|role| role.id.to_string())
+                .collect();
+            let options: Vec<SelectOption<'_>> = view
+                .all_roles
+                .iter()
+                .zip(option_values.iter())
+                .map(|(role, value)| SelectOption::new(value, role.name.as_str()))
+                .collect();
+            let select = render(&Select::new("role_id", &options))?;
+            let button = render(
+                &Button::primary("Assign role")
+                    .with_size(ButtonSize::Small)
+                    .with_button_type("submit"),
+            )?;
+            let action = format!("/t/{}/users/{}/roles", view.tenant_slug, view.user.id);
+            let form_body = format!(
+                "{}{select}{button}",
+                hidden_input("csrf_token", view.csrf_token)
+            );
+            let attrs = [HtmlAttr::new(
+                "style",
+                "display:flex; gap:8px; align-items:center; margin-top:8px;",
+            )];
+            body.push_str(&render(
+                &Form::new(trusted_html(&form_body))
+                    .with_action(&action)
+                    .with_attrs(&attrs),
+            )?);
+        }
+    }
+
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    render(&Panel::new("Roles", trusted_html(&body)).with_attrs(&panel_attrs))
+}
+
+fn user_permissions_panel(view: &UserDetailPageView<'_>) -> Result<String, BrowserError> {
+    let mut body = String::new();
+    if view.direct_permissions.is_empty() {
+        body.push_str(r#"<p class="wf-empty">No direct permissions assigned.</p>"#);
+    } else {
+        body.push_str(
+            r#"<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">"#,
+        );
+        for permission in view.direct_permissions {
+            if can_manage(view.role) {
+                let action = format!(
+                    "/t/{}/users/{}/permissions/{}/remove",
+                    view.tenant_slug, view.user.id, permission.id
+                );
+                body.push_str(&removable_tag(
+                    permission.name.as_str(),
+                    &action,
+                    view.csrf_token,
+                    "Revoke this permission?",
+                )?);
+            } else {
+                write!(
+                    body,
+                    r#"<span class="wf-tag">{}</span>"#,
+                    text(permission.name.as_str())
+                )
+                .unwrap();
+            }
+        }
+        body.push_str("</div>");
+    }
+
+    if can_manage(view.role) {
+        if view.all_permissions.is_empty() {
+            body.push_str(
+                r#"<p class="wf-empty" style="font-size:0.85em;">No permissions defined yet.</p>"#,
+            );
+        } else {
+            let option_values: Vec<String> = view
+                .all_permissions
+                .iter()
+                .map(|permission| permission.id.to_string())
+                .collect();
+            let options: Vec<SelectOption<'_>> = view
+                .all_permissions
+                .iter()
+                .zip(option_values.iter())
+                .map(|(permission, value)| SelectOption::new(value, permission.name.as_str()))
+                .collect();
+            let select = render(&Select::new("permission_id", &options))?;
+            let button = render(
+                &Button::primary("Grant permission")
+                    .with_size(ButtonSize::Small)
+                    .with_button_type("submit"),
+            )?;
+            let action = format!("/t/{}/users/{}/permissions", view.tenant_slug, view.user.id);
+            let form_body = format!(
+                "{}{select}{button}",
+                hidden_input("csrf_token", view.csrf_token)
+            );
+            let attrs = [HtmlAttr::new(
+                "style",
+                "display:flex; gap:8px; align-items:center; margin-top:8px;",
+            )];
+            body.push_str(&render(
+                &Form::new(trusted_html(&form_body))
+                    .with_action(&action)
+                    .with_attrs(&attrs),
+            )?);
+        }
+    }
+
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    render(&Panel::new("Direct permissions", trusted_html(&body)).with_attrs(&panel_attrs))
+}
+
+fn user_sessions_panel(view: &UserDetailPageView<'_>) -> Result<String, BrowserError> {
+    let body = if view.sessions.is_empty() {
+        r#"<p class="wf-empty" style="margin:8px 16px 12px;">No active sessions.</p>"#.to_owned()
+    } else {
+        let headers = [
+            DataTableHeader::new("IP address").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("User agent").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Created").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Expires").with_width(TableColumnWidth::Medium),
+        ];
+        let ip_values: Vec<&str> = view
+            .sessions
+            .iter()
+            .map(|session| session.ip_address.as_deref().unwrap_or("Unknown"))
+            .collect();
+        let agent_values: Vec<&str> = view
+            .sessions
+            .iter()
+            .map(|session| session.user_agent.as_deref().unwrap_or("Unknown"))
+            .collect();
+        let created: Vec<String> = view
+            .sessions
+            .iter()
+            .map(|session| datefmt(&session.created_at))
+            .collect();
+        let expires: Vec<String> = view
+            .sessions
+            .iter()
+            .map(|session| datefmt(&session.expires_at))
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .sessions
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                vec![
+                    DataTableCell::new(ip_values[idx]),
+                    DataTableCell::new(agent_values[idx]),
+                    DataTableCell::new(created[idx].as_str()),
+                    DataTableCell::new(expires[idx].as_str()),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows))?;
+        render(&TableWrap::new(trusted_html(&table)))?
+    };
+    let title = format!("Active sessions ({})", view.sessions.len());
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    render(&Panel::new(&title, trusted_html(&body)).with_attrs(&panel_attrs))
+}
+
+fn user_recent_audit_panel(view: &UserDetailPageView<'_>) -> Result<String, BrowserError> {
+    let body = if view.audit_entries.is_empty() {
+        r#"<p class="wf-empty" style="margin:8px 16px 12px;">No audit events recorded.</p>"#
+            .to_owned()
+    } else {
+        let headers = [
+            DataTableHeader::new("Event").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("IP").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Detail").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("When").with_width(TableColumnWidth::Medium),
+        ];
+        let labels: Vec<&str> = view
+            .audit_entries
+            .iter()
+            .map(|entry| audit_event_label(&entry.event_type))
+            .collect();
+        let ips: Vec<&str> = view
+            .audit_entries
+            .iter()
+            .map(|entry| entry.ip_address.as_deref().unwrap_or("-"))
+            .collect();
+        let details: Vec<&str> = view
+            .audit_entries
+            .iter()
+            .map(|entry| entry.detail.as_deref().unwrap_or("-"))
+            .collect();
+        let created: Vec<String> = view
+            .audit_entries
+            .iter()
+            .map(|entry| datefmt(&entry.created_at))
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .audit_entries
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                vec![
+                    DataTableCell::new(labels[idx]),
+                    DataTableCell::new(ips[idx]),
+                    DataTableCell::new(details[idx]),
+                    DataTableCell::new(created[idx].as_str()),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows))?;
+        let wrapped = render(&TableWrap::new(trusted_html(&table)))?;
+        format!(
+            r#"{wrapped}<p style="padding:4px 16px 8px; font-size:0.85em; color:var(--wf-muted);">Showing last {} events. <a class="wf-link" href="/t/{}/audit">View full audit log &rarr;</a></p>"#,
+            view.audit_entries.len(),
+            attr(view.tenant_slug)
+        )
+    };
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    render(&Panel::new("Recent activity", trusted_html(&body)).with_attrs(&panel_attrs))
+}
+
+pub fn audit_list_page(view: &AuditListPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let action = format!("/t/{}/audit", view.tenant_slug);
+    let event_options = [
+        selected_option("", "Any", view.event_type),
+        selected_option("login", "Login", view.event_type),
+        selected_option("login_failed", "Login failed", view.event_type),
+        selected_option("logout", "Logout", view.event_type),
+        selected_option("register", "Register", view.event_type),
+        selected_option("password_change", "Password change", view.event_type),
+        selected_option("password_reset", "Password reset", view.event_type),
+        selected_option("session_created", "Session created", view.event_type),
+        selected_option("session_expired", "Session expired", view.event_type),
+        selected_option("user_updated", "User updated", view.event_type),
+        selected_option("user_deleted", "User deleted", view.event_type),
+        selected_option("mfa_enabled", "MFA enabled", view.event_type),
+        selected_option("mfa_disabled", "MFA disabled", view.event_type),
+        selected_option("mfa_challenge_success", "MFA challenge OK", view.event_type),
+        selected_option(
+            "mfa_challenge_failed",
+            "MFA challenge failed",
+            view.event_type,
+        ),
+    ];
+    let outcome_options = [
+        selected_option("", "Any", view.outcome),
+        selected_option("success", "Success", view.outcome),
+        selected_option("failure", "Failure", view.outcome),
+    ];
+    let event = field_html(
+        "Event",
+        &render(&Select::new("event_type", &event_options))?,
+        None,
+    )?;
+    let user_email = field(
+        "User email",
+        &Input::new("user_email")
+            .with_type("text")
+            .with_value(view.user_email)
+            .with_placeholder("exact match"),
+        None,
+    )?;
+    let outcome = field_html(
+        "Outcome",
+        &render(&Select::new("outcome", &outcome_options))?,
+        None,
+    )?;
+    let from = field(
+        "From",
+        &Input::new("from").with_type("date").with_value(view.from),
+        None,
+    )?;
+    let to = field(
+        "To",
+        &Input::new("to").with_type("date").with_value(view.to),
+        None,
+    )?;
+    let filter_button = render(
+        &Button::primary("Filter")
+            .with_button_type("submit")
+            .with_size(ButtonSize::Small),
+    )?;
+    let export_href = format!(
+        "/t/{}/audit/export.csv?event_type={}&user_email={}&outcome={}&from={}&to={}",
+        view.tenant_slug,
+        url_encode(view.event_type),
+        url_encode(view.user_email),
+        url_encode(view.outcome),
+        url_encode(view.from),
+        url_encode(view.to)
+    );
+    let export = render(&Button::link("Export CSV", &export_href).with_size(ButtonSize::Small))?;
+    let mut controls =
+        format!("{event}{user_email}{outcome}{from}{to}<div class=\"wf-actions\">{filter_button}");
+    if view.has_filters {
+        let reset = render(&Button::link("Reset", &action).with_size(ButtonSize::Small))?;
+        controls.push_str(&reset);
+    }
+    controls.push_str(&export);
+    controls.push_str("</div>");
+    let form = filter_form(&action, &controls)?;
+    let filterbar = render(&FilterBar::new(trusted_html(&form)))?;
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    let mut content =
+        render(&Panel::new("Audit log", trusted_html(&filterbar)).with_attrs(&panel_attrs))?;
+    if view.no_user {
+        write!(
+            content,
+            r#"<p class="wf-flash" style="margin:12px 24px;">{}</p>"#,
+            text("No user found with that email. Showing zero results.")
+        )
+        .unwrap();
+    }
+
+    if view.entries.is_empty() {
+        if !view.no_user {
+            content.push_str(
+                r#"<p class="wf-empty" style="margin:12px 24px;">No audit entries match.</p>"#,
+            );
+        }
+    } else {
+        let headers = [
+            DataTableHeader::new("Time").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Event").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("User").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("IP").with_width(TableColumnWidth::Medium),
+            DataTableHeader::new("Detail").with_width(TableColumnWidth::Large),
+        ];
+        let times: Vec<String> = view
+            .entries
+            .iter()
+            .map(|entry| {
+                format!(
+                    r#"<time datetime="{}">{}</time>"#,
+                    attr(
+                        &entry
+                            .created_at
+                            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                            .to_string()
+                    ),
+                    text(&entry.created_at.format("%Y-%m-%d %H:%M:%S").to_string())
+                )
+            })
+            .collect();
+        let events: Vec<String> = view
+            .entries
+            .iter()
+            .map(|entry| {
+                let label = audit_event_label(&entry.event_type);
+                if audit_event_is_failure(&entry.event_type) {
+                    render(&Tag::status(FeedbackKind::Error, label))
+                } else {
+                    render(&Tag::new(label))
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        let users: Vec<String> = view
+            .entries
+            .iter()
+            .map(|entry| {
+                if let Some(email) = entry.user_email.as_deref() {
+                    text(email)
+                } else if let Some(user_id) = entry.user_id {
+                    format!(r#"<code title="{}">{}</code>"#, user_id, user_id)
+                } else {
+                    render(&Badge::muted("-")).unwrap_or_else(|_| "-".to_owned())
+                }
+            })
+            .collect();
+        let ips: Vec<String> = view
+            .entries
+            .iter()
+            .map(|entry| text(entry.ip_address.as_deref().unwrap_or("-")))
+            .collect();
+        let details: Vec<String> = view
+            .entries
+            .iter()
+            .map(|entry| {
+                entry
+                    .detail
+                    .as_deref()
+                    .map(|detail| format!(r#"<code class="wf-detail">{}</code>"#, text(detail)))
+                    .unwrap_or_else(|| "-".to_owned())
+            })
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                vec![
+                    DataTableCell::html(trusted_html(&times[idx])),
+                    DataTableCell::html(trusted_html(&events[idx])),
+                    DataTableCell::html(trusted_html(&users[idx])),
+                    DataTableCell::html(trusted_html(&ips[idx])),
+                    DataTableCell::html(trusted_html(&details[idx])),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows).sticky())?;
+        let query = format!(
+            "event_type={}&user_email={}&outcome={}&from={}&to={}&page=",
+            url_encode(view.event_type),
+            url_encode(view.user_email),
+            url_encode(view.outcome),
+            url_encode(view.from),
+            url_encode(view.to)
+        );
+        let prev_href = format!(
+            "/t/{}/audit?{}{}",
+            view.tenant_slug,
+            query,
+            view.page.saturating_sub(1)
+        );
+        let next_href = format!("/t/{}/audit?{}{}", view.tenant_slug, query, view.page + 1);
+        let footer_label = format!(
+            "Page {} of {} - {} entries",
+            view.page, view.total_pages, view.total
+        );
+        let footer = pagination_footer(
+            &footer_label,
+            view.page,
+            view.total_pages,
+            &prev_href,
+            &next_href,
+        )?;
+        content.push_str(&render(
+            &TableWrap::new(trusted_html(&table)).with_footer_component(trusted_html(&footer)),
+        )?);
+    }
+
+    let title = format!("Audit log - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "Audit log",
+        content_html: &content,
+    })
+}
+
+fn audit_event_label(event: &AuditEvent) -> &'static str {
+    match event {
+        AuditEvent::Login => "Login",
+        AuditEvent::LoginFailed => "Login failed",
+        AuditEvent::Logout => "Logout",
+        AuditEvent::Register => "Register",
+        AuditEvent::PasswordChange => "Password change",
+        AuditEvent::PasswordReset => "Password reset",
+        AuditEvent::RoleAssigned => "Role assigned",
+        AuditEvent::RoleUnassigned => "Role unassigned",
+        AuditEvent::PermissionAssigned => "Permission assigned",
+        AuditEvent::PermissionUnassigned => "Permission unassigned",
+        AuditEvent::SessionCreated => "Session created",
+        AuditEvent::SessionExpired => "Session expired",
+        AuditEvent::UserUpdated => "User updated",
+        AuditEvent::UserDeleted => "User deleted",
+        AuditEvent::MfaEnabled => "MFA enabled",
+        AuditEvent::MfaDisabled => "MFA disabled",
+        AuditEvent::MfaChallengeSuccess => "MFA challenge success",
+        AuditEvent::MfaChallengeFailed => "MFA challenge failed",
+        AuditEvent::OrgCreated => "Org created",
+        AuditEvent::OrgUpdated => "Org updated",
+        AuditEvent::OrgDeleted => "Org deleted",
+        AuditEvent::OrgMemberAdded => "Org member added",
+        AuditEvent::OrgMemberRemoved => "Org member removed",
+        AuditEvent::OrgMemberRoleChanged => "Org member role changed",
+        AuditEvent::OrgOwnershipTransferred => "Org ownership transferred",
+        AuditEvent::TeamCreated => "Team created",
+        AuditEvent::TeamUpdated => "Team updated",
+        AuditEvent::TeamDeleted => "Team deleted",
+        AuditEvent::TeamMemberAdded => "Team member added",
+        AuditEvent::TeamMemberRemoved => "Team member removed",
+        AuditEvent::TeamMemberRoleChanged => "Team member role changed",
+        AuditEvent::OrgInvitationCreated => "Org invitation created",
+        AuditEvent::OrgInvitationAccepted => "Org invitation accepted",
+        AuditEvent::OrgInvitationDeclined => "Org invitation declined",
+        AuditEvent::OrgInvitationRevoked => "Org invitation revoked",
+    }
+}
+
+fn audit_event_is_failure(event: &AuditEvent) -> bool {
+    matches!(
+        event,
+        AuditEvent::LoginFailed | AuditEvent::MfaChallengeFailed
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dashboard::nav::tenant_nav_items;
     use allowthem_core::applications::{Application, generate_client_id};
+    use allowthem_core::audit::{AuditEvent, AuditListEntry};
+    use allowthem_core::sessions::SessionListEntry;
+    use allowthem_core::types::{
+        AuditEntryId, Email, Permission, PermissionId, PermissionName, Role, RoleId, RoleName,
+        SessionId, User, UserId, Username,
+    };
+    use allowthem_core::users::UserListEntry;
     use allowthem_core::{ApplicationId, ClientType};
 
     fn workspaces<'a>() -> [WorkspaceView<'a>; 2] {
@@ -1603,6 +2640,241 @@ mod tests {
             is_active,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn user_list_page_uses_filters_table_and_escapes_values() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/users", TenantRole::Owner);
+        let workspaces = workspaces();
+        let users = [test_user_list_entry(
+            "alice@example.com",
+            Some("<boss>"),
+            true,
+            true,
+        )];
+        let html = user_list_page(&UserListPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            users: &users,
+            total: 26,
+            page: 2,
+            total_pages: 3,
+            q: "alice@example.com",
+            status: "active",
+            mfa: "yes",
+            verified: "no",
+            has_filters: true,
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render user list page")
+        .0;
+
+        assert!(html.contains("Users (26)"));
+        assert!(html.contains(r#"name="q" value="alice@example.com""#));
+        assert!(html.contains(r#"name="status""#));
+        assert!(html.contains(r#"href="/t/acme/users/"#));
+        assert!(html.contains(r#"class="wf-table sticky""#));
+        assert!(html.contains("Active"));
+        assert!(html.contains("Enrolled"));
+        assert!(html.contains("Page 2 of 3 - 26 users"));
+        assert!(html.contains("q=alice%40example.com"));
+        assert!(!html.contains("@<boss>"));
+    }
+
+    #[test]
+    fn user_detail_page_renders_actions_and_avoids_dynamic_inline_confirm_text() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/users", TenantRole::Owner);
+        let workspaces = workspaces();
+        let user = test_user("quoted@example.com", Some("<admin>"), true);
+        let roles = [test_role("owner's <role>")];
+        let permissions = [test_permission("reports:<read>")];
+        let sessions = [test_session(user.id, "quoted@example.com")];
+        let audit_entries = [test_audit_entry(
+            user.id,
+            AuditEvent::Logout,
+            Some("revoked <all>"),
+        )];
+        let html = user_detail_page(&UserDetailPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            user: &user,
+            roles: &roles,
+            direct_permissions: &permissions,
+            mfa_enabled: true,
+            sessions: &sessions,
+            last_login: Some("2026-05-18T12:00:00Z"),
+            audit_entries: &audit_entries,
+            all_roles: &roles,
+            all_permissions: &permissions,
+            csrf_token: "csrf-user",
+            flash_info: "Updated",
+            flash_error: "",
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render user detail page")
+        .0;
+
+        assert!(html.contains("Actions"));
+        assert!(html.contains("Roles"));
+        assert!(html.contains("Direct permissions"));
+        assert!(html.contains("Active sessions (1)"));
+        assert!(html.contains("Recent activity"));
+        assert!(html.contains(r#"name="csrf_token" value="csrf-user""#));
+        assert!(html.contains(r#"name="confirm" value="DELETE""#));
+        assert!(html.contains("Block this user? Their sessions will be terminated."));
+        assert!(!html.contains("Block quoted@example.com"));
+        assert!(!html.contains("@<admin>"));
+        assert!(!html.contains("owner's <role>"));
+        assert!(!html.contains("revoked <all>"));
+    }
+
+    #[test]
+    fn audit_list_page_uses_filter_table_export_and_empty_state() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/audit", TenantRole::Owner);
+        let workspaces = workspaces();
+        let entry = test_audit_entry(
+            UserId::new(),
+            AuditEvent::LoginFailed,
+            Some("bad password <script>"),
+        );
+        let html = audit_list_page(&AuditListPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            entries: &[entry],
+            total: 1,
+            page: 1,
+            total_pages: 1,
+            event_type: "login_failed",
+            user_email: "alice@example.com",
+            outcome: "failure",
+            from: "2026-05-01",
+            to: "2026-05-18",
+            has_filters: true,
+            no_user: false,
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render audit list page")
+        .0;
+
+        assert!(html.contains("Audit log"));
+        assert!(html.contains(r#"name="event_type""#));
+        assert!(html.contains("Login failed"));
+        assert!(html.contains(r#"class="wf-table sticky""#));
+        assert!(html.contains("Export CSV"));
+        assert!(html.contains("user_email=alice%40example.com"));
+        assert!(!html.contains("bad password <script>"));
+
+        let empty = audit_list_page(&AuditListPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            entries: &[],
+            total: 0,
+            page: 1,
+            total_pages: 1,
+            event_type: "",
+            user_email: "missing@example.com",
+            outcome: "",
+            from: "",
+            to: "",
+            has_filters: true,
+            no_user: true,
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render empty audit page")
+        .0;
+        assert!(empty.contains("No user found with that email. Showing zero results."));
+        assert!(!empty.contains("No audit entries match."));
+    }
+
+    fn test_user_list_entry(
+        email: &str,
+        username: Option<&str>,
+        is_active: bool,
+        has_mfa: bool,
+    ) -> UserListEntry {
+        UserListEntry {
+            id: UserId::new(),
+            email: Email::new(email.to_owned()).unwrap(),
+            username: username.map(Username::new),
+            is_active,
+            has_mfa,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    fn test_user(email: &str, username: Option<&str>, is_active: bool) -> User {
+        User {
+            id: UserId::new(),
+            email: Email::new(email.to_owned()).unwrap(),
+            username: username.map(Username::new),
+            password_hash: None,
+            email_verified: true,
+            is_active,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            custom_data: None,
+        }
+    }
+
+    fn test_role(name: &str) -> Role {
+        Role {
+            id: RoleId::new(),
+            name: RoleName::new(name),
+            description: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    fn test_permission(name: &str) -> Permission {
+        Permission {
+            id: PermissionId::new(),
+            name: PermissionName::new(name),
+            description: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    fn test_session(user_id: UserId, email: &str) -> SessionListEntry {
+        SessionListEntry {
+            id: SessionId::new(),
+            user_id,
+            user_email: Email::new(email.to_owned()).unwrap(),
+            ip_address: Some("127.0.0.1".to_owned()),
+            user_agent: Some("test-agent".to_owned()),
+            expires_at: chrono::Utc::now(),
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    fn test_audit_entry(
+        user_id: UserId,
+        event_type: AuditEvent,
+        detail: Option<&str>,
+    ) -> AuditListEntry {
+        AuditListEntry {
+            id: AuditEntryId::new(),
+            event_type,
+            user_id: Some(user_id),
+            user_email: Some("alice@example.com".to_owned()),
+            target_id: None,
+            ip_address: Some("127.0.0.1".to_owned()),
+            user_agent: None,
+            detail: detail.map(str::to_owned),
+            created_at: chrono::Utc::now(),
         }
     }
 }

@@ -23,22 +23,22 @@ use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use minijinja::context;
 use serde::Deserialize;
 
 use allowthem_core::audit::{AuditEvent, SearchAuditParams};
 use allowthem_core::sessions::ListSessionsParams;
 use allowthem_core::types::UserId;
 use allowthem_core::users::SearchUsersParams;
+use allowthem_saas::{Tenant, TenantRole};
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::CsrfToken;
 
 use super::extractors::{
     HtmlForm, RequireTenantAdmin, RequireTenantMember, RequireTenantOwner, TenantScope,
-    current_tenant_ctx, workspaces_for_user,
 };
 use super::nav::tenant_nav_items;
 use super::state::DashboardRouterState;
+use super::views::{self, UserDetailPageView, UserListPageView, WorkspaceView};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -149,57 +149,37 @@ async fn list(
         .await?;
 
     let total_pages = result.total.div_ceil(PAGE_SIZE).max(1);
-    let workspaces = workspaces_for_user(&state, &scope).await;
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/users", scope.tenant.slug),
         scope.role,
     );
-
-    let tmpl = state
-        .templates
-        .get_template("users/list.html")
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! {
-            status_session => scope.user.email.as_str(),
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(&scope),
-            nav_sections => nav,
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            users => &result.users,
-            total => result.total,
-            page => page,
-            total_pages => total_pages,
-            q => q_trimmed,
-            status => q.status.clone().unwrap_or_default(),
-            mfa => q.mfa.clone().unwrap_or_default(),
-            verified => q.verified.clone().unwrap_or_default(),
-            has_filters => !q_trimmed.is_empty()
-                || nonempty(&q.status).is_some()
-                || nonempty(&q.mfa).is_some()
-                || nonempty(&q.verified).is_some(),
-        })
-        .map_err(BrowserError::from)?;
-    Ok(axum::response::Html(body).into_response())
-}
-
-fn role_str(scope: &TenantScope) -> &'static str {
-    use allowthem_saas::TenantRole;
-    match scope.role {
-        TenantRole::Owner => "owner",
-        TenantRole::Admin => "admin",
-        TenantRole::Viewer => "viewer",
-    }
-}
-
-fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
-    context! {
-        id => tenant.id.clone(),
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
-    }
+    let status = q.status.clone().unwrap_or_default();
+    let mfa = q.mfa.clone().unwrap_or_default();
+    let verified = q.verified.clone().unwrap_or_default();
+    let html = views::user_list_page(&UserListPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        users: &result.users,
+        total: result.total,
+        page,
+        total_pages,
+        q: q_trimmed,
+        status: &status,
+        mfa: &mfa,
+        verified: &verified,
+        has_filters: !q_trimmed.is_empty()
+            || nonempty(&q.status).is_some()
+            || nonempty(&q.mfa).is_some()
+            || nonempty(&q.verified).is_some(),
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
 }
 
 // ---------- Step 4: Detail ----------
@@ -265,41 +245,35 @@ async fn detail(
     let all_roles = scope.ath.db().list_roles().await?;
     let all_permissions = scope.ath.db().list_permissions().await?;
 
-    let workspaces = workspaces_for_user(&state, &scope).await;
+    let workspace_pairs = workspace_pairs_for_user(&state, &scope).await;
+    let workspaces = workspace_views(&workspace_pairs, &scope.tenant.slug);
     let nav = tenant_nav_items(
         &scope.tenant.slug,
         &format!("/t/{}/users", scope.tenant.slug),
         scope.role,
     );
-
-    let tmpl = state
-        .templates
-        .get_template("users/detail.html")
-        .map_err(BrowserError::from)?;
-    let body = tmpl
-        .render(context! {
-            status_session => scope.user.email.as_str(),
-            tenant => tenant_ctx(&scope.tenant),
-            role => role_str(&scope),
-            nav_sections => nav,
-            current_tenant => current_tenant_ctx(&scope.tenant),
-            workspaces,
-            user => &user,
-            roles => roles,
-            direct_permissions => direct_permissions,
-            mfa_enabled => mfa_enabled,
-            sessions => &sessions.sessions,
-            last_login => last_login,
-            audit_entries => &audit.entries,
-            all_roles => all_roles,
-            all_permissions => all_permissions,
-            actor_role => role_str(&scope),
-            csrf_token => csrf.as_str(),
-            flash_info => &q.info,
-            flash_error => &q.error,
-        })
-        .map_err(BrowserError::from)?;
-    Ok(axum::response::Html(body).into_response())
+    let html = views::user_detail_page(&UserDetailPageView {
+        tenant_name: scope.tenant.name.as_str(),
+        tenant_slug: scope.tenant.slug.as_str(),
+        role: scope.role,
+        nav_sections: &nav,
+        workspaces: &workspaces,
+        user: &user,
+        roles: &roles,
+        direct_permissions: &direct_permissions,
+        mfa_enabled,
+        sessions: &sessions.sessions,
+        last_login: last_login.as_deref(),
+        audit_entries: &audit.entries,
+        all_roles: &all_roles,
+        all_permissions: &all_permissions,
+        csrf_token: csrf.as_str(),
+        flash_info: &q.info,
+        flash_error: &q.error,
+        status_session: Some(scope.user.email.as_str()),
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
 }
 
 // ---------- Step 5: Block / Unblock ----------
@@ -601,6 +575,32 @@ async fn log_admin_action(
     {
         tracing::error!(error = %e, event = ?event_for_log, %target_user_id, "audit log write failed");
     }
+}
+
+async fn workspace_pairs_for_user(
+    state: &DashboardRouterState,
+    scope: &TenantScope,
+) -> Vec<(Tenant, TenantRole)> {
+    state
+        .control_db
+        .tenants_for_member(scope.user.email.as_str())
+        .await
+        .unwrap_or_default()
+}
+
+fn workspace_views<'a>(
+    pairs: &'a [(Tenant, TenantRole)],
+    active_slug: &str,
+) -> Vec<WorkspaceView<'a>> {
+    pairs
+        .iter()
+        .map(|(workspace, role)| WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == active_slug,
+        })
+        .collect()
 }
 
 #[cfg(test)]
