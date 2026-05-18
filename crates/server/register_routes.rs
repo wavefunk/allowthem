@@ -1178,16 +1178,11 @@ mod tests {
             .await
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
-        // MiniJinja HTML-encodes `/` in computed URL values (template-literal
-        // paths like `href="/login"` stay unescaped, but `~`-concatenated
-        // strings use `&#x2f;`). Accept either encoding so the assertion is
-        // resilient — matches the login_register_link_carries_client_id probe.
         let id = app.client_id.as_str();
-        let unescaped = format!("/login?client_id={id}");
-        let escaped = format!("&#x2f;login?client_id={id}");
+        let login_link = format!("/login?client_id={id}");
         assert!(
-            html.contains(&unescaped) || html.contains(&escaped),
-            "sign-in link should carry client_id (checked both /login and &#x2f;login forms)"
+            html.contains(&login_link),
+            "sign-in link should carry client_id"
         );
     }
 

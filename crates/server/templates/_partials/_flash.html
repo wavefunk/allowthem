@@ -1,5 +1,0 @@
-{%- if flash is defined and flash %}
-<div role="alert">
-{{ wf_alert(flash.kind | default("err"), flash.message) }}
-</div>
-{% endif -%}

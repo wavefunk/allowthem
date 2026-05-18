@@ -844,7 +844,6 @@ mod tests {
             html.contains("totp-secret"),
             "setup page must show secret element"
         );
-        // The totp_uri value is HTML-escaped by MiniJinja; check the testid container exists.
         assert!(
             html.contains("totp-uri"),
             "setup page must show QR URI container"

@@ -612,7 +612,6 @@ mod tests {
             .await
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
-        // MiniJinja auto-escapes / as &#x2f; in attribute values
         assert!(
             html.contains("name=\"next\""),
             "should contain next hidden field"
@@ -1165,15 +1164,11 @@ mod tests {
             .await
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
-        // MiniJinja HTML-encodes `/` in computed URL values (template-literal paths
-        // like `href="/register"` stay unescaped, but `~`-concatenated strings use
-        // `&#x2f;`). Accept either encoding so the assertion is resilient.
         let id = app.client_id.as_str();
-        let unescaped = format!("/register?client_id={id}");
-        let escaped = format!("&#x2f;register?client_id={id}");
+        let register_link = format!("/register?client_id={id}");
         assert!(
-            html.contains(&unescaped) || html.contains(&escaped),
-            "register link should carry client_id (checked both /register and &#x2f;register forms)"
+            html.contains(&register_link),
+            "register link should carry client_id"
         );
     }
 }

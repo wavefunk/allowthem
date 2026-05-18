@@ -1,6 +1,0 @@
-{# _modeline.html — AllowThem-owned status labels rendered with wavefunk-ui chrome. #}
-{% set session_label = (shell.status_session if shell is defined and shell.status_session) or status_session %}
-{% set env_label = status_env if status_env is defined and status_env else ("PROD" if is_production | default(false) else "DEV") %}
-{{ wf_modeline(env_label, session_label) }}
-{{ wf_minibuffer() }}
-<script>document.addEventListener("DOMContentLoaded",function(){document.dispatchEvent(new CustomEvent("wfEcho",{detail:{kind:"ok",msg:"Ready."}}));});</script>

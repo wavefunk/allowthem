@@ -1,9 +1,8 @@
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 
-/// Minimal styled HTML used as a fallback when the template environment is
-/// not available (e.g. inside `IntoResponse` for `BrowserError`). Keeps the
-/// same visual tone as `error.html` without requiring a template render.
+/// Minimal styled HTML used when an error needs to become an HTTP response.
+/// This keeps browser errors independent from route-specific typed views.
 const FALLBACK_ERROR_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -53,17 +52,8 @@ pub fn render_error_page(title: &str, message: &str) -> String {
 
 #[derive(Debug)]
 pub enum BrowserError {
-    #[cfg(feature = "browser-templates")]
-    Template(minijinja::Error),
     Ui(wavefunk_ui::askama::Error),
     Auth(allowthem_core::AuthError),
-}
-
-#[cfg(feature = "browser-templates")]
-impl From<minijinja::Error> for BrowserError {
-    fn from(err: minijinja::Error) -> Self {
-        BrowserError::Template(err)
-    }
 }
 
 impl From<wavefunk_ui::askama::Error> for BrowserError {
@@ -81,15 +71,6 @@ impl From<allowthem_core::AuthError> for BrowserError {
 impl IntoResponse for BrowserError {
     fn into_response(self) -> Response {
         match self {
-            #[cfg(feature = "browser-templates")]
-            BrowserError::Template(e) => {
-                tracing::error!(error = %e, "template render failed");
-                let html = render_error_page(
-                    "Internal error",
-                    "Something went wrong while rendering this page.",
-                );
-                (StatusCode::INTERNAL_SERVER_ERROR, Html(html)).into_response()
-            }
             BrowserError::Ui(e) => {
                 tracing::error!(error = %e, "UI render failed");
                 let html = render_error_page(

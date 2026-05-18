@@ -862,8 +862,6 @@ mod consent_tests {
         let resp = router.oneshot(req).await.unwrap();
         let body = read_body(resp).await;
         assert!(body.contains("<img"), "should render img");
-        // MiniJinja HTML-escapes attribute values; check that the img tag and a recognizable
-        // portion of the URL are present
         assert!(
             body.contains("cdn.example.com"),
             "logo url should contain domain"

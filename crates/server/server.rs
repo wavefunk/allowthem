@@ -1,15 +1,11 @@
 // allowthem-server: HTTP routes, middleware, and extractors
 
 pub mod all_routes;
-#[cfg(test)]
-mod all_server_templates_guard_tests;
 pub(crate) mod auth_views;
 pub mod authorize_routes;
 pub mod bearer;
 pub mod branding;
 pub mod browser_error;
-#[cfg(feature = "browser-templates")]
-pub mod browser_templates;
 pub mod consent_routes;
 pub mod cors;
 pub mod csrf;
@@ -48,8 +44,6 @@ pub use branding::{
     resolve_branding,
 };
 pub use browser_error::{BrowserError, render_error_page};
-#[cfg(feature = "browser-templates")]
-pub use browser_templates::{build_default_browser_env, render as render_template};
 pub use consent_routes::consent_routes;
 pub use cors::inject_ath_into_extensions;
 pub use csrf::{CsrfToken, csrf_middleware};

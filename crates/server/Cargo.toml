@@ -12,7 +12,6 @@ path = "./server.rs"
 
 [features]
 default = []
-browser-templates = ["dep:minijinja"]
 
 [dependencies]
 allowthem-core = { path = "../core", version = "0.0.6" }
@@ -32,7 +31,6 @@ uuid.workspace = true
 governor.workspace = true
 hmac.workspace = true
 html-escape.workspace = true
-minijinja = { workspace = true, optional = true }
 dashmap.workspace = true
 subtle.workspace = true
 jsonschema.workspace = true
