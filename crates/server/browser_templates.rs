@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
 use axum::response::Html;
-use minijinja::Environment;
+use minijinja::value::{Kwargs, Value};
+use minijinja::{Environment, Error, ErrorKind};
+use wavefunk_ui::Template;
+use wavefunk_ui::components::{FormPanel, SplitShell};
 
 use crate::browser_error::BrowserError;
+use crate::ui::{render_component, trusted_html};
 
 const BASE_HTML: &str = include_str!("templates/base.html");
 const LOGIN_HTML: &str = include_str!("templates/login.html");
@@ -39,6 +43,70 @@ const AUTH_MAIN_MFA_RECOVERY_PARTIAL: &str =
 const AUTH_MAIN_CONSENT_PARTIAL: &str = include_str!("templates/_partials/_auth_main_consent.html");
 const ERROR_HTML: &str = include_str!("templates/error.html");
 
+fn component_error(component: &str, err: impl std::fmt::Display) -> Error {
+    Error::new(
+        ErrorKind::InvalidOperation,
+        format!("failed to render {component}: {err}"),
+    )
+}
+
+fn safe_component_value<T>(component: &T, name: &str) -> Result<Value, Error>
+where
+    T: Template + ?Sized,
+{
+    render_component(component)
+        .map(|rendered| Value::from_safe_string(rendered.into_string()))
+        .map_err(|err| component_error(name, err))
+}
+
+fn wf_form_panel(title: String, body_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let subtitle: Option<String> = kwargs.get("subtitle")?;
+    let meta_html: Option<String> = kwargs.get("meta_html")?;
+    let actions_html: Option<String> = kwargs.get("actions_html")?;
+    kwargs.assert_all_used()?;
+
+    let mut panel = FormPanel::new(&title, trusted_html(&body_html));
+    if let Some(subtitle) = subtitle.as_deref().filter(|value| !value.is_empty()) {
+        panel = panel.with_subtitle(subtitle);
+    }
+    if let Some(meta_html) = meta_html.as_deref().filter(|value| !value.is_empty()) {
+        panel = panel.with_meta(trusted_html(meta_html));
+    }
+    if let Some(actions_html) = actions_html.as_deref().filter(|value| !value.is_empty()) {
+        panel = panel.with_actions(trusted_html(actions_html));
+    }
+
+    safe_component_value(&panel, "FormPanel")
+}
+
+fn wf_split_shell(content_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let visual_html: Option<String> = kwargs.get("visual_html")?;
+    let top_html: Option<String> = kwargs.get("top_html")?;
+    let footer_html: Option<String> = kwargs.get("footer_html")?;
+    let mode: Option<String> = kwargs.get("mode")?;
+    let mode_locked = kwargs.get::<Option<bool>>("mode_locked")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut shell = SplitShell::new(trusted_html(&content_html));
+    if let Some(visual_html) = visual_html.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_visual(trusted_html(visual_html));
+    }
+    if let Some(top_html) = top_html.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_top(trusted_html(top_html));
+    }
+    if let Some(footer_html) = footer_html.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_footer(trusted_html(footer_html));
+    }
+    if let Some(mode) = mode.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_mode(mode);
+    }
+    if mode_locked {
+        shell = shell.mode_locked();
+    }
+
+    safe_component_value(&shell, "SplitShell")
+}
+
 /// Register the default browser templates into an existing environment.
 ///
 /// Useful for consumers (like the standalone binary) that need to extend
@@ -62,8 +130,8 @@ const ERROR_HTML: &str = include_str!("templates/error.html");
 ///
 /// Both blocks are safe to override in integrator templates that
 /// `{% extends "_partials/_auth_shell.html" %}` — the surrounding
-/// `<aside class="wf-auth-splash">` wrapper and the auth_main slot are
-/// owned by the shell and remain stable.
+/// `SplitShell` visual/content slots are owned by the shell and remain
+/// stable.
 ///
 /// # Integrator-overridable blocks (app shell)
 ///
@@ -92,6 +160,9 @@ const ERROR_HTML: &str = include_str!("templates/error.html");
 /// `.wf-shell` / `.wf-sidebar` / `.wf-main` structure is owned by the
 /// shell and remains stable.
 pub fn add_default_browser_templates(env: &mut Environment<'static>) {
+    env.add_function("wf_form_panel", wf_form_panel);
+    env.add_function("wf_split_shell", wf_split_shell);
+
     env.add_filter("datefmt", |value: String| -> String {
         if value.len() >= 16 {
             let date = &value[..10];

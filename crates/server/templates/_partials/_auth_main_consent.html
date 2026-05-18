@@ -13,14 +13,11 @@
     {{ auth.kicker(app_name, "Consent") }}
   </div>
 
-  <div class="wf-auth-wrap">
+  {% set panel_body %}
     {% if logo_url and logo_url is startingwith("https://") %}
       <img src="{{ logo_url }}" alt="{{ application_name }}"
            class="wf-mb-4" height="48">
     {% endif %}
-
-    <h1>{{ application_name }}</h1>
-    <p class="wf-auth-sub">wants to access the following:</p>
 
     <div class="wf-framed wf-mt-5">
       <ul class="wf-f wf-col wf-gap-2 wf-p-0">
@@ -54,5 +51,6 @@
     <p class="wf-caption wf-mt-4">Authorizing as {{ user_email }}</p>
     {% endif %}
     <p class="wf-caption wf-mt-4">Authorizing will redirect you to {{ redirect_uri }}</p>
-  </div>
+  {% endset %}
+  {{ wf_form_panel(application_name, panel_body, subtitle="wants to access the following:") }}
 </main>

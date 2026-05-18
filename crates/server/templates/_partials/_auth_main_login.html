@@ -21,10 +21,7 @@
                    swap_prefix="New here?") }}
   </div>
 
-  <div class="wf-auth-wrap">
-    <h1>Sign in</h1>
-    <p class="wf-auth-sub">Welcome back.</p>
-
+  {% set panel_body %}
     <div class="wf-mt-5">
       {{ auth.tabs(active="signin", signup_href=register_href) }}
     </div>
@@ -65,5 +62,6 @@
     {{ auth.oauth_grid(oauth_providers, next=next) }}
 
     {{ auth.terms_footer(terms_url=terms_url, privacy_url=privacy_url) }}
-  </div>
+  {% endset %}
+  {{ wf_form_panel("Sign in", panel_body, subtitle="Welcome back.") }}
 </main>

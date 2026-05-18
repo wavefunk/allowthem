@@ -9,13 +9,13 @@
     {{ auth.kicker(app_name, error_title | default("Error")) }}
   </div>
 
-  <div class="wf-auth-wrap">
-    <h1>{{ error_title | default("Something went wrong") }}</h1>
-    <p class="wf-auth-sub">{{ error_message | default("The page you are looking for could not be found.") }}</p>
-
+  {% set panel_body %}
     <p class="wf-caption wf-mt-5">
       <a href="/">Return home</a>
     </p>
-  </div>
+  {% endset %}
+  {{ wf_form_panel(error_title | default("Something went wrong"),
+                   panel_body,
+                   subtitle=error_message | default("The page you are looking for could not be found.")) }}
 </main>
 {% endblock %}

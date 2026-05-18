@@ -10,10 +10,7 @@
     {{ auth.kicker(app_name, "Enable 2FA") }}
   </div>
 
-  <div class="wf-auth-wrap">
-    <h1>Enable 2FA</h1>
-    <p class="wf-auth-sub">Scan the QR or enter the secret, then verify.</p>
-
+  {% set panel_body %}
     <div class="wf-framed wf-f wf-col wf-ai-c wf-gap-3 wf-mt-5">
       {% if qr_data_uri %}
         <img src="{{ qr_data_uri|safe }}" alt="QR Code" width="200" height="200"
@@ -47,5 +44,6 @@
     <p class="wf-caption wf-mt-4">
       <a href="/settings">Back to settings</a>
     </p>
-  </div>
+  {% endset %}
+  {{ wf_form_panel("Enable 2FA", panel_body, subtitle="Scan the QR or enter the secret, then verify.") }}
 </main>

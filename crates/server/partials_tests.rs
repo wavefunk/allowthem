@@ -268,8 +268,9 @@ fn auth_shell_wraps_form_block_and_includes_splash_and_modeline() {
             application_name => "acme",
         })
         .unwrap();
-    assert!(html.contains("wf-auth"));
-    assert!(html.contains("wf-auth-splash"));
+    assert!(html.contains("wf-split-shell"));
+    assert!(html.contains("wf-split-shell-visual"));
+    assert!(html.contains("data-wf-asset-base=\"/static/wavefunk\""));
     assert!(html.contains("wf-modeline"));
     assert!(html.contains("id=\"the-form\""));
     // Exactly one <body> opening tag — the shell overrides body_content +
@@ -343,6 +344,10 @@ fn auth_shell_with_forced_mode_emits_locked_attrs() {
     assert!(
         html_open.contains("data-mode-locked"),
         "<html> must carry data-mode-locked: {html_open}"
+    );
+    assert!(
+        html.contains(r#"class="wf-split-shell" data-mode="light" data-mode-locked"#),
+        "SplitShell root must also receive the forced mode lock"
     );
 }
 

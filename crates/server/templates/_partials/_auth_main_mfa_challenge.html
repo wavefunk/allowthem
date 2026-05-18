@@ -13,10 +13,7 @@
     {{ auth.kicker(app_name, "Two-factor") }}
   </div>
 
-  <div class="wf-auth-wrap">
-    <h1>Verify code</h1>
-    <p class="wf-auth-sub">Enter the 6-digit code from your authenticator app.</p>
-
+  {% set panel_body %}
     {% if error %}
       {% set flash = { "kind": "err", "message": error } %}
       <div class="wf-mt-4">{% include "_partials/_flash.html" %}</div>
@@ -46,5 +43,6 @@
         <label for="use_recovery">Use recovery code</label>
       </p>
     </form>
-  </div>
+  {% endset %}
+  {{ wf_form_panel("Verify code", panel_body, subtitle="Enter the 6-digit code from your authenticator app.") }}
 </main>

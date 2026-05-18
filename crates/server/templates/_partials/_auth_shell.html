@@ -1,29 +1,36 @@
-{# _auth_shell.html — 2-column auth layout: splash left, form right.
-   Extends base.html. Child pages override {% block auth_main %}.
+{# _auth_shell.html — auth layout composed through wavefunk-ui SplitShell.
+   Child pages override {% block auth_main %}.
 #}
 {% extends "base.html" %}
 
 {% block html_attrs %}{% if branding and branding.forced_mode %}data-mode="{{ branding.forced_mode }}" data-mode-locked{% endif %}{% endblock %}
 
-{% block body_class %}wf-auth{% endblock %}
-
 {% block head %}
 <style>
-  .wf-auth {
-    grid-template-rows: 1fr 22px 22px;
-  }
-  .wf-auth > .wf-modeline   { grid-column: 1 / -1; }
-  .wf-auth > .wf-minibuffer { grid-column: 1 / -1; }
+  .wf-split-shell-visual { position: relative; overflow: hidden; }
+  .wf-split-shell-main > .wf-auth-form { padding: 0; }
+  .wf-split-shell-footer { display: block; }
+  .wf-split-shell-footer > .wf-modeline,
+  .wf-split-shell-footer > .wf-minibuffer { width: 100%; }
   html[data-mode-locked] [data-mode-toggle] { display: none; }
 </style>
 {% endblock %}
 
 {% block body_content %}
-  <aside class="wf-auth-splash">
-    {% block splash_content %}{% include "_partials/_splash.html" %}{% endblock %}
-  </aside>
-  {% block auth_main %}{% endblock %}
-  {% include "_partials/_modeline.html" %}
+  {% set splash_html %}{% block splash_content %}{% include "_partials/_splash.html" %}{% endblock %}{% endset %}
+  {% set auth_main_html %}{% block auth_main %}{% endblock %}{% endset %}
+  {% set footer_html %}{% include "_partials/_modeline.html" %}{% endset %}
+  {% if branding and branding.forced_mode %}
+    {{ wf_split_shell(auth_main_html,
+                      visual_html=splash_html,
+                      footer_html=footer_html,
+                      mode=branding.forced_mode,
+                      mode_locked=true) }}
+  {% else %}
+    {{ wf_split_shell(auth_main_html,
+                      visual_html=splash_html,
+                      footer_html=footer_html) }}
+  {% endif %}
 {% endblock %}
 
 {% block scripts %}

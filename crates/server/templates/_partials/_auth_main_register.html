@@ -26,18 +26,18 @@
                    swap_prefix="") }}
   </div>
 
-  <div class="wf-auth-wrap">
-    <h1>{% if registration_disabled %}Registration disabled{% elif token %}Accept invitation{% else %}Create account{% endif %}</h1>
-    <p class="wf-auth-sub">
-      {% if registration_disabled %}
-        Ask an admin for an invitation link.
-      {% elif token %}
-        Finish creating your account.
-      {% else %}
-        Let's get you set up.
-      {% endif %}
-    </p>
+  {% if registration_disabled %}
+    {% set panel_title = "Registration disabled" %}
+    {% set panel_subtitle = "Ask an admin for an invitation link." %}
+  {% elif token %}
+    {% set panel_title = "Accept invitation" %}
+    {% set panel_subtitle = "Finish creating your account." %}
+  {% else %}
+    {% set panel_title = "Create account" %}
+    {% set panel_subtitle = "Let's get you set up." %}
+  {% endif %}
 
+  {% set panel_body %}
     <div class="wf-mt-5">
       {{ auth.tabs(active="signup", signup_href=register_href) }}
     </div>
@@ -179,7 +179,8 @@
       <a class="wf-btn primary lg wf-w-full" href="/login">Back to sign in →</a>
     </div>
     {% endif %}
-  </div>
+  {% endset %}
+  {{ wf_form_panel(panel_title, panel_body, subtitle=panel_subtitle) }}
 </main>
 <style>
 .wf-pw-strength{margin-top:.5rem;display:none}

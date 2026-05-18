@@ -10,10 +10,7 @@
     {{ auth.kicker(app_name, "Recovery codes") }}
   </div>
 
-  <div class="wf-auth-wrap">
-    <h1>Save recovery codes</h1>
-    <p class="wf-auth-sub">Save these codes somewhere safe.</p>
-
+  {% set panel_body %}
     <div class="wf-alert warn wf-mt-5" role="alert">
       <div class="wf-alert-bar"></div>
       Save these recovery codes in a secure location. Each code can only be used once.
@@ -42,7 +39,8 @@
       <a class="wf-btn primary disabled" href="/settings" id="back-to-settings"
          aria-disabled="true" tabindex="-1">Back to settings →</a>
     </p>
-  </div>
+  {% endset %}
+  {{ wf_form_panel("Save recovery codes", panel_body, subtitle="Save these codes somewhere safe.") }}
 </main>
 <script>
 (function(){

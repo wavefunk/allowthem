@@ -12,16 +12,23 @@ use crate::browser_templates::add_default_browser_templates;
 
 /// Design system classes that every full-page auth render must contain.
 const REQUIRED_PAGE: &[&str] = &[
-    "wf-auth",
-    "wf-auth-splash",
+    "wf-split-shell",
+    "wf-split-shell-visual",
+    "wf-split-shell-content",
+    "wf-split-shell-main",
+    "wf-form-panel",
     "wf-modeline",
     "wf-auth-form",
     "wf-auth-top",
-    "wf-auth-wrap",
 ];
 
 /// Classes that every auth partial (HTMX fragment) must contain.
-const REQUIRED_PARTIAL: &[&str] = &["wf-auth-form", "wf-auth-top", "wf-auth-wrap"];
+const REQUIRED_PARTIAL: &[&str] = &[
+    "wf-auth-form",
+    "wf-auth-top",
+    "wf-form-panel",
+    "wf-form-panel-body",
+];
 
 /// Substrings that must never appear in rendered auth output.
 const FORBIDDEN: &[&str] = &[
@@ -44,6 +51,7 @@ const FORBIDDEN: &[&str] = &[
     "at-auth-shell",
     "at-form-pane",
     "at-form-wrap",
+    "class=\"wf-auth-wrap\"",
     "class=\"wf-splash\"",
     "class=\"wf-splash ",
     "border-radius",
@@ -265,6 +273,33 @@ fn partial_mfa_recovery() {
 #[test]
 fn partial_consent() {
     assert_partial("_partials/_auth_main_consent.html", consent_ctx());
+}
+
+#[test]
+fn auth_surfaces_use_wavefunk_ui_shell_components() {
+    let page = render("login.html", login_ctx());
+    assert!(
+        page.contains(r#"class="wf-split-shell""#),
+        "full auth pages should render through wavefunk-ui SplitShell"
+    );
+    assert!(
+        page.contains(r#"data-wf-asset-base="/static/wavefunk""#),
+        "SplitShell should advertise the mounted wavefunk-ui asset base"
+    );
+    assert!(
+        page.contains(r#"class="wf-form-panel""#),
+        "full auth pages should render their form content through FormPanel"
+    );
+
+    let fragment = render("_partials/_auth_main_login.html", login_ctx());
+    assert!(
+        fragment.contains(r#"class="wf-auth-form""#),
+        "HTMX fragments should keep the auth-form root contract"
+    );
+    assert!(
+        fragment.contains(r#"class="wf-form-panel""#),
+        "HTMX fragments should render through wavefunk-ui FormPanel"
+    );
 }
 
 // ── Accent theming ───────────────────────────────────────────────────────
