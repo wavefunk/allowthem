@@ -35,6 +35,7 @@ pub mod settings_routes;
 pub mod shell_context;
 pub mod static_routes;
 pub mod token_route;
+pub mod ui;
 pub mod userinfo_route;
 pub mod well_known_routes;
 
@@ -72,5 +73,6 @@ pub use settings_routes::settings_routes;
 pub use shell_context::ShellContext;
 pub use static_routes::router as static_router;
 pub use token_route::token_route;
+pub use ui::{RenderedUi, render_component, trusted_html};
 pub use userinfo_route::userinfo_route;
 pub use well_known_routes::well_known_routes;
