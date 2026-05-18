@@ -29,6 +29,7 @@ pub mod state;
 pub mod stubs;
 pub mod templates;
 pub mod users;
+pub mod views;
 
 #[cfg(test)]
 mod integration_tests;

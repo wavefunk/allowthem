@@ -170,7 +170,9 @@ async fn resolve_scope(
 
     match tenant.status {
         TenantStatus::Deleted => return Err(StatusCode::NOT_FOUND.into_response()),
-        TenantStatus::Suspended => return Err(render_suspended(state, &tenant)),
+        TenantStatus::Suspended => {
+            return Err(render_suspended(state, &tenant, &user, parts.uri.path()).await);
+        }
         TenantStatus::Active => {}
     }
 
@@ -378,21 +380,55 @@ impl FromRequestParts<DashboardRouterState> for RequireSuperAdmin {
     }
 }
 
-fn render_suspended(state: &DashboardRouterState, tenant: &Tenant) -> Response {
-    match state
-        .templates
-        .get_template("_partials/_suspended.html")
-        .and_then(|tmpl| {
-            tmpl.render(context! {
-                tenant => context! {
-                    name => tenant.name.clone(),
-                    slug => tenant.slug.clone(),
-                },
-            })
-        }) {
-        Ok(body) => (StatusCode::SERVICE_UNAVAILABLE, axum::response::Html(body)).into_response(),
+async fn render_suspended(
+    state: &DashboardRouterState,
+    tenant: &Tenant,
+    user: &User,
+    current_path: &str,
+) -> Response {
+    let pairs = match state
+        .control_db
+        .tenants_for_member(user.email.as_str())
+        .await
+    {
+        Ok(pairs) => pairs,
         Err(e) => {
-            tracing::error!(error = %e, "suspended template render failed");
+            tracing::warn!(
+                error = %e,
+                tenant_slug = %tenant.slug,
+                "workspace switcher lookup failed for suspended page"
+            );
+            Vec::new()
+        }
+    };
+    let role = pairs
+        .iter()
+        .find(|(candidate, _)| candidate.slug == tenant.slug)
+        .map(|(_, role)| *role)
+        .unwrap_or(TenantRole::Owner);
+    let workspaces: Vec<super::views::WorkspaceView<'_>> = pairs
+        .iter()
+        .map(|(workspace, role)| super::views::WorkspaceView {
+            name: workspace.name.as_str(),
+            slug: workspace.slug.as_str(),
+            role: *role,
+            active: workspace.slug == tenant.slug,
+        })
+        .collect();
+    let nav_sections = super::nav::tenant_nav_items(&tenant.slug, current_path, role);
+    let logout_href = format!("/t/{}/logout", tenant.slug);
+    match super::views::suspended_page(&super::views::SuspendedPageView {
+        tenant_name: tenant.name.as_str(),
+        tenant_slug: tenant.slug.as_str(),
+        logout_href: &logout_href,
+        nav_sections: &nav_sections,
+        workspaces: &workspaces,
+        status_session: Some(user.email.as_str()),
+        is_production: state.is_production,
+    }) {
+        Ok(body) => (StatusCode::SERVICE_UNAVAILABLE, body).into_response(),
+        Err(e) => {
+            tracing::error!(error = ?e, "suspended view render failed");
             (StatusCode::SERVICE_UNAVAILABLE, "Workspace suspended").into_response()
         }
     }

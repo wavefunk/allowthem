@@ -1393,6 +1393,20 @@ async fn suspended_tenant_renders_suspended_page() {
         body.contains("Workspace suspended"),
         "suspended page must contain 'Workspace suspended'"
     );
+    assert!(
+        body.contains(r#"aria-label="Dashboard navigation""#),
+        "suspended page should use the typed dashboard shell"
+    );
+    assert!(
+        body.contains(
+            r#"class="wf-context-switcher-item is-active" href="/t/acme/applications" aria-current="page""#
+        ),
+        "suspended page should preserve the workspace switcher"
+    );
+    assert!(
+        body.contains(r#"href="/t/acme/logout""#),
+        "suspended page should expose the tenant logout affordance"
+    );
 }
 
 #[tokio::test]
