@@ -5,8 +5,10 @@ use minijinja::value::{Kwargs, Value};
 use minijinja::{Environment, Error, ErrorKind};
 use wavefunk_ui::Template;
 use wavefunk_ui::components::{
-    Alert, FeedbackKind, FormPanel, HtmlAttr, Minibuffer, Modeline, ModelineSegment, NavItem,
-    NavSection, PageHeader, SplitShell,
+    Alert, Button, ButtonSize, ButtonVariant, CheckRow, FeedbackKind, Field, Form, FormActions,
+    FormPanel, FormSection, HtmlAttr, InlineFormRow, Input, Minibuffer, Modeline, ModelineSegment,
+    NavItem, NavSection, PageHeader, RepeatableArray, RepeatableItem, Select, SelectOption,
+    SettingsSection, SplitShell, Switch, Textarea,
 };
 use wavefunk_ui::layouts::AppShell;
 
@@ -61,6 +63,397 @@ where
     render_component(component)
         .map(|rendered| Value::from_safe_string(rendered.into_string()))
         .map_err(|err| component_error(name, err))
+}
+
+fn attr_pairs<'a>(pairs: &'a [(&'static str, String)]) -> Vec<HtmlAttr<'a>> {
+    pairs
+        .iter()
+        .map(|(name, value)| HtmlAttr::new(*name, value.as_str()))
+        .collect()
+}
+
+fn push_attr(pairs: &mut Vec<(&'static str, String)>, name: &'static str, value: Option<String>) {
+    if let Some(value) = value.filter(|value| !value.is_empty()) {
+        pairs.push((name, value));
+    }
+}
+
+fn push_bool_attr(pairs: &mut Vec<(&'static str, String)>, name: &'static str, value: bool) {
+    if value {
+        pairs.push((name, String::new()));
+    }
+}
+
+fn button_variant(value: Option<&str>) -> ButtonVariant {
+    match value {
+        Some("primary") => ButtonVariant::Primary,
+        Some("ghost") => ButtonVariant::Ghost,
+        Some("danger") => ButtonVariant::Danger,
+        _ => ButtonVariant::Default,
+    }
+}
+
+fn button_size(value: Option<&str>) -> ButtonSize {
+    match value {
+        Some("sm") | Some("small") => ButtonSize::Small,
+        Some("lg") | Some("large") => ButtonSize::Large,
+        _ => ButtonSize::Default,
+    }
+}
+
+fn wf_button(label: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let href: Option<String> = kwargs.get("href")?;
+    let variant: Option<String> = kwargs.get("variant")?;
+    let size: Option<String> = kwargs.get("size")?;
+    let button_type: Option<String> = kwargs.get("type")?;
+    let id: Option<String> = kwargs.get("id")?;
+    let disabled = kwargs.get::<Option<bool>>("disabled")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut button = Button::new(&label)
+        .with_variant(button_variant(variant.as_deref()))
+        .with_size(button_size(size.as_deref()))
+        .with_attrs(&attrs);
+    if let Some(href) = href.as_deref().filter(|value| !value.is_empty()) {
+        button = button.with_href(href);
+    }
+    if let Some(button_type) = button_type.as_deref().filter(|value| !value.is_empty()) {
+        button = button.with_button_type(button_type);
+    }
+    if disabled {
+        button = button.disabled();
+    }
+
+    safe_component_value(&button, "Button")
+}
+
+fn wf_input(name: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let input_type: Option<String> = kwargs.get("type")?;
+    let value: Option<String> = kwargs.get("value")?;
+    let placeholder: Option<String> = kwargs.get("placeholder")?;
+    let id: Option<String> = kwargs.get("id")?;
+    let autocomplete: Option<String> = kwargs.get("autocomplete")?;
+    let minlength: Option<String> = kwargs.get("minlength")?;
+    let maxlength: Option<String> = kwargs.get("maxlength")?;
+    let min: Option<String> = kwargs.get("min")?;
+    let max: Option<String> = kwargs.get("max")?;
+    let pattern: Option<String> = kwargs.get("pattern")?;
+    let spellcheck: Option<String> = kwargs.get("spellcheck")?;
+    let style: Option<String> = kwargs.get("style")?;
+    let hx_get: Option<String> = kwargs.get("hx_get")?;
+    let hx_target: Option<String> = kwargs.get("hx_target")?;
+    let hx_trigger: Option<String> = kwargs.get("hx_trigger")?;
+    let required = kwargs.get::<Option<bool>>("required")?.unwrap_or(false);
+    let disabled = kwargs.get::<Option<bool>>("disabled")?.unwrap_or(false);
+    let readonly = kwargs.get::<Option<bool>>("readonly")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    push_attr(&mut attr_values, "autocomplete", autocomplete);
+    push_attr(&mut attr_values, "minlength", minlength);
+    push_attr(&mut attr_values, "maxlength", maxlength);
+    push_attr(&mut attr_values, "min", min);
+    push_attr(&mut attr_values, "max", max);
+    push_attr(&mut attr_values, "pattern", pattern);
+    push_attr(&mut attr_values, "spellcheck", spellcheck);
+    push_attr(&mut attr_values, "style", style);
+    push_attr(&mut attr_values, "hx-get", hx_get);
+    push_attr(&mut attr_values, "hx-target", hx_target);
+    push_attr(&mut attr_values, "hx-trigger", hx_trigger);
+    push_bool_attr(&mut attr_values, "readonly", readonly);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut input = Input::new(&name).with_attrs(&attrs);
+    if let Some(input_type) = input_type.as_deref().filter(|value| !value.is_empty()) {
+        input = input.with_type(input_type);
+    }
+    if let Some(value) = value.as_deref() {
+        input = input.with_value(value);
+    }
+    if let Some(placeholder) = placeholder.as_deref().filter(|value| !value.is_empty()) {
+        input = input.with_placeholder(placeholder);
+    }
+    if required {
+        input = input.required();
+    }
+    if disabled {
+        input = input.disabled();
+    }
+
+    safe_component_value(&input, "Input")
+}
+
+fn wf_textarea(name: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let value: Option<String> = kwargs.get("value")?;
+    let placeholder: Option<String> = kwargs.get("placeholder")?;
+    let rows = kwargs.get::<Option<u16>>("rows")?;
+    let id: Option<String> = kwargs.get("id")?;
+    let minlength: Option<String> = kwargs.get("minlength")?;
+    let maxlength: Option<String> = kwargs.get("maxlength")?;
+    let autocomplete: Option<String> = kwargs.get("autocomplete")?;
+    let required = kwargs.get::<Option<bool>>("required")?.unwrap_or(false);
+    let disabled = kwargs.get::<Option<bool>>("disabled")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    push_attr(&mut attr_values, "minlength", minlength);
+    push_attr(&mut attr_values, "maxlength", maxlength);
+    push_attr(&mut attr_values, "autocomplete", autocomplete);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut textarea = Textarea::new(&name).with_attrs(&attrs);
+    if let Some(value) = value.as_deref() {
+        textarea = textarea.with_value(value);
+    }
+    if let Some(placeholder) = placeholder.as_deref().filter(|value| !value.is_empty()) {
+        textarea = textarea.with_placeholder(placeholder);
+    }
+    if let Some(rows) = rows {
+        textarea = textarea.with_rows(rows);
+    }
+    if required {
+        textarea = textarea.required();
+    }
+    if disabled {
+        textarea = textarea.disabled();
+    }
+
+    safe_component_value(&textarea, "Textarea")
+}
+
+fn wf_field(label: String, control_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let hint: Option<String> = kwargs.get("hint")?;
+    kwargs.assert_all_used()?;
+
+    let mut field = Field::new(&label, trusted_html(&control_html));
+    if let Some(hint) = hint.as_deref().filter(|value| !value.is_empty()) {
+        field = field.with_hint(hint);
+    }
+
+    safe_component_value(&field, "Field")
+}
+
+fn wf_check_row(
+    name: String,
+    value: String,
+    label: String,
+    kwargs: Kwargs,
+) -> Result<Value, Error> {
+    let kind: Option<String> = kwargs.get("kind")?;
+    let id: Option<String> = kwargs.get("id")?;
+    let checked = kwargs.get::<Option<bool>>("checked")?.unwrap_or(false);
+    let disabled = kwargs.get::<Option<bool>>("disabled")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut row = if kind.as_deref() == Some("radio") {
+        CheckRow::radio(&name, &value, &label)
+    } else {
+        CheckRow::checkbox(&name, &value, &label)
+    }
+    .with_attrs(&attrs);
+    if checked {
+        row = row.checked();
+    }
+    if disabled {
+        row = row.disabled();
+    }
+
+    safe_component_value(&row, "CheckRow")
+}
+
+fn wf_select(name: String, options: Vec<String>, kwargs: Kwargs) -> Result<Value, Error> {
+    let selected: Option<String> = kwargs.get("selected")?;
+    let placeholder: Option<String> = kwargs.get("placeholder")?;
+    let id: Option<String> = kwargs.get("id")?;
+    let required = kwargs.get::<Option<bool>>("required")?.unwrap_or(false);
+    let disabled = kwargs.get::<Option<bool>>("disabled")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    let attrs = attr_pairs(&attr_values);
+
+    let selected_value = selected.as_deref().unwrap_or("");
+    let mut select_options = Vec::new();
+    if let Some(placeholder) = placeholder.as_deref().filter(|value| !value.is_empty()) {
+        let mut option = SelectOption::new("", placeholder);
+        if selected_value.is_empty() {
+            option = option.selected();
+        }
+        if required {
+            option = option.disabled();
+        }
+        select_options.push(option);
+    }
+    for option in &options {
+        let mut select_option = SelectOption::new(option, option);
+        if selected_value == option {
+            select_option = select_option.selected();
+        }
+        select_options.push(select_option);
+    }
+
+    let mut select = Select::new(&name, &select_options).with_attrs(&attrs);
+    if required {
+        select = select.required();
+    }
+    if disabled {
+        select = select.disabled();
+    }
+
+    safe_component_value(&select, "Select")
+}
+
+fn wf_switch(name: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let value: Option<String> = kwargs.get("value")?;
+    let id: Option<String> = kwargs.get("id")?;
+    let checked = kwargs.get::<Option<bool>>("checked")?.unwrap_or(false);
+    let disabled = kwargs.get::<Option<bool>>("disabled")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut switch = Switch::new(&name).with_attrs(&attrs);
+    if let Some(value) = value.as_deref().filter(|value| !value.is_empty()) {
+        switch = switch.with_value(value);
+    }
+    if checked {
+        switch = switch.checked();
+    }
+    if disabled {
+        switch = switch.disabled();
+    }
+
+    safe_component_value(&switch, "Switch")
+}
+
+fn wf_form(body_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let action: Option<String> = kwargs.get("action")?;
+    let method: Option<String> = kwargs.get("method")?;
+    let id: Option<String> = kwargs.get("id")?;
+    let autocomplete: Option<String> = kwargs.get("autocomplete")?;
+    let style: Option<String> = kwargs.get("style")?;
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    push_attr(&mut attr_values, "autocomplete", autocomplete);
+    push_attr(&mut attr_values, "style", style);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut form = Form::new(trusted_html(&body_html)).with_attrs(&attrs);
+    if let Some(action) = action.as_deref().filter(|value| !value.is_empty()) {
+        form = form.with_action(action);
+    }
+    if let Some(method) = method.as_deref().filter(|value| !value.is_empty()) {
+        form = form.with_method(method);
+    }
+
+    safe_component_value(&form, "Form")
+}
+
+fn wf_form_section(title: String, body_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let description: Option<String> = kwargs.get("description")?;
+    let actions_html: Option<String> = kwargs.get("actions_html")?;
+    kwargs.assert_all_used()?;
+
+    let mut section = FormSection::new(&title, trusted_html(&body_html));
+    if let Some(description) = description.as_deref().filter(|value| !value.is_empty()) {
+        section = section.with_description(description);
+    }
+    if let Some(actions_html) = actions_html.as_deref().filter(|value| !value.is_empty()) {
+        section = section.with_actions(trusted_html(actions_html));
+    }
+
+    safe_component_value(&section, "FormSection")
+}
+
+fn wf_form_actions(primary_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let secondary_html: Option<String> = kwargs.get("secondary_html")?;
+    kwargs.assert_all_used()?;
+
+    let mut actions = FormActions::new(trusted_html(&primary_html));
+    if let Some(secondary_html) = secondary_html.as_deref().filter(|value| !value.is_empty()) {
+        actions = actions.with_secondary(trusted_html(secondary_html));
+    }
+
+    safe_component_value(&actions, "FormActions")
+}
+
+fn wf_settings_section(title: String, body_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let description: Option<String> = kwargs.get("description")?;
+    let action_html: Option<String> = kwargs.get("action_html")?;
+    let danger = kwargs.get::<Option<bool>>("danger")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut section = SettingsSection::new(&title, trusted_html(&body_html));
+    if let Some(description) = description.as_deref().filter(|value| !value.is_empty()) {
+        section = section.with_description(description);
+    }
+    if let Some(action_html) = action_html.as_deref().filter(|value| !value.is_empty()) {
+        section = section.with_action(trusted_html(action_html));
+    }
+    if danger {
+        section = section.danger();
+    }
+
+    safe_component_value(&section, "SettingsSection")
+}
+
+fn wf_inline_form_row(label: String, control_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let hint: Option<String> = kwargs.get("hint")?;
+    let action_html: Option<String> = kwargs.get("action_html")?;
+    kwargs.assert_all_used()?;
+
+    let mut row = InlineFormRow::new(&label, trusted_html(&control_html));
+    if let Some(hint) = hint.as_deref().filter(|value| !value.is_empty()) {
+        row = row.with_hint(hint);
+    }
+    if let Some(action_html) = action_html.as_deref().filter(|value| !value.is_empty()) {
+        row = row.with_action(trusted_html(action_html));
+    }
+
+    safe_component_value(&row, "InlineFormRow")
+}
+
+fn wf_repeatable_array(label: String, items_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let description: Option<String> = kwargs.get("description")?;
+    let action_html: Option<String> = kwargs.get("action_html")?;
+    kwargs.assert_all_used()?;
+
+    let mut array = RepeatableArray::new(&label, trusted_html(&items_html));
+    if let Some(description) = description.as_deref().filter(|value| !value.is_empty()) {
+        array = array.with_description(description);
+    }
+    if let Some(action_html) = action_html.as_deref().filter(|value| !value.is_empty()) {
+        array = array.with_action(trusted_html(action_html));
+    }
+
+    safe_component_value(&array, "RepeatableArray")
+}
+
+fn wf_repeatable_item(label: String, body_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let actions_html: Option<String> = kwargs.get("actions_html")?;
+    kwargs.assert_all_used()?;
+
+    let mut item = RepeatableItem::new(&label, trusted_html(&body_html));
+    if let Some(actions_html) = actions_html.as_deref().filter(|value| !value.is_empty()) {
+        item = item.with_actions(trusted_html(actions_html));
+    }
+
+    safe_component_value(&item, "RepeatableItem")
 }
 
 fn wf_form_panel(title: String, body_html: String, kwargs: Kwargs) -> Result<Value, Error> {
@@ -358,13 +751,27 @@ fn wf_nav_item(label: String, href: String, active: Option<bool>) -> Result<Valu
 pub fn add_default_browser_templates(env: &mut Environment<'static>) {
     env.add_function("wf_alert", wf_alert);
     env.add_function("wf_app_shell", wf_app_shell);
+    env.add_function("wf_button", wf_button);
+    env.add_function("wf_check_row", wf_check_row);
+    env.add_function("wf_field", wf_field);
+    env.add_function("wf_form", wf_form);
+    env.add_function("wf_form_actions", wf_form_actions);
     env.add_function("wf_form_panel", wf_form_panel);
+    env.add_function("wf_form_section", wf_form_section);
+    env.add_function("wf_inline_form_row", wf_inline_form_row);
+    env.add_function("wf_input", wf_input);
     env.add_function("wf_minibuffer", wf_minibuffer);
     env.add_function("wf_modeline", wf_modeline);
     env.add_function("wf_nav_item", wf_nav_item);
     env.add_function("wf_nav_section", wf_nav_section);
     env.add_function("wf_page_header", wf_page_header);
+    env.add_function("wf_repeatable_array", wf_repeatable_array);
+    env.add_function("wf_repeatable_item", wf_repeatable_item);
+    env.add_function("wf_select", wf_select);
+    env.add_function("wf_settings_section", wf_settings_section);
     env.add_function("wf_split_shell", wf_split_shell);
+    env.add_function("wf_switch", wf_switch);
+    env.add_function("wf_textarea", wf_textarea);
 
     env.add_filter("datefmt", |value: String| -> String {
         if value.len() >= 16 {
@@ -524,5 +931,105 @@ mod tests {
             },
         );
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn form_component_helpers_render_through_minijinja() {
+        let mut env = Environment::new();
+        add_default_browser_templates(&mut env);
+        env.add_template(
+            "form_helpers.html",
+            r##"
+{{ wf_form(
+    wf_form_section(
+        "Account",
+        wf_field(
+            "Email",
+            wf_input(
+                "email",
+                type="email",
+                value="user@example.com",
+                required=true,
+                autocomplete="email"
+            ),
+            hint="Work address"
+        ) ~
+        wf_check_row("enabled", "yes", "Enabled", checked=true) ~
+        wf_field(
+            "Plan",
+            wf_select(
+                "plan",
+                ["free", "team"],
+                selected="team",
+                placeholder="Select…",
+                required=true,
+                id="plan"
+            )
+        ) ~
+        wf_field(
+            "Limit",
+            wf_input("limit", type="number", value="3", min="1", max="5")
+        ) ~
+        wf_field(
+            "Notes",
+            wf_textarea("notes", value="Hello", minlength="2", maxlength="200")
+        ),
+        description="Profile details",
+        actions_html=wf_form_actions(
+            wf_button("Save", variant="primary", type="submit"),
+            secondary_html=wf_button("Cancel", href="/settings")
+        )
+    ),
+    action="/settings",
+    method="post"
+) }}
+{{ wf_settings_section(
+    "Workspace",
+    wf_inline_form_row(
+        "Name",
+        wf_input("name", value="Acme", id="workspace-name")
+    )
+) }}
+{{ wf_repeatable_array(
+    "Redirect URIs",
+    wf_repeatable_item(
+        "URI 1",
+        wf_input("redirect_uris[]", type="url", value="https://example.test/callback")
+    )
+) }}
+"##,
+        )
+        .expect("add form helper test template");
+
+        let rendered = env
+            .get_template("form_helpers.html")
+            .expect("form helper template")
+            .render(minijinja::context! {})
+            .expect("render form helper template");
+
+        assert!(rendered.contains(r#"<form"#));
+        assert!(rendered.contains(r#"action="/settings""#));
+        assert!(rendered.contains(r#"method="post""#));
+        assert!(rendered.contains(r#"<button class="wf-btn primary" type="submit">Save</button>"#));
+        assert!(rendered.contains(r#"<a class="wf-btn" href="/settings">Cancel</a>"#));
+        assert!(rendered.contains(r#"class="wf-field""#));
+        assert!(rendered.contains(r#"name="email""#));
+        assert!(rendered.contains(r#"type="email""#));
+        assert!(rendered.contains(r#"autocomplete="email""#));
+        assert!(rendered.contains("Work address"));
+        assert!(rendered.contains(r#"name="enabled""#));
+        assert!(rendered.contains(r#"checked"#));
+        assert!(rendered.contains(r#"name="plan""#));
+        assert!(rendered.contains(r#"value="team" selected"#));
+        assert!(rendered.contains(r#"name="limit""#));
+        assert!(rendered.contains(r#"min="1""#));
+        assert!(rendered.contains(r#"max="5""#));
+        assert!(rendered.contains(r#"name="notes""#));
+        assert!(rendered.contains(r#"minlength="2""#));
+        assert!(rendered.contains(r#"maxlength="200""#));
+        assert!(rendered.contains("wf-settings-section"));
+        assert!(rendered.contains(r#"id="workspace-name""#));
+        assert!(rendered.contains(r#"Redirect URIs"#));
+        assert!(rendered.contains(r#"redirect_uris[]"#));
     }
 }

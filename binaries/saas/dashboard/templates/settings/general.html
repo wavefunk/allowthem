@@ -18,55 +18,58 @@
   {% if saved %}
     <script>document.addEventListener("DOMContentLoaded",function(){if(window.wfEcho)wfEcho("Settings saved.",{kind:"ok"})});</script>
   {% endif %}
-  <div class="wf-panel" style="margin:16px 24px 0">
-    <div class="wf-panel-head">
-      <div class="wf-panel-title">General</div>
-    </div>
-    <div class="wf-panel-body">
-      {% if error %}
-        <div class="wf-alert err" style="margin-bottom:12px;">
-          <span class="wf-bar"></span>
-          <div>{{ error }}</div>
-          <span></span>
-        </div>
-      {% endif %}
+  {% set general_body %}
+    {% if error %}
+      {{ wf_alert("err", error) }}
+    {% endif %}
 
-      {% if role == "owner" or role == "admin" %}
-        <form method="post" action="/t/{{ tenant.slug }}/settings" style="max-width:480px">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-          <div class="wf-form-row">
-            <label>
-              Workspace name
-              <input type="text" name="name" value="{{ tenant.name }}"
-                     maxlength="80" required />
-            </label>
-          </div>
-          <div class="wf-form-row">
-            <label>
-              Slug
-              <input type="text" value="{{ tenant.slug }}" readonly disabled
-                     style="opacity:0.6;cursor:not-allowed" />
-            </label>
-            <p class="wf-hint" style="margin-top:4px;font-size:12px;color:var(--wf-text-muted)">
-              The slug is permanent. Contact support if you need to change it.
-            </p>
-          </div>
-          <div style="margin-top:16px;">
-            <button type="submit" class="wf-btn primary">Save changes</button>
-          </div>
-        </form>
-      {% else %}
-        <dl class="wf-dl">
-          <div class="wf-dl-row">
-            <dt>Workspace name</dt>
-            <dd>{{ tenant.name }}</dd>
-          </div>
-          <div class="wf-dl-row">
-            <dt>Slug</dt>
-            <dd><code>{{ tenant.slug }}</code></dd>
-          </div>
-        </dl>
-      {% endif %}
-    </div>
-  </div>
+    {% if role == "owner" or role == "admin" %}
+      {% set form_body %}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        {{ wf_field(
+          "Workspace name",
+          wf_input(
+            "name",
+            type="text",
+            value=tenant.name,
+            maxlength="80",
+            required=true
+          )
+        ) }}
+        {{ wf_inline_form_row(
+          "Slug",
+          wf_input(
+            "slug",
+            type="text",
+            value=tenant.slug,
+            readonly=true,
+            disabled=true,
+            style="opacity:0.6;cursor:not-allowed"
+          ),
+          hint="The slug is permanent. Contact support if you need to change it."
+        ) }}
+        {{ wf_form_actions(
+          wf_button("Save changes", variant="primary", type="submit")
+        ) }}
+      {% endset %}
+      {{ wf_form(
+        form_body,
+        action="/t/" ~ tenant.slug ~ "/settings",
+        method="post",
+        style="max-width:480px"
+      ) }}
+    {% else %}
+      <dl class="wf-dl">
+        <div class="wf-dl-row">
+          <dt>Workspace name</dt>
+          <dd>{{ tenant.name }}</dd>
+        </div>
+        <div class="wf-dl-row">
+          <dt>Slug</dt>
+          <dd><code>{{ tenant.slug }}</code></dd>
+        </div>
+      </dl>
+    {% endif %}
+  {% endset %}
+  {{ wf_settings_section("General", general_body) }}
 {% endblock %}

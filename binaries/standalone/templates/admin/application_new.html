@@ -9,56 +9,81 @@
   <div class="wf-panel">
     <div class="wf-panel-body">
       {% if error %}
-        <div class="wf-alert err">
-          <span class="wf-bar"></span>
-          <div>{{ error }}</div>
-          <span></span>
-        </div>
+        {{ wf_alert("err", error) }}
       {% endif %}
 
-      <form method="post" action="/admin/applications">
+      {% set form_body %}
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-        <label class="wf-label" for="name">Name</label>
-        <input class="wf-input" type="text" id="name" name="name" required value="{{ form_name }}">
+        {{ wf_field(
+          "Name",
+          wf_input("name", type="text", id="name", required=true, value=form_name)
+        ) }}
 
-        <label class="wf-label">Redirect URIs</label>
-        <div id="uri-list">
+        {% set uri_items %}
+          <div id="uri-list">
           {% if form_redirect_uris %}
             {% for uri in form_redirect_uris %}
-              <div style="display: flex; gap: 8px;">
-                <input class="wf-input" type="text" name="redirect_uris"
-                       value="{{ uri }}" placeholder="https://example.com/callback">
-                <button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>
-              </div>
+              {{ wf_repeatable_item(
+                "URI " ~ loop.index,
+                wf_input(
+                  "redirect_uris",
+                  type="text",
+                  value=uri,
+                  placeholder="https://example.com/callback"
+                ),
+                actions_html='<button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>'
+              ) }}
             {% endfor %}
           {% else %}
-            <div style="display: flex; gap: 8px;">
-              <input class="wf-input" type="text" name="redirect_uris"
-                     placeholder="https://example.com/callback">
-              <button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>
-            </div>
+            {{ wf_repeatable_item(
+              "URI 1",
+              wf_input(
+                "redirect_uris",
+                type="text",
+                placeholder="https://example.com/callback"
+              ),
+              actions_html='<button class="wf-btn ghost sm remove-btn" type="button" onclick="removeUri(this)">Remove</button>'
+            ) }}
           {% endif %}
-        </div>
-        <p><button class="wf-btn ghost sm" type="button" onclick="addUri()">Add URI</button></p>
+          </div>
+        {% endset %}
+        {{ wf_repeatable_array(
+          "Redirect URIs",
+          uri_items,
+          action_html='<button class="wf-btn ghost sm" type="button" onclick="addUri()">Add URI</button>'
+        ) }}
 
-        <p>
-          <input type="checkbox" id="is_trusted" name="is_trusted"
-                 {% if form_is_trusted %}checked{% endif %}>
-          <label for="is_trusted">Trusted (skip consent screen)</label>
-        </p>
+        {{ wf_check_row(
+          "is_trusted",
+          "on",
+          "Trusted (skip consent screen)",
+          checked=form_is_trusted,
+          id="is_trusted"
+        ) }}
 
-        <label class="wf-label" for="logo_url">Logo URL (optional)</label>
-        <input class="wf-input" type="text" id="logo_url" name="logo_url" value="{{ form_logo_url }}">
+        {{ wf_field(
+          "Logo URL (optional)",
+          wf_input("logo_url", type="text", id="logo_url", value=form_logo_url)
+        ) }}
 
-        <label class="wf-label" for="primary_color">Primary color (optional)</label>
-        <input class="wf-input" type="text" id="primary_color" name="primary_color"
-               value="{{ form_primary_color }}" placeholder="#3B82F6">
+        {{ wf_field(
+          "Primary color (optional)",
+          wf_input(
+            "primary_color",
+            type="text",
+            id="primary_color",
+            value=form_primary_color,
+            placeholder="#3B82F6"
+          )
+        ) }}
 
-        <p><button class="wf-btn primary" type="submit">Create application</button></p>
-      </form>
-
-      <p><a class="wf-link-quiet" href="/admin/applications">Back to applications</a></p>
+        {{ wf_form_actions(
+          wf_button("Create application", variant="primary", type="submit"),
+          secondary_html='<a class="wf-link-quiet" href="/admin/applications">Back to applications</a>'
+        ) }}
+      {% endset %}
+      {{ wf_form(form_body, action="/admin/applications", method="post") }}
     </div>
   </div>
 {% endblock %}
@@ -69,8 +94,14 @@
     function addUri() {
       var container = document.getElementById('uri-list');
       var div = document.createElement('div');
-      div.style.display = 'flex';
-      div.style.gap = '8px';
+      div.className = 'wf-repeatable-item';
+
+      var head = document.createElement('div');
+      head.className = 'wf-repeatable-item-head';
+
+      var label = document.createElement('span');
+      label.className = 'wf-repeatable-item-label';
+      label.textContent = 'New URI';
 
       var input = document.createElement('input');
       input.type = 'text';
@@ -78,20 +109,26 @@
       input.placeholder = 'https://example.com/callback';
       input.className = 'wf-input';
 
+      var body = document.createElement('div');
+      body.className = 'wf-repeatable-item-body';
+
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = 'Remove';
       btn.className = 'wf-btn ghost sm remove-btn';
       btn.addEventListener('click', function () { removeUri(this); });
 
-      div.appendChild(input);
-      div.appendChild(btn);
+      head.appendChild(label);
+      head.appendChild(btn);
+      body.appendChild(input);
+      div.appendChild(head);
+      div.appendChild(body);
       container.appendChild(div);
       updateRemoveButtons();
     }
 
     function removeUri(btn) {
-      btn.parentElement.remove();
+      btn.closest('.wf-repeatable-item').remove();
       updateRemoveButtons();
     }
 
