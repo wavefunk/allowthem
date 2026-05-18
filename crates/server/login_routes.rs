@@ -12,7 +12,6 @@ use axum::routing::get;
 use axum_htmx::{HxBoosted, HxRequest};
 use chrono::Utc;
 use dashmap::DashMap;
-use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
@@ -23,7 +22,8 @@ use allowthem_core::sessions;
 use allowthem_core::types::ClientId;
 use allowthem_core::{AllowThem, AuditEvent, PasswordHash, SessionToken};
 
-use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
+use crate::auth_views::{LoginView, login_fragment, login_page};
+use crate::branding::{DefaultBranding, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 
@@ -37,7 +37,6 @@ const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$ldQz3PJVzDn06G+Bzin5Ew$
 
 #[derive(Clone)]
 struct LoginConfig {
-    templates: Arc<Environment<'static>>,
     is_production: bool,
     login_attempts: Arc<DashMap<IpAddr, (u32, Instant)>>,
     max_login_attempts: u32,
@@ -92,23 +91,19 @@ fn render_login_form(
 ) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
 
-    crate::browser_templates::render(
-        &config.templates,
-        "login.html",
-        context! {
-            csrf_token,
-            next => next_val,
-            error,
-            identifier,
-            client_id => client_id.map(|c| c.as_str()),
-            oauth_providers => &config.oauth_providers,
-            is_production => config.is_production,
-            signup_url => &config.signup_url,
-            terms_url => &config.terms_url,
-            privacy_url => &config.privacy_url,
-            ..branding_context(branding),
-        },
-    )
+    login_page(&LoginView {
+        csrf_token,
+        identifier,
+        next: Some(next_val).filter(|value| !value.is_empty()),
+        error,
+        client_id: client_id.map(|c| c.as_str()),
+        oauth_providers: &config.oauth_providers,
+        signup_url: config.signup_url.as_deref(),
+        terms_url: config.terms_url.as_deref(),
+        privacy_url: config.privacy_url.as_deref(),
+        branding,
+        is_production: config.is_production,
+    })
 }
 
 fn render_login_fragment(
@@ -122,30 +117,19 @@ fn render_login_fragment(
 ) -> Result<Html<String>, BrowserError> {
     let next_val = next.map(validate_next).unwrap_or("");
 
-    let ctx = context! {
+    login_fragment(&LoginView {
         csrf_token,
-        next => next_val,
-        error,
         identifier,
-        client_id => client_id.map(|c| c.as_str()),
-        oauth_providers => &config.oauth_providers,
-        is_production => config.is_production,
-        signup_url => &config.signup_url,
-        terms_url => &config.terms_url,
-        privacy_url => &config.privacy_url,
-        page_title => "Log in — allowthem",
-        status_hint => "SIGN IN",
-        ..branding_context(branding),
-    };
-
-    let main = crate::browser_templates::render(
-        &config.templates,
-        "_partials/_auth_main_login.html",
-        ctx.clone(),
-    )?;
-    let oob =
-        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
-    Ok(Html(format!("{}{}", main.0, oob.0)))
+        next: Some(next_val).filter(|value| !value.is_empty()),
+        error,
+        client_id: client_id.map(|c| c.as_str()),
+        oauth_providers: &config.oauth_providers,
+        signup_url: config.signup_url.as_deref(),
+        terms_url: config.terms_url.as_deref(),
+        privacy_url: config.privacy_url.as_deref(),
+        branding,
+        is_production: config.is_production,
+    })
 }
 
 fn is_rate_limited(config: &LoginConfig, ip: IpAddr) -> bool {
@@ -398,7 +382,6 @@ pub struct LoginOverrides {
 }
 
 pub fn login_routes(
-    templates: Arc<Environment<'static>>,
     is_production: bool,
     max_login_attempts: u32,
     rate_limit_window_secs: u64,
@@ -411,7 +394,6 @@ pub fn login_routes(
         privacy_url: None,
     });
     let cfg = LoginConfig {
-        templates,
         is_production,
         login_attempts: Arc::new(DashMap::new()),
         max_login_attempts,
@@ -447,9 +429,7 @@ mod tests {
             .build()
             .await
             .unwrap();
-        let templates = crate::browser_templates::build_default_browser_env();
         let config = LoginConfig {
-            templates,
             is_production: false,
             login_attempts: Arc::new(DashMap::new()),
             max_login_attempts: 10,
@@ -464,7 +444,6 @@ mod tests {
 
     fn test_app(ath: AllowThem, config: LoginConfig) -> Router {
         login_routes(
-            config.templates.clone(),
             config.is_production,
             config.max_login_attempts,
             config.rate_limit_window_secs,
@@ -831,6 +810,10 @@ mod tests {
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains("BrandedApp"), "should show app name");
         assert!(
+            html.contains("<title>Log in — BrandedApp</title>"),
+            "default title brand should use the application name"
+        );
+        assert!(
             html.contains("--accent: #ff6600"),
             "primary_color should flow to --accent"
         );
@@ -1074,7 +1057,6 @@ mod tests {
             .await
             .unwrap();
         let config = LoginConfig {
-            templates: crate::browser_templates::build_default_browser_env(),
             is_production: false,
             login_attempts: Arc::new(DashMap::new()),
             max_login_attempts: 10,

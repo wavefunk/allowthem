@@ -198,6 +198,7 @@ dependencies = [
  "dashmap",
  "governor",
  "hmac",
+ "html-escape",
  "jsonschema",
  "jsonwebtoken",
  "minijinja",

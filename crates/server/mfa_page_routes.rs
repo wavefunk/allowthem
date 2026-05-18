@@ -11,7 +11,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum_htmx::{HxBoosted, HxRequest};
 use chrono::Utc;
-use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
@@ -20,7 +19,11 @@ use allowthem_core::{AllowThem, AuditEvent, AuthError, sessions};
 use qrcode::QrCode;
 use qrcode::render::svg;
 
-use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
+use crate::auth_views::{
+    MfaChallengeView, MfaRecoveryView, MfaSetupView, mfa_challenge_fragment, mfa_challenge_page,
+    mfa_recovery_fragment, mfa_recovery_page, mfa_setup_fragment, mfa_setup_page,
+};
+use crate::branding::{DefaultBranding, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 use crate::error::BrowserAuthRedirect;
@@ -36,7 +39,6 @@ const CHALLENGE_INVALID_RECOVERY: &str = "Invalid recovery code";
 
 #[derive(Clone)]
 struct MfaPageConfig {
-    templates: Arc<Environment<'static>>,
     is_production: bool,
     base_url: String,
 }
@@ -156,26 +158,15 @@ fn render_mfa_setup_fragment(
     error: &str,
     branding: Option<&BrandingConfig>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let ctx = context! {
+    mfa_setup_fragment(&MfaSetupView {
         csrf_token,
         totp_uri,
         qr_data_uri,
         secret,
         error,
-        is_production => config.is_production,
-        page_title => "Set up two-factor authentication — allowthem",
-        status_hint => "ENABLE 2FA",
-        ..branding_context(branding),
-    };
-
-    let main = crate::browser_templates::render(
-        &config.templates,
-        "_partials/_auth_main_mfa_setup.html",
-        ctx.clone(),
-    )?;
-    let oob =
-        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
-    Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
+        branding,
+        is_production: config.is_production,
+    })
 }
 
 /// Render just the `_auth_main_mfa_recovery.html` partial plus the
@@ -185,22 +176,11 @@ fn render_mfa_recovery_fragment(
     recovery_codes: &[String],
     branding: Option<&BrandingConfig>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let ctx = context! {
+    mfa_recovery_fragment(&MfaRecoveryView {
         recovery_codes,
-        is_production => config.is_production,
-        page_title => "Recovery codes — allowthem",
-        status_hint => "RECOVERY CODES",
-        ..branding_context(branding),
-    };
-
-    let main = crate::browser_templates::render(
-        &config.templates,
-        "_partials/_auth_main_mfa_recovery.html",
-        ctx.clone(),
-    )?;
-    let oob =
-        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
-    Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
+        branding,
+        is_production: config.is_production,
+    })
 }
 
 /// GET /settings/mfa/setup — show QR URI, base32 secret, and TOTP code input.
@@ -249,19 +229,15 @@ async fn get_mfa_setup(
         return Ok(html.into_response());
     }
 
-    let html = crate::browser_templates::render(
-        &config.templates,
-        "mfa_setup.html",
-        context! {
-            csrf_token => csrf.as_str(),
-            secret => &secret,
-            totp_uri => &uri,
-            qr_data_uri => &qr,
-            error => "",
-            is_production => config.is_production,
-            ..branding_context(branding.as_ref()),
-        },
-    )?;
+    let html = mfa_setup_page(&MfaSetupView {
+        csrf_token: csrf.as_str(),
+        totp_uri: &uri,
+        qr_data_uri: &qr,
+        secret: &secret,
+        error: "",
+        branding: branding.as_ref(),
+        is_production: config.is_production,
+    })?;
     Ok(html.into_response())
 }
 
@@ -319,15 +295,11 @@ async fn post_mfa_confirm(
                 return Ok(html.into_response());
             }
 
-            let html = crate::browser_templates::render(
-                &config.templates,
-                "mfa_recovery.html",
-                context! {
-                    recovery_codes => &recovery_codes,
-                    is_production => config.is_production,
-                    ..branding_context(branding.as_ref()),
-                },
-            )?;
+            let html = mfa_recovery_page(&MfaRecoveryView {
+                recovery_codes: &recovery_codes,
+                branding: branding.as_ref(),
+                is_production: config.is_production,
+            })?;
             Ok(html.into_response())
         }
         Err(allowthem_core::AuthError::InvalidTotpCode) => {
@@ -340,19 +312,27 @@ async fn post_mfa_confirm(
             let uri = totp_uri(&secret, user.email.as_str(), &issuer);
             let qr = qr_data_uri(&uri);
 
-            let html = crate::browser_templates::render(
-                &config.templates,
-                "mfa_setup.html",
-                context! {
-                    csrf_token => csrf.as_str(),
-                    secret => &secret,
-                    totp_uri => &uri,
-                    qr_data_uri => &qr,
-                    error => SETUP_INVALID_CODE,
-                    is_production => config.is_production,
-                    ..branding_context(branding.as_ref()),
-                },
-            )?;
+            let html = if request && !boosted {
+                render_mfa_setup_fragment(
+                    &config,
+                    csrf.as_str(),
+                    &uri,
+                    &qr,
+                    &secret,
+                    SETUP_INVALID_CODE,
+                    branding.as_ref(),
+                )?
+            } else {
+                mfa_setup_page(&MfaSetupView {
+                    csrf_token: csrf.as_str(),
+                    totp_uri: &uri,
+                    qr_data_uri: &qr,
+                    secret: &secret,
+                    error: SETUP_INVALID_CODE,
+                    branding: branding.as_ref(),
+                    is_production: config.is_production,
+                })?
+            };
             Ok(html.into_response())
         }
         Err(e) => Err(BrowserError::Auth(e)),
@@ -435,15 +415,11 @@ async fn post_regenerate_recovery_codes(
         return Ok(html.into_response());
     }
 
-    let html = crate::browser_templates::render(
-        &config.templates,
-        "mfa_recovery.html",
-        context! {
-            recovery_codes => &recovery_codes,
-            is_production => config.is_production,
-            ..branding_context(branding.as_ref()),
-        },
-    )?;
+    let html = mfa_recovery_page(&MfaRecoveryView {
+        recovery_codes: &recovery_codes,
+        branding: branding.as_ref(),
+        is_production: config.is_production,
+    })?;
     Ok(html.into_response())
 }
 
@@ -470,23 +446,12 @@ fn render_mfa_challenge_fragment(
     error: &str,
     branding: Option<&BrandingConfig>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let ctx = context! {
+    mfa_challenge_fragment(&MfaChallengeView {
         mfa_token,
         error,
-        is_production => config.is_production,
-        page_title => "Two-factor authentication — allowthem",
-        status_hint => "TWO-FACTOR",
-        ..branding_context(branding),
-    };
-
-    let main = crate::browser_templates::render(
-        &config.templates,
-        "_partials/_auth_main_mfa_challenge.html",
-        ctx.clone(),
-    )?;
-    let oob =
-        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
-    Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
+        branding,
+        is_production: config.is_production,
+    })
 }
 
 /// GET /mfa/challenge — render TOTP code input form.
@@ -513,16 +478,12 @@ async fn get_mfa_challenge(
         return Ok(html.into_response());
     }
 
-    let html = crate::browser_templates::render(
-        &config.templates,
-        "mfa_challenge.html",
-        context! {
-            mfa_token => &query.token,
-            error => "",
-            is_production => config.is_production,
-            ..branding_context(branding.as_ref()),
-        },
-    )?;
+    let html = mfa_challenge_page(&MfaChallengeView {
+        mfa_token: &query.token,
+        error: "",
+        branding: branding.as_ref(),
+        is_production: config.is_production,
+    })?;
     Ok(html.into_response())
 }
 
@@ -592,16 +553,12 @@ async fn post_mfa_challenge(
             CHALLENGE_INVALID_TOTP
         };
 
-        let html = crate::browser_templates::render(
-            &config.templates,
-            "mfa_challenge.html",
-            context! {
-                mfa_token => &form.mfa_token,
-                error => error_msg,
-                is_production => config.is_production,
-                ..branding_context(branding.as_ref()),
-            },
-        )?;
+        let html = mfa_challenge_page(&MfaChallengeView {
+            mfa_token: &form.mfa_token,
+            error: error_msg,
+            branding: branding.as_ref(),
+            is_production: config.is_production,
+        })?;
         return Ok(html.into_response());
     }
 
@@ -669,13 +626,8 @@ async fn post_mfa_challenge(
 /// - GET  /settings/mfa/setup
 /// - POST /settings/mfa/confirm
 /// - POST /settings/mfa/disable
-pub fn mfa_setup_routes(
-    templates: Arc<Environment<'static>>,
-    is_production: bool,
-    base_url: String,
-) -> Router<()> {
+pub fn mfa_setup_routes(is_production: bool, base_url: String) -> Router<()> {
     let cfg = MfaPageConfig {
-        templates,
         is_production,
         base_url,
     };
@@ -695,12 +647,8 @@ pub fn mfa_setup_routes(
 /// Mounts:
 /// - GET  /mfa/challenge
 /// - POST /mfa/challenge
-pub fn mfa_challenge_routes(
-    templates: Arc<Environment<'static>>,
-    is_production: bool,
-) -> Router<()> {
+pub fn mfa_challenge_routes(is_production: bool) -> Router<()> {
     let cfg = MfaPageConfig {
-        templates,
         is_production,
         base_url: String::new(),
     };
@@ -743,15 +691,10 @@ mod tests {
     /// Build a router that exercises only the MFA routes (no login).
     /// Setup-side routes are CSRF-protected; challenge routes are not.
     fn test_app(ath: AllowThem) -> Router {
-        let templates = crate::browser_templates::build_default_browser_env();
         Router::new()
-            .merge(mfa_setup_routes(
-                templates.clone(),
-                false,
-                "http://127.0.0.1:3100".into(),
-            ))
+            .merge(mfa_setup_routes(false, "http://127.0.0.1:3100".into()))
             .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
-            .merge(mfa_challenge_routes(templates, false))
+            .merge(mfa_challenge_routes(false))
             .layer(axum::middleware::from_fn_with_state(
                 ath.clone(),
                 crate::cors::inject_ath_into_extensions,
@@ -1257,9 +1200,7 @@ mod tests {
 
     #[test]
     fn render_mfa_setup_fragment_composes_main_and_oob_head() {
-        let templates = crate::browser_templates::build_default_browser_env();
         let config = MfaPageConfig {
-            templates,
             is_production: false,
             base_url: "http://127.0.0.1:3100".into(),
         };
@@ -1333,9 +1274,7 @@ mod tests {
 
     #[test]
     fn render_mfa_recovery_fragment_composes_main_and_oob_head() {
-        let templates = crate::browser_templates::build_default_browser_env();
         let config = MfaPageConfig {
-            templates,
             is_production: false,
             base_url: "http://127.0.0.1:3100".into(),
         };
@@ -1424,9 +1363,7 @@ mod tests {
 
     #[test]
     fn render_mfa_challenge_fragment_composes_main_and_oob_head() {
-        let templates = crate::browser_templates::build_default_browser_env();
         let config = MfaPageConfig {
-            templates,
             is_production: false,
             base_url: String::new(),
         };

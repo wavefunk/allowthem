@@ -151,7 +151,6 @@ async fn main() -> Result<()> {
 
     // 6. Build all auth routes via AllRoutesBuilder
     let routes = AllRoutesBuilder::new()
-        .templates(templates.clone())
         .is_production(config.is_production)
         .base_url(&config.base_url)
         .max_login_attempts(config.max_login_attempts)
@@ -786,10 +785,9 @@ mod consent_tests {
 
     fn consent_router(state: AppState) -> Router {
         let ath = state.ath.clone();
-        let templates = state.templates.clone();
         let is_production = state.is_production;
         Router::new()
-            .merge(consent_routes(templates, is_production))
+            .merge(consent_routes(is_production))
             .layer(axum::middleware::from_fn(csrf_middleware))
             .layer(axum::middleware::from_fn_with_state(
                 ath.clone(),

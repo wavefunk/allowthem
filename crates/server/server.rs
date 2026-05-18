@@ -3,8 +3,7 @@
 pub mod all_routes;
 #[cfg(test)]
 mod all_server_templates_guard_tests;
-#[cfg(test)]
-mod auth_template_guard_tests;
+pub(crate) mod auth_views;
 pub mod authorize_routes;
 pub mod bearer;
 pub mod branding;
@@ -25,8 +24,6 @@ pub mod middleware;
 pub mod nav;
 pub mod oauth_bearer;
 pub mod oauth_routes;
-#[cfg(test)]
-mod partials_tests;
 pub mod password_reset_page_routes;
 pub mod password_reset_routes;
 pub mod rate_limit;

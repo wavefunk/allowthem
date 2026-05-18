@@ -99,7 +99,7 @@ fn attr_bool(value: &Value, key: &str) -> Result<bool, Error> {
 fn attr_pairs<'a>(pairs: &'a [(&'static str, String)]) -> Vec<HtmlAttr<'a>> {
     pairs
         .iter()
-        .map(|(name, value)| HtmlAttr::new(*name, value.as_str()))
+        .map(|(name, value)| HtmlAttr::new(name, value.as_str()))
         .collect()
 }
 

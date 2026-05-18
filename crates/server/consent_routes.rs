@@ -1,38 +1,26 @@
-use std::sync::Arc;
-
 use axum::Router;
 use axum::extract::{Extension, Query};
 use axum::http::HeaderMap;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum_htmx::{HxBoosted, HxRequest};
-use minijinja::{Environment, context};
-use serde::Serialize;
 
 use allowthem_core::AllowThem;
 
+use crate::auth_views::{ConsentScopeView, ConsentView, consent_fragment, consent_page};
 use crate::authorize_routes::{
     AuthorizeOutcome, AuthorizeParams, ConsentNeededData, check_authorization,
 };
 use crate::branding::resolve_accent;
 use crate::browser_error::BrowserError;
-use crate::browser_templates::render;
 use crate::csrf::CsrfToken;
 
 #[derive(Clone)]
 struct ConsentConfig {
-    templates: Arc<Environment<'static>>,
     is_production: bool,
 }
 
-#[derive(Serialize)]
-struct ScopeItem {
-    description: String,
-    kind: &'static str,
-    status_label: &'static str,
-}
-
-fn build_scope_items(scopes: &[String]) -> Vec<ScopeItem> {
+fn build_scope_items(scopes: &[String]) -> Vec<ConsentScopeView> {
     scopes
         .iter()
         .map(|s| {
@@ -42,10 +30,8 @@ fn build_scope_items(scopes: &[String]) -> Vec<ScopeItem> {
                 "email" => "View your email address",
                 other => other,
             };
-            ScopeItem {
+            ConsentScopeView {
                 description: description.to_string(),
-                kind: "ok",
-                status_label: "requested",
             }
         })
         .collect()
@@ -62,7 +48,7 @@ struct ConsentRenderFields {
     accent_ink: &'static str,
     accent_light: String,
     accent_ink_light: &'static str,
-    scope_items: Vec<ScopeItem>,
+    scope_items: Vec<ConsentScopeView>,
     client_id: String,
     redirect_uri: String,
     scope: String,
@@ -110,38 +96,7 @@ fn render_consent_fragment(
     config: &ConsentConfig,
     fields: &ConsentRenderFields,
 ) -> Result<Html<String>, BrowserError> {
-    let page_title = format!("Authorize {} — allowthem", fields.application_name);
-    let ctx = context! {
-        application_name => &fields.application_name,
-        app_name => &fields.app_name,
-        logo_url => &fields.logo_url,
-        accent => &fields.accent,
-        accent_ink => &fields.accent_ink,
-        accent_light => &fields.accent_light,
-        accent_ink_light => &fields.accent_ink_light,
-        scope_items => &fields.scope_items,
-        client_id => &fields.client_id,
-        redirect_uri => &fields.redirect_uri,
-        response_type => "code",
-        scope => &fields.scope,
-        state_param => &fields.state_param,
-        code_challenge => &fields.code_challenge,
-        code_challenge_method => &fields.code_challenge_method,
-        nonce => &fields.nonce,
-        csrf_token => &fields.csrf_token,
-        user_email => &fields.user_email,
-        is_production => config.is_production,
-        page_title => page_title,
-        status_hint => "CONSENT",
-    };
-
-    let main = render(
-        &config.templates,
-        "_partials/_auth_main_consent.html",
-        ctx.clone(),
-    )?;
-    let oob = render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
-    Ok(Html(format!("{}{}", main.0, oob.0)))
+    consent_fragment(&consent_view(config, fields))
 }
 
 /// Render the full-page `consent.html` (shell + main).
@@ -149,31 +104,31 @@ fn render_consent_full(
     config: &ConsentConfig,
     fields: &ConsentRenderFields,
 ) -> Result<Html<String>, BrowserError> {
-    render(
-        &config.templates,
-        "consent.html",
-        context! {
-            application_name => &fields.application_name,
-            app_name => &fields.app_name,
-            logo_url => &fields.logo_url,
-            accent => &fields.accent,
-            accent_ink => &fields.accent_ink,
-            accent_light => &fields.accent_light,
-            accent_ink_light => &fields.accent_ink_light,
-            scope_items => &fields.scope_items,
-            client_id => &fields.client_id,
-            redirect_uri => &fields.redirect_uri,
-            response_type => "code",
-            scope => &fields.scope,
-            state_param => &fields.state_param,
-            code_challenge => &fields.code_challenge,
-            code_challenge_method => &fields.code_challenge_method,
-            nonce => &fields.nonce,
-            csrf_token => &fields.csrf_token,
-            user_email => &fields.user_email,
-            is_production => config.is_production,
-        },
-    )
+    consent_page(&consent_view(config, fields))
+}
+
+fn consent_view<'a>(config: &'a ConsentConfig, fields: &'a ConsentRenderFields) -> ConsentView<'a> {
+    ConsentView {
+        application_name: &fields.application_name,
+        app_name: &fields.app_name,
+        logo_url: fields.logo_url.as_deref(),
+        accent: &fields.accent,
+        accent_ink: fields.accent_ink,
+        accent_light: &fields.accent_light,
+        accent_ink_light: fields.accent_ink_light,
+        scope_items: &fields.scope_items,
+        client_id: &fields.client_id,
+        redirect_uri: &fields.redirect_uri,
+        response_type: "code",
+        scope: &fields.scope,
+        state_param: &fields.state_param,
+        code_challenge: &fields.code_challenge,
+        code_challenge_method: &fields.code_challenge_method,
+        nonce: fields.nonce.as_deref(),
+        csrf_token: &fields.csrf_token,
+        user_email: &fields.user_email,
+        is_production: config.is_production,
+    }
 }
 
 /// GET /oauth/authorize — render consent screen or delegate to redirect.
@@ -202,11 +157,8 @@ async fn get_authorize(
     }
 }
 
-pub fn consent_routes(templates: Arc<Environment<'static>>, is_production: bool) -> Router<()> {
-    let cfg = ConsentConfig {
-        templates,
-        is_production,
-    };
+pub fn consent_routes(is_production: bool) -> Router<()> {
+    let cfg = ConsentConfig { is_production };
     Router::new()
         .route(
             "/oauth/authorize",
@@ -243,9 +195,7 @@ mod tests {
 
     #[test]
     fn render_consent_fragment_composes_main_and_oob_head() {
-        let templates = crate::browser_templates::build_default_browser_env();
         let config = ConsentConfig {
-            templates,
             is_production: false,
         };
         let fields = fixture_fields();
@@ -291,9 +241,8 @@ mod tests {
             html.contains(r#"name="client_id" value="cid-abc""#),
             "client_id hidden input missing"
         );
-        // MiniJinja HTML-escapes `/` to `&#x2f;` in attribute values.
         assert!(
-            html.contains(r#"name="redirect_uri" value="https:&#x2f;&#x2f;example.com&#x2f;cb""#),
+            html.contains(r#"name="redirect_uri" value="https://example.com/cb""#),
             "redirect_uri hidden input missing"
         );
         assert!(
@@ -330,10 +279,22 @@ mod tests {
     }
 
     #[test]
-    fn render_consent_fragment_renders_nonce_when_present() {
-        let templates = crate::browser_templates::build_default_browser_env();
+    fn render_consent_full_uses_allowthem_title_brand() {
         let config = ConsentConfig {
-            templates,
+            is_production: false,
+        };
+        let fields = fixture_fields();
+        let html = render_consent_full(&config, &fields).unwrap().0;
+
+        assert!(
+            html.contains("<title>Authorize Test App — allowthem</title>"),
+            "full consent page should not duplicate the relying party name in the title"
+        );
+    }
+
+    #[test]
+    fn render_consent_fragment_renders_nonce_when_present() {
+        let config = ConsentConfig {
             is_production: false,
         };
         let mut fields = fixture_fields();

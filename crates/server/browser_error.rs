@@ -54,12 +54,19 @@ pub fn render_error_page(title: &str, message: &str) -> String {
 #[derive(Debug)]
 pub enum BrowserError {
     Template(minijinja::Error),
+    Ui(wavefunk_ui::askama::Error),
     Auth(allowthem_core::AuthError),
 }
 
 impl From<minijinja::Error> for BrowserError {
     fn from(err: minijinja::Error) -> Self {
         BrowserError::Template(err)
+    }
+}
+
+impl From<wavefunk_ui::askama::Error> for BrowserError {
+    fn from(err: wavefunk_ui::askama::Error) -> Self {
+        BrowserError::Ui(err)
     }
 }
 
@@ -74,6 +81,14 @@ impl IntoResponse for BrowserError {
         match self {
             BrowserError::Template(e) => {
                 tracing::error!(error = %e, "template render failed");
+                let html = render_error_page(
+                    "Internal error",
+                    "Something went wrong while rendering this page.",
+                );
+                (StatusCode::INTERNAL_SERVER_ERROR, Html(html)).into_response()
+            }
+            BrowserError::Ui(e) => {
+                tracing::error!(error = %e, "UI render failed");
                 let html = render_error_page(
                     "Internal error",
                     "Something went wrong while rendering this page.",

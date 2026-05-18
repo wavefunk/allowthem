@@ -10,7 +10,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum_htmx::{HxBoosted, HxRequest};
 use chrono::Utc;
-use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
@@ -20,7 +19,8 @@ use allowthem_core::{
     RegisteredEvent, RegistrationSource, Username, generate_token, hash_token,
 };
 
-use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
+use crate::auth_views::{RegisterView, register_fragment, register_page};
+use crate::branding::{DefaultBranding, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 use crate::custom_fields::{
@@ -33,7 +33,6 @@ const MIN_PASSWORD_LEN: usize = 8;
 
 #[derive(Clone)]
 struct RegisterConfig {
-    templates: Arc<Environment<'static>>,
     is_production: bool,
     custom_schema: Option<Arc<CustomSchemaConfig>>,
     events_tx: Option<LifecycleEventSender>,
@@ -482,49 +481,22 @@ fn render_register_form(
     config: &RegisterConfig,
     params: RegisterFormParams<'_>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    // Build a custom_values map keyed by field name (stripping custom_data[] prefix)
-    let custom_values_map: HashMap<&str, &str> = params
-        .custom_values
-        .iter()
-        .filter_map(|(k, v)| {
-            k.strip_prefix("custom_data[")
-                .and_then(|s| s.strip_suffix(']'))
-                .map(|name| (name, v.as_str()))
-        })
-        .collect();
-
-    let RegisterFormParams {
-        csrf_token,
-        error,
-        email,
-        username,
-        client_id,
-        branding,
-        custom_fields,
-        token,
-        email_readonly,
-        registration_disabled,
-        ..
-    } = params;
-    crate::browser_templates::render(
-        &config.templates,
-        "register.html",
-        context! {
-            csrf_token,
-            error,
-            email,
-            username,
-            client_id => client_id.map(|c| c.as_str()),
-            is_production => config.is_production,
-            custom_fields,
-            custom_values => custom_values_map,
-            token,
-            email_readonly,
-            registration_disabled,
-            oauth_providers => &config.oauth_providers,
-            ..branding_context(branding),
-        },
-    )
+    let custom_values = custom_values_map(params.custom_values);
+    register_page(&RegisterView {
+        csrf_token: params.csrf_token,
+        email: params.email,
+        username: params.username,
+        error: params.error,
+        client_id: params.client_id.map(|c| c.as_str()),
+        branding: params.branding,
+        custom_fields: params.custom_fields,
+        custom_values: &custom_values,
+        token: params.token,
+        email_readonly: params.email_readonly,
+        registration_disabled: params.registration_disabled,
+        oauth_providers: &config.oauth_providers,
+        is_production: config.is_production,
+    })
 }
 
 /// Render just the `_auth_main_register.html` partial plus the
@@ -533,55 +505,33 @@ fn render_register_fragment(
     config: &RegisterConfig,
     params: RegisterFormParams<'_>,
 ) -> Result<axum::response::Html<String>, BrowserError> {
-    let custom_values_map: HashMap<&str, &str> = params
-        .custom_values
+    let custom_values = custom_values_map(params.custom_values);
+    register_fragment(&RegisterView {
+        csrf_token: params.csrf_token,
+        email: params.email,
+        username: params.username,
+        error: params.error,
+        client_id: params.client_id.map(|c| c.as_str()),
+        branding: params.branding,
+        custom_fields: params.custom_fields,
+        custom_values: &custom_values,
+        token: params.token,
+        email_readonly: params.email_readonly,
+        registration_disabled: params.registration_disabled,
+        oauth_providers: &config.oauth_providers,
+        is_production: config.is_production,
+    })
+}
+
+fn custom_values_map(values: &HashMap<String, String>) -> HashMap<&str, &str> {
+    values
         .iter()
-        .filter_map(|(k, v)| {
-            k.strip_prefix("custom_data[")
-                .and_then(|s| s.strip_suffix(']'))
-                .map(|name| (name, v.as_str()))
+        .filter_map(|(key, value)| {
+            key.strip_prefix("custom_data[")
+                .and_then(|field| field.strip_suffix(']'))
+                .map(|field| (field, value.as_str()))
         })
-        .collect();
-
-    let RegisterFormParams {
-        csrf_token,
-        error,
-        email,
-        username,
-        client_id,
-        branding,
-        custom_fields,
-        token,
-        email_readonly,
-        registration_disabled,
-        ..
-    } = params;
-    let ctx = context! {
-        csrf_token,
-        error,
-        email,
-        username,
-        client_id => client_id.map(|c| c.as_str()),
-        is_production => config.is_production,
-        custom_fields,
-        custom_values => custom_values_map,
-        token,
-        email_readonly,
-        registration_disabled,
-        oauth_providers => &config.oauth_providers,
-        page_title => "Register — allowthem",
-        status_hint => "CREATE ACCOUNT",
-        ..branding_context(branding),
-    };
-
-    let main = crate::browser_templates::render(
-        &config.templates,
-        "_partials/_auth_main_register.html",
-        ctx.clone(),
-    )?;
-    let oob =
-        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
-    Ok(axum::response::Html(format!("{}{}", main.0, oob.0)))
+        .collect()
 }
 
 /// Re-render the registration form with an error message and preserved input.
@@ -636,7 +586,6 @@ async fn is_authenticated(ath: &AllowThem, headers: &HeaderMap) -> bool {
 }
 
 pub fn register_routes(
-    templates: Arc<Environment<'static>>,
     is_production: bool,
     custom_schema: Option<CustomSchemaConfig>,
     events_tx: Option<LifecycleEventSender>,
@@ -645,7 +594,6 @@ pub fn register_routes(
     public_registration: bool,
 ) -> Router<()> {
     let cfg = RegisterConfig {
-        templates,
         is_production,
         custom_schema: custom_schema.map(Arc::new),
         events_tx,
@@ -684,9 +632,7 @@ mod tests {
             .build()
             .await
             .unwrap();
-        let templates = crate::browser_templates::build_default_browser_env();
         let config = RegisterConfig {
-            templates,
             is_production: false,
             custom_schema: None,
             events_tx: None,
@@ -699,7 +645,6 @@ mod tests {
 
     fn test_app(ath: AllowThem, config: RegisterConfig) -> Router {
         register_routes(
-            config.templates.clone(),
             config.is_production,
             config.custom_schema.as_ref().map(|arc| CustomSchemaConfig {
                 schema: arc.schema.clone(),
@@ -730,7 +675,9 @@ mod tests {
                 },
                 "age": {
                     "type": "integer",
-                    "minimum": 0
+                    "minimum": 0,
+                    "maximum": 120,
+                    "default": 21
                 },
                 "newsletter": {
                     "type": "boolean"
@@ -746,7 +693,6 @@ mod tests {
         };
 
         register_routes(
-            config.templates.clone(),
             config.is_production,
             Some(schema_config),
             config.events_tx.clone(),
@@ -1156,6 +1102,10 @@ mod tests {
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains("BrandedRegApp"), "should show app name");
         assert!(
+            html.contains("<title>Create account — BrandedRegApp</title>"),
+            "default title brand should use the application name"
+        );
+        assert!(
             html.contains("--accent: #ff6600"),
             "primary_color should flow to --accent"
         );
@@ -1376,6 +1326,17 @@ mod tests {
             "should render company custom field"
         );
         assert!(html.contains("Company Name"), "should render field label");
+        assert!(
+            html.contains(r#"name="custom_data[company]"#) && html.contains(r#"minlength="1""#),
+            "string custom fields should preserve minLength"
+        );
+        assert!(
+            html.contains(r#"name="custom_data[age]"#)
+                && html.contains(r#"min="0""#)
+                && html.contains(r#"max="120""#)
+                && html.contains(r#"value="21""#),
+            "number custom fields should preserve min/max/default attributes"
+        );
     }
 
     // --- Lifecycle events tests ---
@@ -1387,7 +1348,6 @@ mod tests {
         base_url: String,
     ) -> Router {
         register_routes(
-            config.templates.clone(),
             config.is_production,
             None,
             Some(events_tx),

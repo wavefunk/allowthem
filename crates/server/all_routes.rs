@@ -3,11 +3,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use axum::Router;
-use minijinja::Environment;
 
 use allowthem_core::{AllowThem, LifecycleEventSender, OAuthProvider};
-
-use crate::browser_templates::build_default_browser_env;
 
 /// Identifies a logical group of routes that can be selectively enabled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,7 +46,6 @@ impl std::error::Error for AllRoutesError {}
 /// [`Router<()>`] with CSRF middleware applied to the correct subset.
 pub struct AllRoutesBuilder {
     // Shared config
-    templates: Option<Arc<Environment<'static>>>,
     is_production: bool,
     base_url: Option<String>,
 
@@ -92,7 +88,6 @@ impl Default for AllRoutesBuilder {
 impl AllRoutesBuilder {
     pub fn new() -> Self {
         Self {
-            templates: None,
             is_production: false,
             base_url: None,
             max_login_attempts: 10,
@@ -112,11 +107,6 @@ impl AllRoutesBuilder {
     }
 
     // --- Shared config ---
-
-    pub fn templates(mut self, templates: Arc<Environment<'static>>) -> Self {
-        self.templates = Some(templates);
-        self
-    }
 
     pub fn is_production(mut self, is_production: bool) -> Self {
         self.is_production = is_production;
@@ -316,10 +306,6 @@ impl AllRoutesBuilder {
 
         // --- Resolve defaults ---
 
-        let templates = self
-            .templates
-            .take()
-            .unwrap_or_else(build_default_browser_env);
         let is_production = self.is_production;
 
         // Derive oauth_providers_list from the provider map keys when not
@@ -343,7 +329,6 @@ impl AllRoutesBuilder {
 
         if self.selected(RouteGroup::Login) {
             csrf_protected = csrf_protected.merge(crate::login_routes::login_routes(
-                templates.clone(),
                 is_production,
                 self.max_login_attempts,
                 self.rate_limit_window_secs,
@@ -368,7 +353,6 @@ impl AllRoutesBuilder {
                 None
             };
             csrf_protected = csrf_protected.merge(crate::register_routes::register_routes(
-                templates.clone(),
                 is_production,
                 custom_schema,
                 self.events_tx.clone(),
@@ -383,32 +367,24 @@ impl AllRoutesBuilder {
         }
 
         if self.selected(RouteGroup::Settings) {
-            csrf_protected = csrf_protected.merge(crate::settings_routes::settings_routes(
-                templates.clone(),
-                is_production,
-            ));
+            csrf_protected =
+                csrf_protected.merge(crate::settings_routes::settings_routes(is_production));
         }
 
         if self.selected(RouteGroup::Consent) {
-            csrf_protected = csrf_protected.merge(crate::consent_routes::consent_routes(
-                templates.clone(),
-                is_production,
-            ));
+            csrf_protected =
+                csrf_protected.merge(crate::consent_routes::consent_routes(is_production));
         }
 
         if self.selected(RouteGroup::PasswordReset) {
             csrf_protected = csrf_protected.merge(
-                crate::password_reset_page_routes::password_reset_page_routes(
-                    templates.clone(),
-                    is_production,
-                ),
+                crate::password_reset_page_routes::password_reset_page_routes(is_production),
             );
         }
 
         if self.selected(RouteGroup::Mfa) {
             let base_url = self.base_url.clone().expect("validated above");
             csrf_protected = csrf_protected.merge(crate::mfa_page_routes::mfa_setup_routes(
-                templates.clone(),
                 is_production,
                 base_url,
             ));
@@ -419,10 +395,7 @@ impl AllRoutesBuilder {
         let mut non_csrf: Router<()> = Router::new();
 
         if self.selected(RouteGroup::Mfa) {
-            non_csrf = non_csrf.merge(crate::mfa_page_routes::mfa_challenge_routes(
-                templates.clone(),
-                is_production,
-            ));
+            non_csrf = non_csrf.merge(crate::mfa_page_routes::mfa_challenge_routes(is_production));
             let issuer = self.mfa_issuer.take().expect("validated above");
             non_csrf = non_csrf.merge(crate::mfa_routes::mfa_routes(issuer));
         }

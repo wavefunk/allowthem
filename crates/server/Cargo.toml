@@ -27,6 +27,7 @@ url.workspace = true
 uuid.workspace = true
 governor.workspace = true
 hmac.workspace = true
+html-escape.workspace = true
 minijinja.workspace = true
 dashmap.workspace = true
 subtle.workspace = true

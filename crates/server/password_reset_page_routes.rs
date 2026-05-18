@@ -9,13 +9,16 @@ use axum::http::header::COOKIE;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum_htmx::{HxBoosted, HxRequest};
-use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::applications::BrandingConfig;
 use allowthem_core::{AllowThem, Email};
 
-use crate::branding::{DefaultBranding, branding_context, default_branding_ref, resolve_branding};
+use crate::auth_views::{
+    ForgotPasswordView, ResetPasswordView, forgot_password_fragment, forgot_password_page,
+    reset_password_fragment, reset_password_page,
+};
+use crate::branding::{DefaultBranding, default_branding_ref, resolve_branding};
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 
@@ -23,7 +26,6 @@ const MIN_PASSWORD_LEN: usize = 8;
 
 #[derive(Clone)]
 struct PasswordResetPageConfig {
-    templates: Arc<Environment<'static>>,
     is_production: bool,
 }
 
@@ -57,24 +59,13 @@ fn render_forgot_password_fragment(
     success: bool,
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
-    let ctx = context! {
+    forgot_password_fragment(&ForgotPasswordView {
         csrf_token,
-        success,
         error,
-        is_production => config.is_production,
-        page_title => "Forgot password — allowthem",
-        status_hint => "FORGOT PASSWORD",
-        ..branding_context(branding),
-    };
-
-    let main = crate::browser_templates::render(
-        &config.templates,
-        "_partials/_auth_main_forgot_password.html",
-        ctx.clone(),
-    )?;
-    let oob =
-        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
-    Ok(Html(format!("{}{}", main.0, oob.0)))
+        success,
+        branding,
+        is_production: config.is_production,
+    })
 }
 
 /// Render just the `_auth_main_reset_password.html` partial plus the
@@ -88,26 +79,15 @@ fn render_reset_password_fragment(
     error: &str,
     branding: Option<&BrandingConfig>,
 ) -> Result<Html<String>, BrowserError> {
-    let ctx = context! {
+    reset_password_fragment(&ResetPasswordView {
         csrf_token,
         token,
         invalid_token,
         success,
         error,
-        is_production => config.is_production,
-        page_title => "Reset password — allowthem",
-        status_hint => "RESET PASSWORD",
-        ..branding_context(branding),
-    };
-
-    let main = crate::browser_templates::render(
-        &config.templates,
-        "_partials/_auth_main_reset_password.html",
-        ctx.clone(),
-    )?;
-    let oob =
-        crate::browser_templates::render(&config.templates, "_partials/_auth_oob_head.html", ctx)?;
-    Ok(Html(format!("{}{}", main.0, oob.0)))
+        branding,
+        is_production: config.is_production,
+    })
 }
 
 /// GET /forgot-password — render the email input form.
@@ -133,17 +113,13 @@ async fn get_forgot_password(
         return Ok(html.into_response());
     }
 
-    let html = crate::browser_templates::render(
-        &config.templates,
-        "forgot_password.html",
-        context! {
-            csrf_token => csrf.as_str(),
-            success => false,
-            error => "",
-            is_production => config.is_production,
-            ..branding_context(branding.as_ref()),
-        },
-    )?;
+    let html = forgot_password_page(&ForgotPasswordView {
+        csrf_token: csrf.as_str(),
+        error: "",
+        success: false,
+        branding: branding.as_ref(),
+        is_production: config.is_production,
+    })?;
     Ok(html.into_response())
 }
 
@@ -161,17 +137,13 @@ async fn post_forgot_password(
     let email = match Email::new(form.email.clone()) {
         Ok(e) => e,
         Err(_) => {
-            let html = crate::browser_templates::render(
-                &config.templates,
-                "forgot_password.html",
-                context! {
-                    csrf_token => csrf.as_str(),
-                    success => false,
-                    error => "Please enter a valid email address.",
-                    is_production => config.is_production,
-                    ..branding_context(branding.as_ref()),
-                },
-            )?;
+            let html = forgot_password_page(&ForgotPasswordView {
+                csrf_token: csrf.as_str(),
+                error: "Please enter a valid email address.",
+                success: false,
+                branding: branding.as_ref(),
+                is_production: config.is_production,
+            })?;
             return Ok(html.into_response());
         }
     };
@@ -180,17 +152,13 @@ async fn post_forgot_password(
         tracing::error!("password reset email error: {err}");
     }
 
-    let html = crate::browser_templates::render(
-        &config.templates,
-        "forgot_password.html",
-        context! {
-            csrf_token => csrf.as_str(),
-            success => true,
-            error => "",
-            is_production => config.is_production,
-            ..branding_context(branding.as_ref()),
-        },
-    )?;
+    let html = forgot_password_page(&ForgotPasswordView {
+        csrf_token: csrf.as_str(),
+        error: "",
+        success: true,
+        branding: branding.as_ref(),
+        is_production: config.is_production,
+    })?;
     Ok(html.into_response())
 }
 
@@ -222,19 +190,15 @@ async fn get_reset_password(
                 )?;
                 return Ok(html.into_response());
             }
-            let html = crate::browser_templates::render(
-                &config.templates,
-                "reset_password.html",
-                context! {
-                    csrf_token => csrf.as_str(),
-                    token => "",
-                    invalid_token => true,
-                    success => false,
-                    error => "",
-                    is_production => config.is_production,
-                    ..branding_context(branding.as_ref()),
-                },
-            )?;
+            let html = reset_password_page(&ResetPasswordView {
+                csrf_token: csrf.as_str(),
+                token: "",
+                invalid_token: true,
+                success: false,
+                error: "",
+                branding: branding.as_ref(),
+                is_production: config.is_production,
+            })?;
             return Ok(html.into_response());
         }
     };
@@ -260,19 +224,15 @@ async fn get_reset_password(
             )?;
             return Ok(html.into_response());
         }
-        let html = crate::browser_templates::render(
-            &config.templates,
-            "reset_password.html",
-            context! {
-                csrf_token => csrf.as_str(),
-                token,
-                invalid_token => false,
-                success => false,
-                error => "",
-                is_production => config.is_production,
-                ..branding_context(branding.as_ref()),
-            },
-        )?;
+        let html = reset_password_page(&ResetPasswordView {
+            csrf_token: csrf.as_str(),
+            token: &token,
+            invalid_token: false,
+            success: false,
+            error: "",
+            branding: branding.as_ref(),
+            is_production: config.is_production,
+        })?;
         Ok(html.into_response())
     } else {
         if request && !boosted {
@@ -287,19 +247,15 @@ async fn get_reset_password(
             )?;
             return Ok(html.into_response());
         }
-        let html = crate::browser_templates::render(
-            &config.templates,
-            "reset_password.html",
-            context! {
-                csrf_token => csrf.as_str(),
-                token => "",
-                invalid_token => true,
-                success => false,
-                error => "",
-                is_production => config.is_production,
-                ..branding_context(branding.as_ref()),
-            },
-        )?;
+        let html = reset_password_page(&ResetPasswordView {
+            csrf_token: csrf.as_str(),
+            token: "",
+            invalid_token: true,
+            success: false,
+            error: "",
+            branding: branding.as_ref(),
+            is_production: config.is_production,
+        })?;
         Ok(html.into_response())
     }
 }
@@ -317,37 +273,29 @@ async fn post_reset_password(
 
     // Validate: passwords match
     if form.new_password != form.confirm_password {
-        let html = crate::browser_templates::render(
-            &config.templates,
-            "reset_password.html",
-            context! {
-                csrf_token => csrf.as_str(),
-                token => form.token,
-                invalid_token => false,
-                success => false,
-                error => "Passwords do not match",
-                is_production => config.is_production,
-                ..branding_context(branding.as_ref()),
-            },
-        )?;
+        let html = reset_password_page(&ResetPasswordView {
+            csrf_token: csrf.as_str(),
+            token: &form.token,
+            invalid_token: false,
+            success: false,
+            error: "Passwords do not match",
+            branding: branding.as_ref(),
+            is_production: config.is_production,
+        })?;
         return Ok(html.into_response());
     }
 
     // Validate: password length
     if form.new_password.len() < MIN_PASSWORD_LEN {
-        let html = crate::browser_templates::render(
-            &config.templates,
-            "reset_password.html",
-            context! {
-                csrf_token => csrf.as_str(),
-                token => form.token,
-                invalid_token => false,
-                success => false,
-                error => "Password must be at least 8 characters",
-                is_production => config.is_production,
-                ..branding_context(branding.as_ref()),
-            },
-        )?;
+        let html = reset_password_page(&ResetPasswordView {
+            csrf_token: csrf.as_str(),
+            token: &form.token,
+            invalid_token: false,
+            success: false,
+            error: "Password must be at least 8 characters",
+            branding: branding.as_ref(),
+            is_production: config.is_production,
+        })?;
         return Ok(html.into_response());
     }
 
@@ -364,35 +312,27 @@ async fn post_reset_password(
 
     match reset_result {
         true => {
-            let html = crate::browser_templates::render(
-                &config.templates,
-                "reset_password.html",
-                context! {
-                    csrf_token => csrf.as_str(),
-                    token => "",
-                    invalid_token => false,
-                    success => true,
-                    error => "",
-                    is_production => config.is_production,
-                    ..branding_context(branding.as_ref()),
-                },
-            )?;
+            let html = reset_password_page(&ResetPasswordView {
+                csrf_token: csrf.as_str(),
+                token: "",
+                invalid_token: false,
+                success: true,
+                error: "",
+                branding: branding.as_ref(),
+                is_production: config.is_production,
+            })?;
             Ok(html.into_response())
         }
         false => {
-            let html = crate::browser_templates::render(
-                &config.templates,
-                "reset_password.html",
-                context! {
-                    csrf_token => csrf.as_str(),
-                    token => "",
-                    invalid_token => true,
-                    success => false,
-                    error => "",
-                    is_production => config.is_production,
-                    ..branding_context(branding.as_ref()),
-                },
-            )?;
+            let html = reset_password_page(&ResetPasswordView {
+                csrf_token: csrf.as_str(),
+                token: "",
+                invalid_token: true,
+                success: false,
+                error: "",
+                branding: branding.as_ref(),
+                is_production: config.is_production,
+            })?;
             Ok(html.into_response())
         }
     }
@@ -414,14 +354,8 @@ async fn is_authenticated(ath: &AllowThem, headers: &HeaderMap) -> bool {
         .is_some()
 }
 
-pub fn password_reset_page_routes(
-    templates: Arc<Environment<'static>>,
-    is_production: bool,
-) -> Router<()> {
-    let cfg = PasswordResetPageConfig {
-        templates,
-        is_production,
-    };
+pub fn password_reset_page_routes(is_production: bool) -> Router<()> {
+    let cfg = PasswordResetPageConfig { is_production };
     Router::new()
         .route(
             "/forgot-password",
@@ -457,16 +391,14 @@ mod tests {
             .build()
             .await
             .unwrap();
-        let templates = crate::browser_templates::build_default_browser_env();
         let config = PasswordResetPageConfig {
-            templates,
             is_production: false,
         };
         (ath, config)
     }
 
     fn test_app(ath: AllowThem, config: PasswordResetPageConfig) -> Router {
-        password_reset_page_routes(config.templates.clone(), config.is_production)
+        password_reset_page_routes(config.is_production)
             .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
             .layer(axum::middleware::from_fn_with_state(
                 ath.clone(),

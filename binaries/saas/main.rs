@@ -25,8 +25,8 @@ use allowthem_saas::{
     WebhookEventSinkFactory, WebhookWorker, WebhookWorkerConfig, manage_router, pre_warm,
     tenant_router_middleware,
 };
+use allowthem_server::AllRoutesBuilder;
 use allowthem_server::login_routes::LoginOverrides;
-use allowthem_server::{AllRoutesBuilder, build_default_browser_env};
 
 use crate::dashboard::quickstart::quickstart_routes;
 use crate::dashboard::signup::signup_routes;
@@ -216,7 +216,6 @@ async fn main() -> Result<()> {
     }
 
     let auth_routes = AllRoutesBuilder::new()
-        .templates(build_default_browser_env())
         .is_production(cfg.is_production)
         .base_url(format!("https://{}", cfg.base_domain))
         .mfa_issuer(&cfg.base_domain)

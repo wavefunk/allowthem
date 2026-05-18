@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::Router;
 use axum::extract::Extension;
 use axum::http::HeaderMap;
@@ -7,13 +5,12 @@ use axum::http::Uri;
 use axum::http::header::USER_AGENT;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
-use minijinja::{Environment, context};
 use serde::Deserialize;
 
 use allowthem_core::types::{RoleName, User};
 use allowthem_core::{AllowThem, AuditEvent, AuthError, Email, OAuthAccountInfo, Username};
-use minijinja::value::Value;
 
+use crate::auth_views::SettingsView;
 use crate::browser_error::BrowserError;
 use crate::csrf::CsrfToken;
 use crate::error::BrowserAuthRedirect;
@@ -23,7 +20,6 @@ const MIN_PASSWORD_LEN: usize = 8;
 
 #[derive(Clone)]
 struct SettingsConfig {
-    templates: Arc<Environment<'static>>,
     is_production: bool,
 }
 
@@ -64,24 +60,20 @@ fn render_settings(
     ctx: &SettingsContext,
 ) -> Result<Html<String>, BrowserError> {
     let shell = ShellContext::new(ctx.is_admin, "/settings", "allowthem").with_session(&ctx.email);
-    crate::browser_templates::render(
-        &config.templates,
-        "settings.html",
-        context! {
-            csrf_token,
-            shell => Value::from_serialize(&shell),
-            email => &ctx.email,
-            username => &ctx.username,
-            profile_error => &ctx.profile_error,
-            profile_success => &ctx.profile_success,
-            password_error => &ctx.password_error,
-            password_success => &ctx.password_success,
-            oauth_accounts => &ctx.oauth_accounts,
-            mfa_enabled => ctx.mfa_enabled,
-            mfa_recovery_remaining => ctx.mfa_recovery_remaining,
-            is_production => config.is_production,
-        },
-    )
+    crate::auth_views::settings_page(&SettingsView {
+        csrf_token,
+        shell: &shell,
+        email: &ctx.email,
+        username: &ctx.username,
+        profile_error: &ctx.profile_error,
+        profile_success: &ctx.profile_success,
+        password_error: &ctx.password_error,
+        password_success: &ctx.password_success,
+        oauth_accounts: &ctx.oauth_accounts,
+        mfa_enabled: ctx.mfa_enabled,
+        mfa_recovery_remaining: ctx.mfa_recovery_remaining,
+        is_production: config.is_production,
+    })
 }
 
 async fn fetch_account_data(
@@ -463,11 +455,8 @@ async fn post_change_password(
     Ok(([(axum::http::header::SET_COOKIE, cookie)], html).into_response())
 }
 
-pub fn settings_routes(templates: Arc<Environment<'static>>, is_production: bool) -> Router<()> {
-    let cfg = SettingsConfig {
-        templates,
-        is_production,
-    };
+pub fn settings_routes(is_production: bool) -> Router<()> {
+    let cfg = SettingsConfig { is_production };
     Router::new()
         .route("/settings", get(get_settings).post(post_settings))
         .route("/settings/password", post(post_change_password))
@@ -497,8 +486,6 @@ mod tests {
             .await
             .unwrap();
 
-        let templates = crate::browser_templates::build_default_browser_env();
-
         let email = Email::new("user@example.com".into()).unwrap();
         let user = ath
             .db()
@@ -517,7 +504,6 @@ mod tests {
         let cookie_value = set_cookie.split(';').next().unwrap().to_string();
 
         let config = SettingsConfig {
-            templates,
             is_production: false,
         };
 
@@ -525,7 +511,7 @@ mod tests {
     }
 
     fn test_app(ath: AllowThem, config: SettingsConfig) -> Router {
-        settings_routes(config.templates.clone(), config.is_production)
+        settings_routes(config.is_production)
             .layer(axum::middleware::from_fn(crate::csrf::csrf_middleware))
             .layer(axum::middleware::from_fn_with_state(
                 ath.clone(),
@@ -1075,8 +1061,6 @@ mod tests {
             .build()
             .await
             .unwrap();
-        let templates = crate::browser_templates::build_default_browser_env();
-
         let email = Email::new("oauth@example.com".into()).unwrap();
         let user = ath
             .db()
@@ -1095,7 +1079,6 @@ mod tests {
         let cookie = set_cookie.split(';').next().unwrap().to_string();
 
         let config = SettingsConfig {
-            templates,
             is_production: false,
         };
 
