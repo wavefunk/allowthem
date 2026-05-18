@@ -5,10 +5,11 @@ use minijinja::value::{Kwargs, Value};
 use minijinja::{Environment, Error, ErrorKind};
 use wavefunk_ui::Template;
 use wavefunk_ui::components::{
-    Alert, Button, ButtonSize, ButtonVariant, CheckRow, FeedbackKind, Field, Form, FormActions,
-    FormPanel, FormSection, HtmlAttr, InlineFormRow, Input, Minibuffer, Modeline, ModelineSegment,
-    NavItem, NavSection, PageHeader, RepeatableArray, RepeatableItem, Select, SelectOption,
-    SettingsSection, SplitShell, Switch, Textarea,
+    Alert, Badge, BulkActionBar, Button, ButtonSize, ButtonVariant, CheckRow, FeedbackKind, Field,
+    FilterBar, Form, FormActions, FormPanel, FormSection, HtmlAttr, InlineFormRow, Input,
+    Minibuffer, Modeline, ModelineSegment, NavItem, NavSection, PageHeader, PageLink, Pagination,
+    RepeatableArray, RepeatableItem, RowSelect, Select, SelectOption, SettingsSection, SplitShell,
+    Switch, TableFooter, TableWrap, Tag, Textarea,
 };
 use wavefunk_ui::layouts::AppShell;
 
@@ -65,6 +66,10 @@ where
         .map_err(|err| component_error(name, err))
 }
 
+fn urlencode_filter(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
 fn attr_pairs<'a>(pairs: &'a [(&'static str, String)]) -> Vec<HtmlAttr<'a>> {
     pairs
         .iter()
@@ -107,11 +112,13 @@ fn wf_button(label: String, kwargs: Kwargs) -> Result<Value, Error> {
     let size: Option<String> = kwargs.get("size")?;
     let button_type: Option<String> = kwargs.get("type")?;
     let id: Option<String> = kwargs.get("id")?;
+    let title: Option<String> = kwargs.get("title")?;
     let disabled = kwargs.get::<Option<bool>>("disabled")?.unwrap_or(false);
     kwargs.assert_all_used()?;
 
     let mut attr_values = Vec::new();
     push_attr(&mut attr_values, "id", id);
+    push_attr(&mut attr_values, "title", title);
     let attrs = attr_pairs(&attr_values);
 
     let mut button = Button::new(&label)
@@ -373,7 +380,10 @@ fn wf_form_section(title: String, body_html: String, kwargs: Kwargs) -> Result<V
     if let Some(description) = description.as_deref().filter(|value| !value.is_empty()) {
         section = section.with_description(description);
     }
-    if let Some(actions_html) = actions_html.as_deref().filter(|value| !value.is_empty()) {
+    if let Some(actions_html) = actions_html
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         section = section.with_actions(trusted_html(actions_html));
     }
 
@@ -449,7 +459,10 @@ fn wf_repeatable_item(label: String, body_html: String, kwargs: Kwargs) -> Resul
     kwargs.assert_all_used()?;
 
     let mut item = RepeatableItem::new(&label, trusted_html(&body_html));
-    if let Some(actions_html) = actions_html.as_deref().filter(|value| !value.is_empty()) {
+    if let Some(actions_html) = actions_html
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         item = item.with_actions(trusted_html(actions_html));
     }
 
@@ -618,7 +631,7 @@ fn feedback_kind(kind: &str) -> FeedbackKind {
     match kind {
         "ok" | "success" => FeedbackKind::Ok,
         "warn" | "warning" => FeedbackKind::Warn,
-        "err" | "error" | "danger" => FeedbackKind::Error,
+        "err" | "error" | "danger" | "bad" => FeedbackKind::Error,
         _ => FeedbackKind::Info,
     }
 }
@@ -632,6 +645,180 @@ fn wf_alert(kind: String, message: String, kwargs: Kwargs) -> Result<Value, Erro
         alert = alert.with_title(title);
     }
     safe_component_value(&alert, "Alert")
+}
+
+fn wf_tag(label: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let kind: Option<String> = kwargs.get("kind")?;
+    let dot = kwargs.get::<Option<bool>>("dot")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let label = label.trim().to_owned();
+    let mut tag = Tag::new(&label);
+    if let Some(kind) = kind.as_deref().filter(|value| !value.is_empty()) {
+        tag = tag.with_kind(feedback_kind(kind));
+    }
+    if dot {
+        tag = tag.with_dot();
+    }
+
+    safe_component_value(&tag, "Tag")
+}
+
+fn wf_badge(label: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let kind: Option<String> = kwargs.get("kind")?;
+    kwargs.assert_all_used()?;
+
+    let label = label.trim().to_owned();
+    let badge = match kind.as_deref() {
+        Some("muted") => Badge::muted(&label),
+        Some("err") | Some("error") | Some("danger") | Some("bad") => Badge::error(&label),
+        _ => Badge::new(&label),
+    };
+
+    safe_component_value(&badge, "Badge")
+}
+
+fn wf_filter_bar(controls_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let actions_html: Option<String> = kwargs.get("actions_html")?;
+    let id: Option<String> = kwargs.get("id")?;
+    let hx_get: Option<String> = kwargs.get("hx_get")?;
+    let hx_target: Option<String> = kwargs.get("hx_target")?;
+    let hx_trigger: Option<String> = kwargs.get("hx_trigger")?;
+    let hx_swap: Option<String> = kwargs.get("hx_swap")?;
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    push_attr(&mut attr_values, "hx-get", hx_get);
+    push_attr(&mut attr_values, "hx-target", hx_target);
+    push_attr(&mut attr_values, "hx-trigger", hx_trigger);
+    push_attr(&mut attr_values, "hx-swap", hx_swap);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut filterbar = FilterBar::new(trusted_html(&controls_html)).with_attrs(&attrs);
+    if let Some(actions_html) = actions_html.as_deref().filter(|value| !value.is_empty()) {
+        filterbar = filterbar.with_actions(trusted_html(actions_html));
+    }
+
+    safe_component_value(&filterbar, "FilterBar")
+}
+
+fn wf_bulk_action_bar(
+    count_label: String,
+    actions_html: String,
+    kwargs: Kwargs,
+) -> Result<Value, Error> {
+    let id: Option<String> = kwargs.get("id")?;
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    let attrs = attr_pairs(&attr_values);
+
+    let count_label = count_label.trim().to_owned();
+    let bulkbar = BulkActionBar::new(&count_label, trusted_html(&actions_html)).with_attrs(&attrs);
+    safe_component_value(&bulkbar, "BulkActionBar")
+}
+
+fn wf_table_footer(content_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let actions_html: Option<String> = kwargs.get("actions_html")?;
+    let id: Option<String> = kwargs.get("id")?;
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut footer = TableFooter::new(trusted_html(&content_html)).with_attrs(&attrs);
+    if let Some(actions_html) = actions_html.as_deref().filter(|value| !value.is_empty()) {
+        footer = footer.with_actions(trusted_html(actions_html));
+    }
+
+    safe_component_value(&footer, "TableFooter")
+}
+
+fn wf_pagination(page: i64, total_pages: i64, kwargs: Kwargs) -> Result<Value, Error> {
+    let prev_href: Option<String> = kwargs.get("prev_href")?;
+    let next_href: Option<String> = kwargs.get("next_href")?;
+    let prev_label: Option<String> = kwargs.get("prev_label")?;
+    let next_label: Option<String> = kwargs.get("next_label")?;
+    kwargs.assert_all_used()?;
+
+    let current_label = format!("PAGE {} / {}", page.max(1), total_pages.max(1));
+    let prev_label = prev_label.unwrap_or_else(|| "←".to_owned());
+    let next_label = next_label.unwrap_or_else(|| "→".to_owned());
+
+    let prev_href = prev_href.unwrap_or_default();
+    let next_href = next_href.unwrap_or_default();
+    let mut pages = Vec::with_capacity(3);
+    if page > 1 && !prev_href.is_empty() {
+        pages.push(PageLink::link(&prev_label, &prev_href));
+    } else {
+        pages.push(PageLink::disabled(&prev_label));
+    }
+    pages.push(PageLink::disabled(&current_label).active());
+    if page < total_pages && !next_href.is_empty() {
+        pages.push(PageLink::link(&next_label, &next_href));
+    } else {
+        pages.push(PageLink::disabled(&next_label));
+    }
+
+    safe_component_value(&Pagination::new(&pages), "Pagination")
+}
+
+fn wf_row_select(
+    name: String,
+    value: String,
+    label: String,
+    kwargs: Kwargs,
+) -> Result<Value, Error> {
+    let checked = kwargs.get::<Option<bool>>("checked")?.unwrap_or(false);
+    let disabled = kwargs.get::<Option<bool>>("disabled")?.unwrap_or(false);
+    let id: Option<String> = kwargs.get("id")?;
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "id", id);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut select = RowSelect::new(&name, &value, &label).with_attrs(&attrs);
+    if checked {
+        select = select.checked();
+    }
+    if disabled {
+        select = select.disabled();
+    }
+
+    safe_component_value(&select, "RowSelect")
+}
+
+fn wf_table_wrap(table_html: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let filterbar_html: Option<String> = kwargs.get("filterbar_html")?;
+    let bulkbar_html: Option<String> = kwargs.get("bulkbar_html")?;
+    let footer_html: Option<String> = kwargs.get("footer_html")?;
+    kwargs.assert_all_used()?;
+
+    let mut table = TableWrap::new(trusted_html(&table_html));
+    if let Some(filterbar_html) = filterbar_html
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        table = table.with_filterbar_component(trusted_html(filterbar_html));
+    }
+    if let Some(bulkbar_html) = bulkbar_html
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        table = table.with_bulkbar_component(trusted_html(bulkbar_html));
+    }
+    if let Some(footer_html) = footer_html
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        table = table.with_footer_component(trusted_html(footer_html));
+    }
+
+    safe_component_value(&table, "TableWrap")
 }
 
 fn wf_modeline(status_env: String, status_session: Option<String>) -> Result<Value, Error> {
@@ -751,9 +938,12 @@ fn wf_nav_item(label: String, href: String, active: Option<bool>) -> Result<Valu
 pub fn add_default_browser_templates(env: &mut Environment<'static>) {
     env.add_function("wf_alert", wf_alert);
     env.add_function("wf_app_shell", wf_app_shell);
+    env.add_function("wf_badge", wf_badge);
+    env.add_function("wf_bulk_action_bar", wf_bulk_action_bar);
     env.add_function("wf_button", wf_button);
     env.add_function("wf_check_row", wf_check_row);
     env.add_function("wf_field", wf_field);
+    env.add_function("wf_filter_bar", wf_filter_bar);
     env.add_function("wf_form", wf_form);
     env.add_function("wf_form_actions", wf_form_actions);
     env.add_function("wf_form_panel", wf_form_panel);
@@ -765,12 +955,17 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
     env.add_function("wf_nav_item", wf_nav_item);
     env.add_function("wf_nav_section", wf_nav_section);
     env.add_function("wf_page_header", wf_page_header);
+    env.add_function("wf_pagination", wf_pagination);
     env.add_function("wf_repeatable_array", wf_repeatable_array);
     env.add_function("wf_repeatable_item", wf_repeatable_item);
+    env.add_function("wf_row_select", wf_row_select);
     env.add_function("wf_select", wf_select);
     env.add_function("wf_settings_section", wf_settings_section);
     env.add_function("wf_split_shell", wf_split_shell);
     env.add_function("wf_switch", wf_switch);
+    env.add_function("wf_table_footer", wf_table_footer);
+    env.add_function("wf_table_wrap", wf_table_wrap);
+    env.add_function("wf_tag", wf_tag);
     env.add_function("wf_textarea", wf_textarea);
 
     env.add_filter("datefmt", |value: String| -> String {
@@ -782,6 +977,7 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
             value
         }
     });
+    env.add_filter("urlencode", urlencode_filter);
 
     env.add_template_owned("base.html", BASE_HTML)
         .expect("base.html");
@@ -1031,5 +1227,85 @@ mod tests {
         assert!(rendered.contains(r#"id="workspace-name""#));
         assert!(rendered.contains(r#"Redirect URIs"#));
         assert!(rendered.contains(r#"redirect_uris[]"#));
+    }
+
+    #[test]
+    fn table_component_helpers_render_through_minijinja() {
+        let mut env = Environment::new();
+        add_default_browser_templates(&mut env);
+        env.add_template(
+            "table_helpers.html",
+            r##"
+{% set filter_controls %}
+  <form method="get" action="/admin/users">
+    {{ wf_field("Search", wf_input("q", type="search", value="alice")) }}
+    {{ wf_button("Filter", variant="primary", size="sm", type="submit") }}
+  </form>
+{% endset %}
+{% set table_html %}
+  <table class="wf-table sticky">
+    <thead><tr><th></th><th>Email</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{{ wf_row_select("user_id", "u1", "Select Alice") }}</td>
+        <td>alice@example.com</td>
+        <td>{{ wf_tag("Active", kind="ok") }}</td>
+      </tr>
+    </tbody>
+  </table>
+{% endset %}
+{% set footer_actions %}
+  {{ wf_pagination(2, 3, prev_href="/admin/users?page=1", next_href="/admin/users?page=3") }}
+{% endset %}
+{{ wf_table_wrap(
+    table_html,
+    filterbar_html=wf_filter_bar(filter_controls),
+    bulkbar_html=wf_bulk_action_bar("1 selected", wf_button("Delete", variant="danger", size="sm")),
+    footer_html=wf_table_footer("Showing page 2 of 3 · 12 users", actions_html=footer_actions)
+) }}
+{{ wf_badge("Pending", kind="muted") }}
+"##,
+        )
+        .expect("add table helper test template");
+
+        let rendered = env
+            .get_template("table_helpers.html")
+            .expect("table helper template")
+            .render(minijinja::context! {})
+            .expect("render table helper template");
+
+        assert!(rendered.contains(r#"class="wf-filterbar""#));
+        assert!(rendered.contains(r#"class="wf-tablewrap""#));
+        assert!(rendered.contains(r#"class="wf-tablescroll""#));
+        assert!(rendered.contains(r#"class="wf-bulkbar""#));
+        assert!(rendered.contains(r#"class="wf-tablefoot""#));
+        assert!(rendered.contains(r#"class="wf-pagination""#));
+        assert!(rendered.contains(r#"name="user_id""#));
+        assert!(rendered.contains(r#"class="wf-tag ok""#));
+        assert!(rendered.contains(r#"class="wf-badge muted""#));
+        assert!(rendered.contains("PAGE 2 / 3"));
+    }
+
+    #[test]
+    fn urlencode_filter_escapes_query_values() {
+        let mut env = Environment::new();
+        add_default_browser_templates(&mut env);
+        env.add_template(
+            "encoded_href.html",
+            r#"<a href="/admin/users?q={{ q|urlencode }}&status={{ status|urlencode }}">Next</a>"#,
+        )
+        .expect("add encoded href test template");
+
+        let rendered = env
+            .get_template("encoded_href.html")
+            .expect("encoded href template")
+            .render(minijinja::context! {
+                q => "alice@example.com & role=admin",
+                status => "active+blocked",
+            })
+            .expect("render encoded href template");
+
+        assert!(rendered.contains("q=alice%40example.com+%26+role%3Dadmin"));
+        assert!(rendered.contains("status=active%2Bblocked"));
     }
 }

@@ -33,53 +33,58 @@
     {% endif %}
 
     {% if domains %}
-      <table class="wf-table" style="margin-bottom:24px;">
-        <thead>
-          <tr>
-            <th>Domain</th>
-            <th>Status</th>
-            <th>Verified at</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for d in domains %}
+      {% set table_html %}
+        <table class="wf-table">
+          <thead>
             <tr>
-              <td><code>{{ d.domain }}</code></td>
-              <td>
-                <span class="wf-badge
-                  {%- if d.status == "verified" or d.status == "active" %} ok
-                  {%- elif d.status == "failed" %} err
-                  {%- else %} muted
-                  {%- endif %}">{{ d.status_label }}</span>
-                {% if d.last_error %}
-                  <span class="wf-hint" style="font-size:11px;color:var(--wf-text-muted);display:block;margin-top:2px;">
-                    {{ d.last_error }}
-                  </span>
-                {% endif %}
-              </td>
-              <td style="color:var(--wf-text-muted);font-size:13px;">
-                {{ d.verified_at | default(value="—") }}
-              </td>
-              <td style="white-space:nowrap;">
-                <form method="post"
-                      action="/t/{{ tenant.slug }}/settings/domains/{{ d.id }}/verify"
-                      style="display:inline;">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-                  {{ wf_button("Verify", size="sm", type="submit") }}
-                </form>
-                <form method="post"
-                      action="/t/{{ tenant.slug }}/settings/domains/{{ d.id }}/delete"
-                      style="display:inline;margin-left:6px;"
-                      onsubmit="return confirm('Remove {{ d.domain }}?')">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-                  {{ wf_button("Remove", variant="danger", size="sm", type="submit") }}
-                </form>
-              </td>
+              <th>Domain</th>
+              <th>Status</th>
+              <th>Verified at</th>
+              <th></th>
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for d in domains %}
+              <tr>
+                <td><code>{{ d.domain }}</code></td>
+                <td>
+                  {% if d.status == "failed" %}
+                    {{ wf_badge(d.status_label, kind="err") }}
+                  {% elif d.status == "verified" or d.status == "active" %}
+                    {{ wf_badge(d.status_label) }}
+                  {% else %}
+                    {{ wf_badge(d.status_label, kind="muted") }}
+                  {% endif %}
+                  {% if d.last_error %}
+                    <span class="wf-hint" style="font-size:11px;color:var(--wf-text-muted);display:block;margin-top:2px;">
+                      {{ d.last_error }}
+                    </span>
+                  {% endif %}
+                </td>
+                <td style="color:var(--wf-text-muted);font-size:13px;">
+                  {{ d.verified_at | default(value="—") }}
+                </td>
+                <td style="white-space:nowrap;">
+                  <form method="post"
+                        action="/t/{{ tenant.slug }}/settings/domains/{{ d.id }}/verify"
+                        style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                    {{ wf_button("Verify", size="sm", type="submit") }}
+                  </form>
+                  <form method="post"
+                        action="/t/{{ tenant.slug }}/settings/domains/{{ d.id }}/delete"
+                        style="display:inline;margin-left:6px;"
+                        onsubmit="return confirm('Remove {{ d.domain }}?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                    {{ wf_button("Remove", variant="danger", size="sm", type="submit") }}
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endset %}
+      <div style="margin-bottom:24px;">{{ wf_table_wrap(table_html) }}</div>
     {% else %}
       <p style="color:var(--wf-text-muted);font-size:14px;margin-bottom:24px;">
         No custom domains registered yet.

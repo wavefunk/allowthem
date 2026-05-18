@@ -7,30 +7,29 @@
     <div class="wf-panel-title">Recent activity</div>
   </div>
   {% if audit_entries %}
-    <div class="wf-tablewrap">
-      <div class="wf-tablescroll">
-        <table class="wf-table">
-          <thead>
+    {% set table_html %}
+      <table class="wf-table">
+        <thead>
+          <tr>
+            <th>Event</th>
+            <th>IP</th>
+            <th>Detail</th>
+            <th>When</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in audit_entries %}
             <tr>
-              <th>Event</th>
-              <th>IP</th>
-              <th>Detail</th>
-              <th>When</th>
+              <td><code class="wf-mono">{{ entry.event_type }}</code></td>
+              <td>{{ entry.ip_address or "—" }}</td>
+              <td>{{ entry.detail or "—" }}</td>
+              <td>{{ entry.created_at }}</td>
             </tr>
-          </thead>
-          <tbody>
-            {% for entry in audit_entries %}
-              <tr>
-                <td><code class="wf-mono">{{ entry.event_type }}</code></td>
-                <td>{{ entry.ip_address or "—" }}</td>
-                <td>{{ entry.detail or "—" }}</td>
-                <td>{{ entry.created_at }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endset %}
+    {{ wf_table_wrap(table_html) }}
     <p style="padding:4px 16px 8px; font-size:0.85em; color:var(--wf-muted);">
       Showing last {{ audit_entries | length }} events.
       <a class="wf-link" href="/t/{{ tenant.slug }}/audit">View full audit log →</a>

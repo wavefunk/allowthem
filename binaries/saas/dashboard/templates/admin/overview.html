@@ -43,117 +43,115 @@
 
   {# ---- Filter form ---- #}
   <div class="wf-panel" style="margin:16px 24px 0;">
-    <form method="get" action="/admin"
-          style="display:flex; gap:12px; flex-wrap:wrap; padding:12px 16px;">
-      <label>
-        Search
-        <input type="text" name="q" value="{{ q }}" placeholder="name or slug" />
-      </label>
-      <label>
-        Status
-        <select name="status">
-          <option value="" {% if status == "" %}selected{% endif %}>Any</option>
-          <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
-          <option value="suspended" {% if status == "suspended" %}selected{% endif %}>Suspended</option>
-          <option value="deleted" {% if status == "deleted" %}selected{% endif %}>Deleted</option>
-        </select>
-      </label>
-      <label>
-        Plan
-        <select name="plan">
-          <option value="" {% if plan == "" %}selected{% endif %}>Any</option>
-          {% for p in plans %}
-            <option value="{{ p.name }}" {% if plan == p.name %}selected{% endif %}>{{ p.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        Sort
-        <select name="sort">
-          <option value="name" {% if sort == "name" %}selected{% endif %}>Name</option>
-          <option value="slug" {% if sort == "slug" %}selected{% endif %}>Slug</option>
-          <option value="status" {% if sort == "status" %}selected{% endif %}>Status</option>
-          <option value="plan" {% if sort == "plan" %}selected{% endif %}>Plan</option>
-          <option value="mau" {% if sort == "mau" %}selected{% endif %}>MAU</option>
-          <option value="created_at" {% if sort == "created_at" %}selected{% endif %}>Created</option>
-        </select>
-      </label>
-      <label>
-        Dir
-        <select name="dir">
-          <option value="asc" {% if dir == "asc" %}selected{% endif %}>↑ Asc</option>
-          <option value="desc" {% if dir == "desc" %}selected{% endif %}>↓ Desc</option>
-        </select>
-      </label>
-      <div style="display:flex; gap:8px; align-items:flex-end;">
-        <button type="submit" class="wf-btn primary sm">Filter</button>
-        {% if has_filters %}
-          <a class="wf-btn sm" href="/admin">Reset</a>
-        {% endif %}
-      </div>
-    </form>
+    {% set filter_controls %}
+      <form method="get" action="/admin"
+            style="display:flex; gap:12px; flex-wrap:wrap;">
+        <label class="wf-label">
+          Search
+          <input class="wf-input" type="text" name="q" value="{{ q }}" placeholder="name or slug" />
+        </label>
+        <label class="wf-label">
+          Status
+          <select class="wf-select" name="status">
+            <option value="" {% if status == "" %}selected{% endif %}>Any</option>
+            <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+            <option value="suspended" {% if status == "suspended" %}selected{% endif %}>Suspended</option>
+            <option value="deleted" {% if status == "deleted" %}selected{% endif %}>Deleted</option>
+          </select>
+        </label>
+        <label class="wf-label">
+          Plan
+          <select class="wf-select" name="plan">
+            <option value="" {% if plan == "" %}selected{% endif %}>Any</option>
+            {% for p in plans %}
+              <option value="{{ p.name }}" {% if plan == p.name %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="wf-label">
+          Sort
+          <select class="wf-select" name="sort">
+            <option value="name" {% if sort == "name" %}selected{% endif %}>Name</option>
+            <option value="slug" {% if sort == "slug" %}selected{% endif %}>Slug</option>
+            <option value="status" {% if sort == "status" %}selected{% endif %}>Status</option>
+            <option value="plan" {% if sort == "plan" %}selected{% endif %}>Plan</option>
+            <option value="mau" {% if sort == "mau" %}selected{% endif %}>MAU</option>
+            <option value="created_at" {% if sort == "created_at" %}selected{% endif %}>Created</option>
+          </select>
+        </label>
+        <label class="wf-label">
+          Dir
+          <select class="wf-select" name="dir">
+            <option value="asc" {% if dir == "asc" %}selected{% endif %}>↑ Asc</option>
+            <option value="desc" {% if dir == "desc" %}selected{% endif %}>↓ Desc</option>
+          </select>
+        </label>
+        <div style="display:flex; gap:8px; align-items:flex-end;">
+          {{ wf_button("Filter", variant="primary", size="sm", type="submit") }}
+          {% if has_filters %}
+            {{ wf_button("Reset", href="/admin", size="sm") }}
+          {% endif %}
+        </div>
+      </form>
+    {% endset %}
+    {{ wf_filter_bar(filter_controls) }}
   </div>
 
   {# ---- Tenant table ---- #}
   {% if tenants %}
-    <div class="wf-tablewrap">
-      <div class="wf-tablescroll">
-        <table class="wf-table sticky">
-          <thead>
+    {% set table_html %}
+      <table class="wf-table sticky">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Slug</th>
+            <th>Owner</th>
+            <th>Status</th>
+            <th>Plan</th>
+            <th>MAU</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tenants %}
             <tr>
-              <th>Name</th>
-              <th>Slug</th>
-              <th>Owner</th>
-              <th>Status</th>
-              <th>Plan</th>
-              <th>MAU</th>
-              <th>Created</th>
+              <td>
+                <a class="wf-link" href="/admin/tenants/{{ t.id_str }}">{{ t.name }}</a>
+              </td>
+              <td>{{ t.slug }}</td>
+              <td>{{ t.owner_email }}</td>
+              <td>
+                {% if t.status == "active" %}
+                  {{ wf_tag("Active", kind="ok") }}
+                {% elif t.status == "suspended" %}
+                  {{ wf_tag("Suspended", kind="warn") }}
+                {% else %}
+                  {{ wf_tag("Deleted", kind="bad") }}
+                {% endif %}
+              </td>
+              <td>{{ t.plan_name }}</td>
+              <td>{{ t.mau_count }}</td>
+              <td>{{ t.created_at }}</td>
             </tr>
-          </thead>
-          <tbody>
-            {% for t in tenants %}
-              <tr>
-                <td>
-                  <a class="wf-link" href="/admin/tenants/{{ t.id_str }}">{{ t.name }}</a>
-                </td>
-                <td>{{ t.slug }}</td>
-                <td>{{ t.owner_email }}</td>
-                <td>
-                  {% if t.status == "active" %}
-                    <span class="wf-tag ok">Active</span>
-                  {% elif t.status == "suspended" %}
-                    <span class="wf-tag warn">Suspended</span>
-                  {% else %}
-                    <span class="wf-tag bad">Deleted</span>
-                  {% endif %}
-                </td>
-                <td>{{ t.plan_name }}</td>
-                <td>{{ t.mau_count }}</td>
-                <td>{{ t.created_at }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="wf-pager" style="display:flex; justify-content:space-between; align-items:center; padding:12px 24px;">
-      <span>Page {{ page }} of {{ total_pages }} — {{ total }} tenants</span>
-      <span style="display:flex; gap:8px;">
-        {% if page > 1 %}
-          <a class="wf-btn sm"
-             href="/admin?q={{ q }}&status={{ status }}&plan={{ plan }}&sort={{ sort }}&dir={{ dir }}&page={{ page - 1 }}">
-            ← Previous
-          </a>
-        {% endif %}
-        {% if page < total_pages %}
-          <a class="wf-btn sm"
-             href="/admin?q={{ q }}&status={{ status }}&plan={{ plan }}&sort={{ sort }}&dir={{ dir }}&page={{ page + 1 }}">
-            Next →
-          </a>
-        {% endif %}
-      </span>
-    </div>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endset %}
+    {% set tenant_query = "q=" ~ (q|urlencode) ~ "&status=" ~ (status|urlencode) ~ "&plan=" ~ (plan|urlencode) ~ "&sort=" ~ (sort|urlencode) ~ "&dir=" ~ (dir|urlencode) ~ "&page=" %}
+    {% set footer_actions %}
+      {{ wf_pagination(
+        page,
+        total_pages,
+        prev_href="/admin?" ~ tenant_query ~ (page - 1),
+        next_href="/admin?" ~ tenant_query ~ (page + 1),
+        prev_label="← Previous",
+        next_label="Next →"
+      ) }}
+    {% endset %}
+    {% set footer_html %}
+      {{ wf_table_footer("Page " ~ page ~ " of " ~ total_pages ~ " — " ~ total ~ " tenants", actions_html=footer_actions) }}
+    {% endset %}
+    {{ wf_table_wrap(table_html, footer_html=footer_html) }}
   {% else %}
     <p class="wf-empty" style="margin:12px 24px;">
       {% if has_filters %}No tenants match these filters.{% else %}No tenants yet.{% endif %}

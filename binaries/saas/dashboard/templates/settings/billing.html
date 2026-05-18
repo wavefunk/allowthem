@@ -24,7 +24,7 @@
         <form method="post" action="/t/{{ tenant.slug }}/settings/billing/upgrade"
               style="display:inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-          <button type="submit" class="wf-btn primary sm">Upgrade plan</button>
+          {{ wf_button("Upgrade plan", variant="primary", size="sm", type="submit") }}
         </form>
       {% endif %}
     </div>
@@ -67,28 +67,27 @@
       <div class="wf-panel-head">
         <div class="wf-panel-title">Usage history</div>
       </div>
-      <div class="wf-tablewrap">
-        <div class="wf-tablescroll">
-          <table class="wf-table">
-            <thead>
+      {% set table_html %}
+        <table class="wf-table">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>MAU</th>
+              <th>Limit reached</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in last_12 %}
               <tr>
-                <th>Period</th>
-                <th>MAU</th>
-                <th>Limit reached</th>
+                <td>{{ u.period }}</td>
+                <td>{{ u.mau_count }}</td>
+                <td>{{ u.limit_reached_at or "—" }}</td>
               </tr>
-            </thead>
-            <tbody>
-              {% for u in last_12 %}
-                <tr>
-                  <td>{{ u.period }}</td>
-                  <td>{{ u.mau_count }}</td>
-                  <td>{{ u.limit_reached_at or "—" }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endset %}
+      {{ wf_table_wrap(table_html) }}
     </div>
   {% endif %}
 {% endblock %}

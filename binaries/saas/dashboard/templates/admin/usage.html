@@ -31,28 +31,27 @@
   <div class="wf-panel" style="margin:16px 24px 0;">
     <div class="wf-panel-head"><div class="wf-panel-title">Monthly history</div></div>
     {% if history %}
-      <div class="wf-tablewrap">
-        <div class="wf-tablescroll">
-          <table class="wf-table">
-            <thead>
+      {% set table_html %}
+        <table class="wf-table">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>Total MAU</th>
+              <th>Active tenants</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in history %}
               <tr>
-                <th>Period</th>
-                <th>Total MAU</th>
-                <th>Active tenants</th>
+                <td>{{ row.period }}</td>
+                <td>{{ row.total_mau }}</td>
+                <td>{{ row.active_tenants }}</td>
               </tr>
-            </thead>
-            <tbody>
-              {% for row in history %}
-                <tr>
-                  <td>{{ row.period }}</td>
-                  <td>{{ row.total_mau }}</td>
-                  <td>{{ row.active_tenants }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endset %}
+      {{ wf_table_wrap(table_html) }}
     {% else %}
       <p class="wf-empty" style="margin:12px 16px;">No usage data recorded yet.</p>
     {% endif %}

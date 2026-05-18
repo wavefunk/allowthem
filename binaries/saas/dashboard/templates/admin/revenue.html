@@ -27,34 +27,33 @@
   <div class="wf-panel" style="margin:16px 24px 0;">
     <div class="wf-panel-head"><div class="wf-panel-title">Plan distribution</div></div>
     {% if by_plan %}
-      <div class="wf-tablewrap">
-        <div class="wf-tablescroll">
-          <table class="wf-table">
-            <thead>
-              <tr>
-                <th>Plan</th>
-                <th>Tenants</th>
-                <th>Price/mo</th>
-                <th>Subtotal MRR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in by_plan %}
-                {% set plan_price = 0 %}
-                {% for p in plans %}
-                  {% if p.name == row.0 %}{% set plan_price = p.price_cents %}{% endif %}
-                {% endfor %}
-                <tr>
-                  <td>{{ row.0 }}</td>
-                  <td>{{ row.1 }}</td>
-                  <td>${{ plan_price // 100 }}</td>
-                  <td>${{ (plan_price * row.1) // 100 }}</td>
-                </tr>
+      {% set table_html %}
+        <table class="wf-table">
+          <thead>
+            <tr>
+              <th>Plan</th>
+              <th>Tenants</th>
+              <th>Price/mo</th>
+              <th>Subtotal MRR</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in by_plan %}
+              {% set plan_price = 0 %}
+              {% for p in plans %}
+                {% if p.name == row.0 %}{% set plan_price = p.price_cents %}{% endif %}
               {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              <tr>
+                <td>{{ row.0 }}</td>
+                <td>{{ row.1 }}</td>
+                <td>${{ plan_price // 100 }}</td>
+                <td>${{ (plan_price * row.1) // 100 }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endset %}
+      {{ wf_table_wrap(table_html) }}
     {% else %}
       <p class="wf-empty" style="margin:12px 16px;">No plan data available.</p>
     {% endif %}

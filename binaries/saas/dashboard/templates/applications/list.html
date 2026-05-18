@@ -22,54 +22,51 @@
     <div class="wf-panel-head" style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
       <div class="wf-panel-title">Registered applications</div>
       {% if role == "owner" or role == "admin" %}
-        <a class="wf-btn primary sm"
-           href="/t/{{ tenant.slug }}/applications/new"
-           style="white-space:nowrap;">New application</a>
+        {{ wf_button("New application", href="/t/" ~ tenant.slug ~ "/applications/new", variant="primary", size="sm") }}
       {% endif %}
     </div>
   </div>
   {% if applications %}
-    <div class="wf-tablewrap">
-      <div class="wf-tablescroll">
-        <table class="wf-table sticky">
-          <thead>
+    {% set table_html %}
+      <table class="wf-table sticky">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Client ID</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for app in applications %}
             <tr>
-              <th>Name</th>
-              <th>Client ID</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Created</th>
+              <td>
+                <a class="wf-link"
+                   href="/t/{{ tenant.slug }}/applications/{{ app.id }}">{{ app.name }}</a>
+              </td>
+              <td><code title="{{ app.client_id }}">{{ app.client_id }}</code></td>
+              <td>
+                {% if app.client_type == "public" %}
+                  {{ wf_badge("Public", kind="muted") }}
+                {% else %}
+                  {{ wf_tag("Confidential") }}
+                {% endif %}
+              </td>
+              <td>
+                {% if app.is_active %}
+                  {{ wf_tag("Active", kind="ok") }}
+                {% else %}
+                  {{ wf_badge("Inactive", kind="muted") }}
+                {% endif %}
+              </td>
+              <td>{{ app.created_at | datefmt }}</td>
             </tr>
-          </thead>
-          <tbody>
-            {% for app in applications %}
-              <tr>
-                <td>
-                  <a class="wf-link"
-                     href="/t/{{ tenant.slug }}/applications/{{ app.id }}">{{ app.name }}</a>
-                </td>
-                <td><code title="{{ app.client_id }}">{{ app.client_id }}</code></td>
-                <td>
-                  {% if app.client_type == "public" %}
-                    <span class="wf-tag muted">Public</span>
-                  {% else %}
-                    <span class="wf-tag">Confidential</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if app.is_active %}
-                    <span class="wf-tag ok">Active</span>
-                  {% else %}
-                    <span class="wf-tag muted">Inactive</span>
-                  {% endif %}
-                </td>
-                <td>{{ app.created_at | datefmt }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endset %}
+    {{ wf_table_wrap(table_html) }}
   {% else %}
     <p class="wf-empty">No applications registered yet.</p>
   {% endif %}

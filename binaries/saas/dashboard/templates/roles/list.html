@@ -19,52 +19,51 @@
     <div class="wf-panel-head">
       <div class="wf-panel-title">Roles ({{ roles | length }})</div>
       {% if role == "owner" or role == "admin" %}
-        <a class="wf-btn primary sm" href="/t/{{ tenant.slug }}/roles/new">+ New role</a>
+        {{ wf_button("+ New role", href="/t/" ~ tenant.slug ~ "/roles/new", variant="primary", size="sm") }}
       {% endif %}
     </div>
   </div>
 
   {% if roles %}
-    <div class="wf-tablewrap">
-      <div class="wf-tablescroll">
-        <table class="wf-table sticky">
-          <thead>
+    {% set table_html %}
+      <table class="wf-table sticky">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Permissions</th>
+            {% if role == "owner" or role == "admin" %}
+              <th>Actions</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in roles %}
             <tr>
-              <th>Name</th>
-              <th>Description</th>
-              <th>Permissions</th>
+              <td>
+                <a class="wf-link" href="/t/{{ tenant.slug }}/roles/{{ r.id }}">
+                  {{ r.name }}
+                </a>
+              </td>
+              <td>{{ r.description or "—" }}</td>
+              <td>{{ r.permission_count }}</td>
               {% if role == "owner" or role == "admin" %}
-                <th>Actions</th>
+                <td>
+                  <form method="post"
+                        action="/t/{{ tenant.slug }}/roles/{{ r.id }}/delete"
+                        style="display:inline"
+                        onsubmit="return confirm('Delete role {{ r.name }}?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                    {{ wf_button("Delete", variant="danger", size="sm", type="submit") }}
+                  </form>
+                </td>
               {% endif %}
             </tr>
-          </thead>
-          <tbody>
-            {% for r in roles %}
-              <tr>
-                <td>
-                  <a class="wf-link" href="/t/{{ tenant.slug }}/roles/{{ r.id }}">
-                    {{ r.name }}
-                  </a>
-                </td>
-                <td>{{ r.description or "—" }}</td>
-                <td>{{ r.permission_count }}</td>
-                {% if role == "owner" or role == "admin" %}
-                  <td>
-                    <form method="post"
-                          action="/t/{{ tenant.slug }}/roles/{{ r.id }}/delete"
-                          style="display:inline"
-                          onsubmit="return confirm('Delete role {{ r.name }}?')">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-                      <button type="submit" class="wf-btn sm err">Delete</button>
-                    </form>
-                  </td>
-                {% endif %}
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endset %}
+    {{ wf_table_wrap(table_html) }}
   {% else %}
     <p class="wf-empty" style="margin:12px 24px;">No roles yet.</p>
   {% endif %}

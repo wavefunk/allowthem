@@ -36,26 +36,25 @@
   {% if top_files %}
     <div class="wf-panel" style="margin:16px 24px 0;">
       <div class="wf-panel-head"><div class="wf-panel-title">Largest tenant databases</div></div>
-      <div class="wf-tablewrap">
-        <div class="wf-tablescroll">
-          <table class="wf-table">
-            <thead>
+      {% set table_html %}
+        <table class="wf-table">
+          <thead>
+            <tr>
+              <th>Tenant (stem)</th>
+              <th>Size (bytes)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for file in top_files %}
               <tr>
-                <th>Tenant (stem)</th>
-                <th>Size (bytes)</th>
+                <td>{{ file.0 }}</td>
+                <td>{{ file.1 }}</td>
               </tr>
-            </thead>
-            <tbody>
-              {% for file in top_files %}
-                <tr>
-                  <td>{{ file.0 }}</td>
-                  <td>{{ file.1 }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endset %}
+      {{ wf_table_wrap(table_html) }}
     </div>
   {% endif %}
 {% endblock %}
