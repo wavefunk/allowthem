@@ -14,6 +14,7 @@
 {% set crumbs_html %}{% block crumbs %}{% endblock %}{% endset %}
 {% set topbar_html %}{% block topbar %}{% endblock %}{% endset %}
 {% set nav_html %}{% block sidebar_nav %}{% include "_partials/_sidebar_nav.html" %}{% endblock %}{% endset %}
+{% set nav_aria_label_text %}{% block nav_aria_label %}primary navigation{% endblock %}{% endset %}
 {% set main_class_text %}{% block main_class %}has-header{% endblock %}{% endset %}
 {% set page_content_html %}
   {% include "_partials/_flash.html" %}
@@ -49,7 +50,7 @@
                   app_label,
                   page_content_html,
                   nav_html=nav_html,
-                  nav_aria_label="primary navigation",
+                  nav_aria_label=nav_aria_label_text,
                   breadcrumbs_html=crumbs_html,
                   topbar_html=topbar_html,
                   page_header_html=page_header_html,
@@ -66,7 +67,7 @@
                   app_label,
                   page_content_html,
                   nav_html=nav_html,
-                  nav_aria_label="primary navigation",
+                  nav_aria_label=nav_aria_label_text,
                   breadcrumbs_html=crumbs_html,
                   topbar_html=topbar_html,
                   page_header_html=page_header_html,

@@ -10,9 +10,15 @@
 
 use std::sync::Arc;
 
-use minijinja::Environment;
+use minijinja::value::Value;
+use minijinja::{Environment, Error, ErrorKind};
+use wavefunk_ui::Template;
+use wavefunk_ui::components::{
+    ContextSwitcher, ContextSwitcherItem, HtmlAttr, Sidenav, SidenavItem, SidenavSection,
+};
 
 use allowthem_server::browser_templates::add_default_browser_templates;
+use allowthem_server::render_component;
 
 const SIGNUP_HTML: &str = include_str!("templates/signup.html");
 const SIGNUP_FORM_PARTIAL: &str = include_str!("templates/_partials/_signup_form.html");
@@ -94,11 +100,179 @@ const SETTINGS_DOMAIN_HTML: &str = include_str!("templates/settings/domain.html"
 // Custom domain settings page (38y.1).
 const SETTINGS_DOMAINS_HTML: &str = include_str!("templates/settings/domains.html");
 
+fn component_error(component: &str, err: impl std::fmt::Display) -> Error {
+    Error::new(
+        ErrorKind::InvalidOperation,
+        format!("failed to render {component}: {err}"),
+    )
+}
+
+fn safe_component_value<T>(component: &T, name: &str) -> Result<Value, Error>
+where
+    T: Template + ?Sized,
+{
+    render_component(component)
+        .map(|rendered| Value::from_safe_string(rendered.into_string()))
+        .map_err(|err| component_error(name, err))
+}
+
+fn attr_value(value: &Value, key: &str) -> Result<Value, Error> {
+    value
+        .get_attr(key)
+        .map_err(|err| component_error("dashboard nav data", err))
+}
+
+fn attr_text(value: &Value, key: &str) -> Result<Option<String>, Error> {
+    let attr = attr_value(value, key)?;
+    if attr.is_undefined() || attr.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(
+        attr.as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| attr.to_string()),
+    ))
+}
+
+fn attr_bool(value: &Value, key: &str) -> Result<bool, Error> {
+    let attr = attr_value(value, key)?;
+    Ok(!attr.is_undefined() && !attr.is_none() && attr.is_true())
+}
+
+fn wf_context_switcher(workspaces: Value, current_tenant: Value) -> Result<Value, Error> {
+    if workspaces.is_undefined() || workspaces.is_none() || workspaces.len().unwrap_or(0) == 0 {
+        return Ok(Value::from_safe_string(String::new()));
+    }
+
+    struct OwnedWorkspace {
+        label: String,
+        href: String,
+        role: String,
+        active: bool,
+    }
+
+    let current_slug = if current_tenant.is_undefined() || current_tenant.is_none() {
+        None
+    } else {
+        attr_text(&current_tenant, "slug")?
+    };
+    let current = if current_tenant.is_undefined() || current_tenant.is_none() {
+        "Workspaces".to_owned()
+    } else {
+        attr_text(&current_tenant, "name")?.unwrap_or_else(|| "Workspaces".to_owned())
+    };
+
+    let mut owned = Vec::new();
+    for workspace in workspaces.try_iter()? {
+        let tenant = attr_value(&workspace, "tenant")?;
+        let label = attr_text(&tenant, "name")?.unwrap_or_else(|| "Workspace".to_owned());
+        let slug = attr_text(&tenant, "slug")?.unwrap_or_default();
+        let role = attr_text(&workspace, "role")?.unwrap_or_default();
+        let active = current_slug
+            .as_deref()
+            .is_some_and(|current| slug.as_str() == current);
+        owned.push(OwnedWorkspace {
+            label,
+            href: format!("/t/{slug}/applications"),
+            role,
+            active,
+        });
+    }
+
+    if owned.is_empty() {
+        return Ok(Value::from_safe_string(String::new()));
+    }
+
+    let items = owned
+        .iter()
+        .map(|workspace| {
+            let mut item = ContextSwitcherItem::link(&workspace.label, &workspace.href)
+                .with_meta(&workspace.role);
+            if workspace.active {
+                item = item.active();
+            }
+            item
+        })
+        .collect::<Vec<_>>();
+    let attrs = [HtmlAttr::new("aria-label", "Workspace switcher")];
+    let switcher = ContextSwitcher::new("Workspace", &current, &items).with_attrs(&attrs);
+    safe_component_value(&switcher, "ContextSwitcher")
+}
+
+fn wf_dashboard_sidenav(nav_sections: Value) -> Result<Value, Error> {
+    if nav_sections.is_undefined() || nav_sections.is_none() || nav_sections.len().unwrap_or(0) == 0
+    {
+        return Ok(Value::from_safe_string(String::new()));
+    }
+
+    struct OwnedSection {
+        heading: String,
+        items: Vec<OwnedItem>,
+    }
+
+    struct OwnedItem {
+        label: String,
+        href: String,
+        active: bool,
+        muted: bool,
+        coming_soon: bool,
+    }
+
+    let mut owned_sections = Vec::new();
+    for section in nav_sections.try_iter()? {
+        let heading = attr_text(&section, "heading")?.unwrap_or_default();
+        let items_value = attr_value(&section, "items")?;
+        let mut items = Vec::new();
+        for item in items_value.try_iter()? {
+            items.push(OwnedItem {
+                label: attr_text(&item, "label")?.unwrap_or_default(),
+                href: attr_text(&item, "href")?.unwrap_or_default(),
+                active: attr_bool(&item, "active")?,
+                muted: attr_bool(&item, "muted")?,
+                coming_soon: attr_bool(&item, "coming_soon")?,
+            });
+        }
+        owned_sections.push(OwnedSection { heading, items });
+    }
+
+    let item_groups = owned_sections
+        .iter()
+        .map(|section| {
+            section
+                .items
+                .iter()
+                .map(|owned| {
+                    let mut item = SidenavItem::link(&owned.label, &owned.href);
+                    if owned.active {
+                        item = item.active();
+                    }
+                    if owned.muted {
+                        item = item.muted();
+                    }
+                    if owned.coming_soon {
+                        item = item.with_coming_soon("Coming soon");
+                    }
+                    item
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let sections = owned_sections
+        .iter()
+        .zip(item_groups.iter())
+        .map(|(owned, items)| SidenavSection::new(&owned.heading, items))
+        .collect::<Vec<_>>();
+    let sidenav = Sidenav::new(&sections).embedded();
+    safe_component_value(&sidenav, "Sidenav")
+}
+
 pub fn build_dashboard_env() -> Arc<Environment<'static>> {
     let mut env = Environment::new();
 
     // 1. Default browser templates (login, register, _auth_shell, _app_shell, ...).
     add_default_browser_templates(&mut env);
+    env.add_function("wf_context_switcher", wf_context_switcher);
+    env.add_function("wf_dashboard_sidenav", wf_dashboard_sidenav);
 
     // 2. Dashboard-specific templates layered on top.
     env.add_template_owned("signup.html", SIGNUP_HTML)
@@ -260,6 +434,9 @@ pub fn build_dashboard_env() -> Arc<Environment<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use allowthem_saas::TenantRole;
+
+    use crate::dashboard::nav::tenant_nav_items;
 
     #[test]
     fn build_dashboard_env_loads_default_partials() {
@@ -342,12 +519,99 @@ mod tests {
             .get_template("_partials/_dashboard_shell.html")
             .expect("_dashboard_shell.html");
         let body = tmpl
-            .render(minijinja::context! {})
+            .render(minijinja::context! {
+                nav_sections => tenant_nav_items("acme", "/t/acme/applications", TenantRole::Admin),
+            })
             .expect("render dashboard shell");
         assert!(
             body.contains("wf-sidenav"),
             "dashboard shell should expose sidebar nav block"
         );
+        assert!(
+            body.contains(r#"aria-label="Dashboard navigation""#),
+            "dashboard shell should label sidenav"
+        );
+        assert!(
+            body.contains(r#"<div class="wf-sidenav""#),
+            "dashboard shell should embed the sidenav inside the app-shell nav landmark"
+        );
+        assert!(
+            !body.contains(r#"<nav class="wf-sidenav""#),
+            "dashboard shell must not nest a sidenav landmark inside the app-shell nav landmark"
+        );
+        assert!(
+            !body.contains("wf-sidenav-items"),
+            "dashboard shell should render through wavefunk-ui sidenav component"
+        );
+    }
+
+    #[test]
+    fn workspace_switcher_uses_context_switcher_component() {
+        let env = build_dashboard_env();
+        let tmpl = env
+            .get_template("_partials/_workspace_switcher.html")
+            .expect("_workspace_switcher.html");
+        let body = tmpl
+            .render(minijinja::context! {
+                current_tenant => minijinja::context! {
+                    id => vec![1_u8; 16],
+                    name => "Acme",
+                    slug => "acme",
+                },
+                workspaces => vec![
+                    minijinja::context! {
+                        tenant => minijinja::context! {
+                            id => vec![1_u8; 16],
+                            name => "Acme",
+                            slug => "acme",
+                        },
+                        role => "owner",
+                    },
+                    minijinja::context! {
+                        tenant => minijinja::context! {
+                            id => vec![2_u8; 16],
+                            name => "Beta",
+                            slug => "beta",
+                        },
+                        role => "viewer",
+                    },
+                ],
+            })
+            .expect("render workspace switcher");
+
+        assert!(body.contains("wf-context-switcher"));
+        assert!(body.contains(r#"aria-label="Workspace switcher""#));
+        assert!(body.contains(
+            r#"class="wf-context-switcher-item is-active" href="/t/acme/applications" aria-current="page""#
+        ));
+        assert!(body.contains(r#"class="wf-context-switcher-item" href="/t/beta/applications">"#));
+        assert!(!body.contains(r#"href="/t/beta/applications" aria-current="page""#));
+        assert!(body.contains(">owner<"));
+        assert!(body.contains(">viewer<"));
+        assert!(!body.contains("wf-workspace-switcher"));
+    }
+
+    #[test]
+    fn dashboard_sidenav_preserves_active_muted_and_coming_soon_states() {
+        let env = build_dashboard_env();
+        let tmpl = env
+            .get_template("_partials/_dashboard_shell.html")
+            .expect("_dashboard_shell.html");
+        let body = tmpl
+            .render(minijinja::context! {
+                nav_sections => tenant_nav_items(
+                    "acme",
+                    "/t/acme/settings/team",
+                    TenantRole::Viewer,
+                ),
+            })
+            .expect("render dashboard shell");
+
+        assert!(body.contains(r#"class="wf-sidenav-item is-active is-muted""#));
+        assert!(body.contains(r#"href="/t/acme/settings/team""#));
+        assert!(body.contains(">Team<"));
+        assert!(body.contains(">Coming soon<"));
+        assert!(body.contains(r#"href="/t/acme/settings/webhooks""#));
     }
 
     #[test]

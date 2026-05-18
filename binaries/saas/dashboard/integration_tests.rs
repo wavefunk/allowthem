@@ -758,6 +758,37 @@ async fn applications_list_for_owner_renders_with_create_button() {
 }
 
 #[tokio::test]
+async fn dashboard_shell_navigation_renders_workspaces_and_role_filtered_nav() {
+    let fx = Fixture::new().await;
+    let (_owner_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;
+    let (viewer_cookie, _) = signup_and_get_session(&fx, "viewer@example.com", "viewer-ws").await;
+    insert_tenant_member(&fx, "acme", "viewer@example.com", "viewer").await;
+
+    let resp = get_authed(&fx, "/t/acme/applications", &viewer_cookie).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let html = body_string(resp).await;
+    assert!(html.contains(r#"aria-label="Dashboard navigation""#));
+    assert!(
+        html.contains(r#"<div class="wf-sidenav""#),
+        "sidenav should be embedded inside the app-shell navigation landmark"
+    );
+    assert!(
+        !html.contains(r#"<nav class="wf-sidenav""#),
+        "sidenav should not create a nested navigation landmark"
+    );
+    assert!(html.contains(
+        r#"class="wf-context-switcher-item is-active" href="/t/acme/applications" aria-current="page""#
+    ));
+    assert!(html.contains(r#"class="wf-context-switcher-item" href="/t/viewer-ws/applications">"#));
+    assert!(!html.contains(r#"href="/t/viewer-ws/applications" aria-current="page""#));
+    assert!(html.contains(">viewer<"));
+    assert!(html.contains(">owner<"));
+    assert!(html.contains(r#"class="wf-sidenav-item is-active" href="/t/acme/applications""#));
+    assert!(html.contains(r#"class="wf-sidenav-item is-muted" href="/t/acme/settings/team""#));
+}
+
+#[tokio::test]
 async fn applications_list_for_unknown_slug_is_404() {
     let fx = Fixture::new().await;
     let (session_cookie, _) = signup_and_get_session(&fx, "owner@acme.com", "acme").await;

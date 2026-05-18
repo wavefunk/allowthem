@@ -7,25 +7,4 @@
 
    When the user has no accepted memberships, the partial renders nothing.
 #}
-{% if workspaces %}
-<details class="wf-workspace-switcher">
-  <summary>
-    {% if current_tenant and current_tenant.name %}
-      {{ current_tenant.name }}
-    {% else %}
-      Workspaces
-    {% endif %}
-  </summary>
-  <ul>
-    {% for w in workspaces %}
-      <li>
-        <a href="/t/{{ w.tenant.slug }}/applications"
-           {% if current_tenant and w.tenant.id == current_tenant.id %}aria-current="page"{% endif %}>
-          {{ w.tenant.name }}
-          <span class="wf-tag muted">{{ w.role }}</span>
-        </a>
-      </li>
-    {% endfor %}
-  </ul>
-</details>
-{% endif %}
+{{ wf_context_switcher(workspaces, current_tenant | default(none)) }}
