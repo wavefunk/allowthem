@@ -4398,9 +4398,9 @@ dependencies = [
 
 [[package]]
 name = "wavefunk-ui"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7faa589b65a975e6b36284c62da32811444156c8e9e2b2826fe078e30f1a64f8"
+checksum = "545e84197f531efc14a2a3e73a6d9003ce79e50d4b82ac03eacb0d282f77c370"
 dependencies = [
  "askama",
  "axum",
