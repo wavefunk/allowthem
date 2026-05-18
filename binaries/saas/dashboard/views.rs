@@ -242,6 +242,86 @@ pub struct AuditListPageView<'a> {
     pub is_production: bool,
 }
 
+pub struct RoleListItemView {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub permission_count: usize,
+}
+
+pub struct RoleListPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub roles: &'a [RoleListItemView],
+    pub csrf_token: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct RoleNewPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub csrf_token: &'a str,
+    pub name: &'a str,
+    pub description: &'a str,
+    pub error: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct RolePermissionOptionView {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub assigned: bool,
+}
+
+pub struct RoleDetailPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub actor_role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub role_id: &'a str,
+    pub name: &'a str,
+    pub description: &'a str,
+    pub permissions: &'a [RolePermissionOptionView],
+    pub csrf_token: &'a str,
+    pub error: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct PermissionListPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub permissions: &'a [Permission],
+    pub csrf_token: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct PermissionNewPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub csrf_token: &'a str,
+    pub name: &'a str,
+    pub description: &'a str,
+    pub error: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
 fn render<T>(component: &T) -> Result<String, BrowserError>
 where
     T: wavefunk_ui::Template + ?Sized,
@@ -2217,6 +2297,458 @@ pub fn audit_list_page(view: &AuditListPageView<'_>) -> Result<Html<String>, Bro
     })
 }
 
+pub fn role_list_page(view: &RoleListPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let mut content = String::new();
+    let action = if can_manage(view.role) {
+        let href = format!("/t/{}/roles/new", view.tenant_slug);
+        Some(render(
+            &Button::primary("+ New role")
+                .with_href(&href)
+                .with_size(ButtonSize::Small),
+        )?)
+    } else {
+        None
+    };
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    let empty_body = "";
+    let panel_title = format!("Roles ({})", view.roles.len());
+    let mut panel = Panel::new(&panel_title, trusted_html(empty_body)).with_attrs(&panel_attrs);
+    if let Some(action) = action.as_deref() {
+        panel = panel.with_action(trusted_html(action));
+    }
+    content.push_str(&render(&panel)?);
+
+    if view.roles.is_empty() {
+        content.push_str(r#"<p class="wf-empty" style="margin:12px 24px;">No roles yet.</p>"#);
+    } else {
+        let mut headers = vec![
+            DataTableHeader::new("Name").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Description").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Permissions").with_width(TableColumnWidth::Small),
+        ];
+        if can_manage(view.role) {
+            headers.push(DataTableHeader::new("Actions").action_column());
+        }
+        let links: Vec<String> = view
+            .roles
+            .iter()
+            .map(|role| {
+                format!(
+                    r#"<a class="wf-link" href="/t/{}/roles/{}">{}</a>"#,
+                    attr(view.tenant_slug),
+                    attr(&role.id),
+                    text(&role.name)
+                )
+            })
+            .collect();
+        let descriptions: Vec<String> = view
+            .roles
+            .iter()
+            .map(|role| role.description.clone().unwrap_or_else(|| "-".to_owned()))
+            .collect();
+        let counts: Vec<String> = view
+            .roles
+            .iter()
+            .map(|role| role.permission_count.to_string())
+            .collect();
+        let actions: Vec<String> = view
+            .roles
+            .iter()
+            .map(|role| {
+                let action = format!("/t/{}/roles/{}/delete", view.tenant_slug, role.id);
+                let button = render(
+                    &Button::new("Delete")
+                        .with_variant(ButtonVariant::Danger)
+                        .with_size(ButtonSize::Small)
+                        .with_button_type("submit"),
+                )?;
+                Ok(format!(
+                    r#"<form method="post" action="{}" style="display:inline" onsubmit="return confirm('Delete this role?');">{}{button}</form>"#,
+                    attr(&action),
+                    hidden_input("csrf_token", view.csrf_token),
+                ))
+            })
+            .collect::<Result<Vec<_>, BrowserError>>()?;
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .roles
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                let mut cells = vec![
+                    DataTableCell::html(trusted_html(&links[idx])),
+                    DataTableCell::new(descriptions[idx].as_str()),
+                    DataTableCell::numeric(counts[idx].as_str()),
+                ];
+                if can_manage(view.role) {
+                    cells.push(DataTableCell::html(trusted_html(&actions[idx])));
+                }
+                cells
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows).sticky())?;
+        content.push_str(&render(&TableWrap::new(trusted_html(&table)))?);
+    }
+
+    let title = format!("Roles - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "Roles",
+        content_html: &content,
+    })
+}
+
+pub fn role_new_page(view: &RoleNewPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let action = format!("/t/{}/roles", view.tenant_slug);
+    let cancel = format!("/t/{}/roles", view.tenant_slug);
+    let body = role_or_permission_form_body(RolePermissionFormBody {
+        csrf_token: view.csrf_token,
+        name: view.name,
+        description: view.description,
+        error: view.error,
+        name_max_len: "80",
+        name_placeholder: "e.g. editor",
+        submit_label: "Create role",
+        cancel_href: &cancel,
+    })?;
+    let form = render(
+        &Form::new(trusted_html(&body))
+            .with_action(&action)
+            .with_attrs(&[HtmlAttr::new("style", "max-width:480px")]),
+    )?;
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    let content = render(&Panel::new("New Role", trusted_html(&form)).with_attrs(&panel_attrs))?;
+    let title = format!("New Role - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "New Role",
+        content_html: &content,
+    })
+}
+
+pub fn role_detail_page(view: &RoleDetailPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let mut content = String::new();
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    if can_manage(view.actor_role) {
+        let action = format!("/t/{}/roles/{}", view.tenant_slug, view.role_id);
+        let cancel = format!("/t/{}/roles", view.tenant_slug);
+        let body = role_or_permission_form_body(RolePermissionFormBody {
+            csrf_token: view.csrf_token,
+            name: view.name,
+            description: view.description,
+            error: view.error,
+            name_max_len: "80",
+            name_placeholder: "e.g. editor",
+            submit_label: "Save changes",
+            cancel_href: &cancel,
+        })?;
+        let form = render(
+            &Form::new(trusted_html(&body))
+                .with_action(&action)
+                .with_attrs(&[HtmlAttr::new("style", "max-width:480px")]),
+        )?;
+        content.push_str(&render(
+            &Panel::new(view.name, trusted_html(&form)).with_attrs(&panel_attrs),
+        )?);
+    } else {
+        let mut body = String::from(r#"<dl class="wf-dl">"#);
+        write!(
+            body,
+            r#"<div class="wf-dl-row"><dt>Name</dt><dd>{}</dd></div><div class="wf-dl-row"><dt>Description</dt><dd>{}</dd></div></dl>"#,
+            text(view.name),
+            text(if view.description.is_empty() {
+                "-"
+            } else {
+                view.description
+            })
+        )
+        .unwrap();
+        content.push_str(&render(
+            &Panel::new(view.name, trusted_html(&body)).with_attrs(&panel_attrs),
+        )?);
+    }
+    content.push_str(&role_permissions_panel(view)?);
+
+    let title = format!("{} - {}", view.name, view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: view.name,
+        content_html: &content,
+    })
+}
+
+struct RolePermissionFormBody<'a> {
+    csrf_token: &'a str,
+    name: &'a str,
+    description: &'a str,
+    error: &'a str,
+    name_max_len: &'a str,
+    name_placeholder: &'a str,
+    submit_label: &'a str,
+    cancel_href: &'a str,
+}
+
+fn role_or_permission_form_body(view: RolePermissionFormBody<'_>) -> Result<String, BrowserError> {
+    let mut body = String::new();
+    body.push_str(&hidden_input("csrf_token", view.csrf_token));
+    if !view.error.is_empty() {
+        body.push_str(&alert(FeedbackKind::Error, view.error)?);
+    }
+    let name_attrs = [HtmlAttr::new("maxlength", view.name_max_len)];
+    body.push_str(&field(
+        "Name",
+        &Input::new("name")
+            .with_type("text")
+            .with_value(view.name)
+            .with_placeholder(view.name_placeholder)
+            .with_attrs(&name_attrs)
+            .required(),
+        None,
+    )?);
+    body.push_str(&field(
+        "Description",
+        &Input::new("description")
+            .with_type("text")
+            .with_value(view.description)
+            .with_placeholder("Optional description"),
+        None,
+    )?);
+    let primary = render(
+        &Button::primary(view.submit_label)
+            .with_button_type("submit")
+            .with_size(ButtonSize::Small),
+    )?;
+    let cancel = render(&Button::link("Cancel", view.cancel_href))?;
+    body.push_str(&render(
+        &FormActions::new(trusted_html(&primary)).with_secondary(trusted_html(&cancel)),
+    )?);
+    Ok(body)
+}
+
+fn role_permissions_panel(view: &RoleDetailPageView<'_>) -> Result<String, BrowserError> {
+    let body = if view.permissions.is_empty() {
+        r#"<p class="wf-empty">No permissions defined for this tenant yet.</p>"#.to_owned()
+    } else if can_manage(view.actor_role) {
+        let mut rows = String::new();
+        for permission in view.permissions {
+            let row = CheckRow::checkbox(
+                "permission_id",
+                permission.id.as_str(),
+                permission.name.as_str(),
+            );
+            let row = if permission.assigned {
+                row.checked()
+            } else {
+                row
+            };
+            rows.push_str(&render(&row)?);
+            if let Some(description) = permission.description.as_deref() {
+                write!(
+                    rows,
+                    r#"<p class="wf-help" style="margin-left:28px;">{}</p>"#,
+                    text(description)
+                )
+                .unwrap();
+            }
+        }
+        let action = format!("/t/{}/roles/{}/permissions", view.tenant_slug, view.role_id);
+        rows.push_str(&hidden_input("csrf_token", view.csrf_token));
+        rows.push_str(&render(
+            &Button::primary("Update permissions")
+                .with_button_type("submit")
+                .with_size(ButtonSize::Small),
+        )?);
+        render(&Form::new(trusted_html(&rows)).with_action(&action))?
+    } else {
+        let mut list = String::from(
+            r#"<ul style="list-style:none; padding:0; margin:0; display:grid; gap:8px;">"#,
+        );
+        for permission in view
+            .permissions
+            .iter()
+            .filter(|permission| permission.assigned)
+        {
+            let tag = render(&Tag::status(FeedbackKind::Ok, permission.name.as_str()))?;
+            write!(list, "<li>{tag}").unwrap();
+            if let Some(description) = permission.description.as_deref() {
+                write!(
+                    list,
+                    r#"<span class="wf-text-muted"> - {}</span>"#,
+                    text(description)
+                )
+                .unwrap();
+            }
+            list.push_str("</li>");
+        }
+        list.push_str("</ul>");
+        list
+    };
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    render(&Panel::new("Permissions", trusted_html(&body)).with_attrs(&panel_attrs))
+}
+
+pub fn permission_list_page(
+    view: &PermissionListPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    let mut content = String::new();
+    let action = if can_manage(view.role) {
+        let href = format!("/t/{}/permissions/new", view.tenant_slug);
+        Some(render(
+            &Button::primary("+ New permission")
+                .with_href(&href)
+                .with_size(ButtonSize::Small),
+        )?)
+    } else {
+        None
+    };
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    let panel_title = format!("Permissions ({})", view.permissions.len());
+    let mut panel = Panel::new(&panel_title, trusted_html("")).with_attrs(&panel_attrs);
+    if let Some(action) = action.as_deref() {
+        panel = panel.with_action(trusted_html(action));
+    }
+    content.push_str(&render(&panel)?);
+
+    if view.permissions.is_empty() {
+        content
+            .push_str(r#"<p class="wf-empty" style="margin:12px 24px;">No permissions yet.</p>"#);
+    } else {
+        let mut headers = vec![
+            DataTableHeader::new("Name").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Description").with_width(TableColumnWidth::Large),
+        ];
+        if can_manage(view.role) {
+            headers.push(DataTableHeader::new("Actions").action_column());
+        }
+        let names: Vec<String> = view
+            .permissions
+            .iter()
+            .map(|permission| format!(r#"<code>{}</code>"#, text(permission.name.as_str())))
+            .collect();
+        let descriptions: Vec<String> = view
+            .permissions
+            .iter()
+            .map(|permission| {
+                permission
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| "-".to_owned())
+            })
+            .collect();
+        let actions: Vec<String> = view
+            .permissions
+            .iter()
+            .map(|permission| {
+                let action = format!(
+                    "/t/{}/permissions/{}/delete",
+                    view.tenant_slug, permission.id
+                );
+                let button = render(
+                    &Button::new("Delete")
+                        .with_variant(ButtonVariant::Danger)
+                        .with_size(ButtonSize::Small)
+                        .with_button_type("submit"),
+                )?;
+                Ok(format!(
+                    r#"<form method="post" action="{}" style="display:inline" onsubmit="return confirm('Delete this permission?');">{}{button}</form>"#,
+                    attr(&action),
+                    hidden_input("csrf_token", view.csrf_token),
+                ))
+            })
+            .collect::<Result<Vec<_>, BrowserError>>()?;
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .permissions
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                let mut cells = vec![
+                    DataTableCell::html(trusted_html(&names[idx])),
+                    DataTableCell::new(descriptions[idx].as_str()),
+                ];
+                if can_manage(view.role) {
+                    cells.push(DataTableCell::html(trusted_html(&actions[idx])));
+                }
+                cells
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows).sticky())?;
+        content.push_str(&render(&TableWrap::new(trusted_html(&table)))?);
+    }
+
+    let title = format!("Permissions - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "Permissions",
+        content_html: &content,
+    })
+}
+
+pub fn permission_new_page(view: &PermissionNewPageView<'_>) -> Result<Html<String>, BrowserError> {
+    let action = format!("/t/{}/permissions", view.tenant_slug);
+    let cancel = format!("/t/{}/permissions", view.tenant_slug);
+    let body = role_or_permission_form_body(RolePermissionFormBody {
+        csrf_token: view.csrf_token,
+        name: view.name,
+        description: view.description,
+        error: view.error,
+        name_max_len: "120",
+        name_placeholder: "e.g. posts:write",
+        submit_label: "Create permission",
+        cancel_href: &cancel,
+    })?;
+    let form = render(
+        &Form::new(trusted_html(&body))
+            .with_action(&action)
+            .with_attrs(&[HtmlAttr::new("style", "max-width:480px")]),
+    )?;
+    let panel_attrs = [HtmlAttr::new("style", "margin:16px 24px 0")];
+    let content =
+        render(&Panel::new("New Permission", trusted_html(&form)).with_attrs(&panel_attrs))?;
+    let title = format!("New Permission - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "New Permission",
+        content_html: &content,
+    })
+}
+
 fn audit_event_label(event: &AuditEvent) -> &'static str {
     match event {
         AuditEvent::Login => "Login",
@@ -2798,6 +3330,118 @@ mod tests {
         .0;
         assert!(empty.contains("No user found with that email. Showing zero results."));
         assert!(!empty.contains("No audit entries match."));
+    }
+
+    #[test]
+    fn role_pages_render_tables_forms_and_permission_assignments() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/roles", TenantRole::Owner);
+        let workspaces = workspaces();
+        let roles = [RoleListItemView {
+            id: RoleId::new().to_string(),
+            name: "owner's <role>".to_owned(),
+            description: Some("Can edit <everything>".to_owned()),
+            permission_count: 2,
+        }];
+        let list_html = role_list_page(&RoleListPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            roles: &roles,
+            csrf_token: "csrf-role",
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render role list page")
+        .0;
+
+        assert!(list_html.contains("Roles (1)"));
+        assert!(list_html.contains("+ New role"));
+        assert!(list_html.contains(r#"class="wf-table sticky""#));
+        assert!(list_html.contains("Delete this role?"));
+        assert!(list_html.contains(r#"name="csrf_token" value="csrf-role""#));
+        assert!(!list_html.contains("owner's <role>"));
+
+        let permissions = [RolePermissionOptionView {
+            id: PermissionId::new().to_string(),
+            name: "posts:<write>".to_owned(),
+            description: Some("Write <posts>".to_owned()),
+            assigned: true,
+        }];
+        let detail_html = role_detail_page(&RoleDetailPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            actor_role: TenantRole::Admin,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            role_id: roles[0].id.as_str(),
+            name: "editor <role>",
+            description: "Edits things",
+            permissions: &permissions,
+            csrf_token: "csrf-detail-role",
+            error: "Role name must be 1-80 characters.",
+            status_session: Some("admin@example.com"),
+            is_production: false,
+        })
+        .expect("render role detail page")
+        .0;
+
+        assert!(detail_html.contains("Save changes"));
+        assert!(detail_html.contains("Update permissions"));
+        assert!(detail_html.contains(r#"name="permission_id""#));
+        assert!(detail_html.contains(r#"checked"#));
+        assert!(detail_html.contains(r#"name="csrf_token" value="csrf-detail-role""#));
+        assert!(!detail_html.contains("editor <role>"));
+        assert!(!detail_html.contains("posts:<write>"));
+    }
+
+    #[test]
+    fn permission_pages_render_table_and_create_form() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/permissions", TenantRole::Owner);
+        let workspaces = workspaces();
+        let permissions = [test_permission("posts:<read>")];
+        let list_html = permission_list_page(&PermissionListPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            permissions: &permissions,
+            csrf_token: "csrf-perm",
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render permission list page")
+        .0;
+
+        assert!(list_html.contains("Permissions (1)"));
+        assert!(list_html.contains("+ New permission"));
+        assert!(list_html.contains(r#"class="wf-table sticky""#));
+        assert!(list_html.contains("Delete this permission?"));
+        assert!(list_html.contains(r#"name="csrf_token" value="csrf-perm""#));
+        assert!(!list_html.contains("posts:<read>"));
+
+        let form_html = permission_new_page(&PermissionNewPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-new-perm",
+            name: "reports:<write>",
+            description: "Write reports",
+            error: "A permission with that name already exists.",
+            status_session: Some("owner@example.com"),
+            is_production: false,
+        })
+        .expect("render permission form")
+        .0;
+
+        assert!(form_html.contains("New Permission"));
+        assert!(form_html.contains(r#"action="/t/acme/permissions""#));
+        assert!(form_html.contains(r#"name="csrf_token" value="csrf-new-perm""#));
+        assert!(form_html.contains("Create permission"));
+        assert!(!form_html.contains("reports:<write>"));
     }
 
     fn test_user_list_entry(
