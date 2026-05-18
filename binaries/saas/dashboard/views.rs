@@ -1,15 +1,21 @@
 use std::fmt::Write as _;
 
 use axum::response::Html;
+use chrono::{DateTime, Utc};
 use html_escape::{encode_double_quoted_attribute as esc_attr, encode_text as esc_text};
 
+use allowthem_core::applications::Application;
+use allowthem_core::types::ClientType;
 use allowthem_saas::TenantRole;
 use allowthem_server::BrowserError;
 use allowthem_server::ui::{render_component, trusted_html};
 use wavefunk_ui::components::{
-    Alert, Button, ButtonSize, ContextSwitcher, ContextSwitcherItem, CopyableValue, FeedbackKind,
-    Field, Form, FormPanel, HtmlAttr, Input, Modeline, ModelineSegment, PageHeader, SecretValue,
-    Sidenav, SidenavItem, SidenavSection, SnippetTab, SnippetTabs, SplitShell,
+    Alert, Button, ButtonSize, ButtonVariant, CheckRow, CodeGrid, ContextSwitcher,
+    ContextSwitcherItem, CopyableValue, CredentialStatusItem, CredentialStatusList, DataTable,
+    DataTableCell, DataTableHeader, DataTableRow, FeedbackKind, Field, Form, FormActions,
+    FormPanel, FormSection, HtmlAttr, Input, Modeline, ModelineSegment, PageHeader,
+    RepeatableArray, RepeatableItem, SecretValue, Sidenav, SidenavItem, SidenavSection, SnippetTab,
+    SnippetTabs, SplitShell, TableColumnWidth, TableWrap, Tag,
 };
 use wavefunk_ui::layouts::AppShell;
 
@@ -115,6 +121,63 @@ pub struct InviteWrongUserPageView<'a> {
     pub is_production: bool,
 }
 
+pub struct ApplicationListPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub applications: &'a [Application],
+    pub csrf_token: &'a str,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct ApplicationDetailPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub app: &'a Application,
+    pub redirect_uris: &'a [String],
+    pub connected_users: u64,
+    pub csrf_token: &'a str,
+    pub client_secret: Option<&'a str>,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct ApplicationNewPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub csrf_token: &'a str,
+    pub name: &'a str,
+    pub client_type: &'a str,
+    pub redirect_uris: &'a [String],
+    pub logo_url: &'a str,
+    pub error: Option<&'a str>,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
+pub struct ApplicationEditPageView<'a> {
+    pub tenant_name: &'a str,
+    pub tenant_slug: &'a str,
+    pub role: TenantRole,
+    pub nav_sections: &'a [NavSection],
+    pub workspaces: &'a [WorkspaceView<'a>],
+    pub app: &'a Application,
+    pub redirect_uris: &'a [String],
+    pub csrf_token: &'a str,
+    pub error: Option<&'a str>,
+    pub status_session: Option<&'a str>,
+    pub is_production: bool,
+}
+
 fn render<T>(component: &T) -> Result<String, BrowserError>
 where
     T: wavefunk_ui::Template + ?Sized,
@@ -214,6 +277,45 @@ fn simple_app_page(
         .with_footer(trusted_html(&footer))
         .without_body_hx_boost();
     Ok(Html(render(&shell)?))
+}
+
+fn datefmt(dt: &DateTime<Utc>) -> String {
+    dt.format("%b %d, %Y %l:%M %p").to_string()
+}
+
+fn can_manage(role: TenantRole) -> bool {
+    matches!(role, TenantRole::Owner | TenantRole::Admin)
+}
+
+struct TenantDashboardPage<'a> {
+    tenant_name: &'a str,
+    tenant_slug: &'a str,
+    nav_sections: &'a [NavSection],
+    workspaces: &'a [WorkspaceView<'a>],
+    status_session: Option<&'a str>,
+    is_production: bool,
+    title: &'a str,
+    page_title: &'a str,
+    content_html: &'a str,
+}
+
+fn tenant_dashboard_page(view: TenantDashboardPage<'_>) -> Result<Html<String>, BrowserError> {
+    let brand_href = format!("/t/{}/applications", view.tenant_slug);
+    let logout_href = format!("/t/{}/logout", view.tenant_slug);
+    dashboard_page(&DashboardShellView {
+        title: view.title,
+        app_name: "allowthem",
+        brand_href: &brand_href,
+        logout_href: &logout_href,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        current_workspace: Some(view.tenant_name),
+        status_session: view.status_session,
+        is_production: view.is_production,
+        content_html: view.content_html,
+        page_title: Some(view.page_title),
+        main_class: "has-header",
+    })
 }
 
 fn role_label(role: TenantRole) -> &'static str {
@@ -696,10 +798,448 @@ pub fn invite_wrong_user_page(
     )
 }
 
+pub fn application_list_page(
+    view: &ApplicationListPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    let _csrf_token = view.csrf_token;
+    let mut content = String::new();
+    let action = if can_manage(view.role) {
+        let href = format!("/t/{}/applications/new", view.tenant_slug);
+        render(
+            &Button::link("New application", &href)
+                .with_variant(ButtonVariant::Primary)
+                .with_size(ButtonSize::Small),
+        )?
+    } else {
+        String::new()
+    };
+    write!(
+        content,
+        r#"<div class="wf-panel" style="margin:16px 24px 0"><div class="wf-panel-head" style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;"><div class="wf-panel-title">Registered applications</div>{action}</div></div>"#
+    )
+    .unwrap();
+
+    if view.applications.is_empty() {
+        content.push_str(r#"<p class="wf-empty">No applications registered yet.</p>"#);
+    } else {
+        let headers = [
+            DataTableHeader::new("Name").with_width(TableColumnWidth::Large),
+            DataTableHeader::new("Client ID").with_width(TableColumnWidth::Id),
+            DataTableHeader::new("Type").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Status").with_width(TableColumnWidth::Small),
+            DataTableHeader::new("Created").with_width(TableColumnWidth::Medium),
+        ];
+        let links: Vec<String> = view
+            .applications
+            .iter()
+            .map(|app| {
+                format!(
+                    r#"<a class="wf-link" href="/t/{}/applications/{}">{}</a>"#,
+                    attr(view.tenant_slug),
+                    app.id,
+                    text(&app.name)
+                )
+            })
+            .collect();
+        let client_ids: Vec<String> = view
+            .applications
+            .iter()
+            .map(|app| {
+                format!(
+                    r#"<code title="{}">{}</code>"#,
+                    attr(app.client_id.as_str()),
+                    text(app.client_id.as_str())
+                )
+            })
+            .collect();
+        let type_tags: Vec<String> = view
+            .applications
+            .iter()
+            .map(|app| match app.client_type {
+                ClientType::Public => render(&Tag::new("Public")),
+                ClientType::Confidential => render(&Tag::new("Confidential")),
+            })
+            .collect::<Result<_, _>>()?;
+        let status_tags: Vec<String> = view
+            .applications
+            .iter()
+            .map(|app| {
+                if app.is_active {
+                    render(&Tag::status(FeedbackKind::Ok, "Active"))
+                } else {
+                    render(&Tag::new("Inactive"))
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        let created: Vec<String> = view
+            .applications
+            .iter()
+            .map(|app| datefmt(&app.created_at))
+            .collect();
+        let cell_rows: Vec<Vec<DataTableCell<'_>>> = view
+            .applications
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                vec![
+                    DataTableCell::html(trusted_html(&links[idx])),
+                    DataTableCell::html(trusted_html(&client_ids[idx])),
+                    DataTableCell::html(trusted_html(&type_tags[idx])),
+                    DataTableCell::html(trusted_html(&status_tags[idx])),
+                    DataTableCell::new(created[idx].as_str()),
+                ]
+            })
+            .collect();
+        let rows: Vec<DataTableRow<'_>> = cell_rows
+            .iter()
+            .map(|cells| DataTableRow::new(cells))
+            .collect();
+        let table = render(&DataTable::new(&headers, &rows).sticky())?;
+        content.push_str(&render(&TableWrap::new(trusted_html(&table)))?);
+    }
+
+    let title = format!("Applications - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "Applications",
+        content_html: &content,
+    })
+}
+
+pub fn application_detail_page(
+    view: &ApplicationDetailPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    let mut content = String::new();
+    if let Some(secret) = view.client_secret {
+        let secret = render(
+            &SecretValue::new("Client secret", "client-secret", secret)
+                .revealed()
+                .copy_raw_value()
+                .with_warning("Save this client secret now - it won't be shown again.")
+                .with_button_label("Copy secret"),
+        )?;
+        content.push_str(&secret);
+    }
+
+    let actions = if can_manage(view.role) {
+        application_detail_actions(view)?
+    } else {
+        String::new()
+    };
+    write!(
+        content,
+        r#"<div class="wf-panel" style="margin:16px 24px 0"><div class="wf-panel-head" style="display:flex; align-items:center; justify-content:space-between; gap:16px;"><div class="wf-panel-title">{}</div>{actions}</div></div>"#,
+        text(&view.app.name),
+    )
+    .unwrap();
+
+    let type_item = match view.app.client_type {
+        ClientType::Public => CredentialStatusItem::info("Type", "Public client"),
+        ClientType::Confidential => CredentialStatusItem::warn("Type", "Confidential client"),
+    };
+    let status_item = if view.app.is_active {
+        CredentialStatusItem::ok("Status", "Accepting authorization requests")
+    } else {
+        CredentialStatusItem::error("Status", "Blocked from authorization requests")
+    };
+    let connected_users = view.connected_users.to_string();
+    let created = datefmt(&view.app.created_at);
+    let statuses = [
+        type_item,
+        status_item,
+        CredentialStatusItem::info("Connected users", connected_users.as_str()),
+        CredentialStatusItem::info("Created", created.as_str()),
+    ];
+    let client_id = render(&CopyableValue::new(
+        "Client ID",
+        "application-client-id",
+        view.app.client_id.as_str(),
+    ))?;
+    let status_list = render(&CredentialStatusList::new(&statuses))?;
+    write!(
+        content,
+        r#"<div class="wf-panel-body" style="margin:0 24px;">{client_id}{status_list}"#
+    )
+    .unwrap();
+    if view.app.client_type == ClientType::Public {
+        content.push_str(
+            r#"<p class="wf-caption wf-mt-3">PKCE required; no client_secret issued.</p>"#,
+        );
+    }
+    if !view.redirect_uris.is_empty() {
+        let redirect_refs: Vec<&str> = view.redirect_uris.iter().map(String::as_str).collect();
+        let grid = render(&CodeGrid::new(&redirect_refs).with_label("Redirect URIs"))?;
+        write!(content, r#"<div class="wf-mt-5">{grid}</div>"#).unwrap();
+    }
+    if let Some(logo_url) = view
+        .app
+        .logo_url
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        write!(
+            content,
+            r#"<p class="wf-mt-4"><a class="wf-link" href="{}" target="_blank" rel="noopener">{}</a></p>"#,
+            attr(logo_url),
+            text(logo_url)
+        )
+        .unwrap();
+    }
+    content.push_str("</div>");
+
+    let title = format!("{} - {}", view.app.name, view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: &view.app.name,
+        content_html: &content,
+    })
+}
+
+fn application_detail_actions(
+    view: &ApplicationDetailPageView<'_>,
+) -> Result<String, BrowserError> {
+    let edit_href = format!("/t/{}/applications/{}/edit", view.tenant_slug, view.app.id);
+    let edit = render(&Button::link("Edit", &edit_href).with_size(ButtonSize::Small))?;
+    let mut actions = format!(r#"<div class="wf-actions" style="display:flex; gap:8px;">{edit}"#);
+    if view.app.client_type != ClientType::Public {
+        let action = format!(
+            "/t/{}/applications/{}/regenerate-secret",
+            view.tenant_slug, view.app.id
+        );
+        let button = render(
+            &Button::new("Regenerate secret")
+                .with_button_type("submit")
+                .with_size(ButtonSize::Small),
+        )?;
+        write!(
+            actions,
+            r#"<form method="POST" action="{}" onsubmit="return confirm('Regenerate the client secret? The current secret will stop working immediately.');">{}{button}</form>"#,
+            attr(&action),
+            hidden_input("csrf_token", view.csrf_token),
+        )
+        .unwrap();
+    }
+    let action = format!(
+        "/t/{}/applications/{}/delete",
+        view.tenant_slug, view.app.id
+    );
+    let button = render(
+        &Button::new("Delete")
+            .with_button_type("submit")
+            .with_variant(ButtonVariant::Danger)
+            .with_size(ButtonSize::Small),
+    )?;
+    write!(
+        actions,
+        r#"<form method="POST" action="{}" onsubmit="return confirm('Delete this application? This cannot be undone.');">{}{button}</form></div>"#,
+        attr(&action),
+        hidden_input("csrf_token", view.csrf_token),
+    )
+    .unwrap();
+    Ok(actions)
+}
+
+pub fn new_application_page(
+    view: &ApplicationNewPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    debug_assert!(can_manage(view.role));
+    let body = application_form_body(ApplicationFormBody {
+        csrf_token: view.csrf_token,
+        name: view.name,
+        client_type: view.client_type,
+        redirect_uris: view.redirect_uris,
+        logo_url: view.logo_url,
+        is_edit: false,
+        is_active: true,
+        error: view.error,
+    })?;
+    let action = format!("/t/{}/applications", view.tenant_slug);
+    let cancel_href = format!("/t/{}/applications", view.tenant_slug);
+    let form = application_form(&body, &action, "Create application", &cancel_href)?;
+    let title = format!("New application - {}", view.tenant_name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: "New application",
+        content_html: &form,
+    })
+}
+
+pub fn edit_application_page(
+    view: &ApplicationEditPageView<'_>,
+) -> Result<Html<String>, BrowserError> {
+    debug_assert!(can_manage(view.role));
+    let logo_url = view.app.logo_url.as_deref().unwrap_or("");
+    let body = application_form_body(ApplicationFormBody {
+        csrf_token: view.csrf_token,
+        name: &view.app.name,
+        client_type: match view.app.client_type {
+            ClientType::Public => "public",
+            ClientType::Confidential => "confidential",
+        },
+        redirect_uris: view.redirect_uris,
+        logo_url,
+        is_edit: true,
+        is_active: view.app.is_active,
+        error: view.error,
+    })?;
+    let action = format!("/t/{}/applications/{}", view.tenant_slug, view.app.id);
+    let cancel_href = format!("/t/{}/applications/{}", view.tenant_slug, view.app.id);
+    let form = application_form(&body, &action, "Save changes", &cancel_href)?;
+    let title = format!("Edit {} - {}", view.app.name, view.tenant_name);
+    let page_title = format!("Edit {}", view.app.name);
+    tenant_dashboard_page(TenantDashboardPage {
+        tenant_name: view.tenant_name,
+        tenant_slug: view.tenant_slug,
+        nav_sections: view.nav_sections,
+        workspaces: view.workspaces,
+        status_session: view.status_session,
+        is_production: view.is_production,
+        title: &title,
+        page_title: &page_title,
+        content_html: &form,
+    })
+}
+
+struct ApplicationFormBody<'a> {
+    csrf_token: &'a str,
+    name: &'a str,
+    client_type: &'a str,
+    redirect_uris: &'a [String],
+    logo_url: &'a str,
+    is_edit: bool,
+    is_active: bool,
+    error: Option<&'a str>,
+}
+
+fn application_form_body(view: ApplicationFormBody<'_>) -> Result<String, BrowserError> {
+    let mut body = String::new();
+    if let Some(error) = view.error.filter(|error| !error.is_empty()) {
+        body.push_str(&alert(FeedbackKind::Warn, error)?);
+    }
+    let name_attrs = [HtmlAttr::new("id", "name")];
+    body.push_str(&field(
+        "Name",
+        &Input::new("name")
+            .with_type("text")
+            .with_value(view.name)
+            .with_attrs(&name_attrs)
+            .required(),
+        None,
+    )?);
+    if !view.is_edit {
+        let confidential = render(&{
+            let row = CheckRow::radio("client_type", "confidential", "Confidential");
+            if view.client_type != "public" {
+                row.checked()
+            } else {
+                row
+            }
+        })?;
+        let public = render(&{
+            let row = CheckRow::radio("client_type", "public", "Public");
+            if view.client_type == "public" {
+                row.checked()
+            } else {
+                row
+            }
+        })?;
+        let client_type = format!(
+            r#"{confidential}<p class="wf-help">Server-side apps that can keep a secret. We'll generate a <code>client_secret</code> you exchange for tokens at <code>/oauth/token</code>.</p>{public}<p class="wf-help">Browser/mobile apps that can't safely store a secret. PKCE required; no secret will be issued.</p>"#
+        );
+        body.push_str(&render(&FormSection::new(
+            "Client type",
+            trusted_html(&client_type),
+        ))?);
+    }
+
+    let rows: Vec<&str> = if view.redirect_uris.is_empty() {
+        vec![""]
+    } else {
+        view.redirect_uris.iter().map(String::as_str).collect()
+    };
+    let mut items = String::new();
+    for (idx, uri) in rows.iter().enumerate() {
+        let input = render(
+            &Input::url("redirect_uris")
+                .with_value(uri)
+                .with_placeholder("https://app.example.com/callback"),
+        )?;
+        items.push_str(&render(&RepeatableItem::new(
+            &format!("URI {}", idx + 1),
+            trusted_html(&input),
+        ))?);
+    }
+    let input =
+        render(&Input::url("redirect_uris").with_placeholder("https://app.example.com/callback"))?;
+    items.push_str(&render(&RepeatableItem::new(
+        "New URI",
+        trusted_html(&input),
+    ))?);
+    body.push_str(&render(
+        &RepeatableArray::new("Redirect URIs", trusted_html(&items))
+            .with_description("One URL per row. We'll redirect users back to these after sign-in."),
+    )?);
+
+    let logo_attrs = [HtmlAttr::new("id", "logo_url")];
+    body.push_str(&field(
+        "Logo URL (optional)",
+        &Input::url("logo_url")
+            .with_value(view.logo_url)
+            .with_placeholder("https://example.com/logo.svg")
+            .with_attrs(&logo_attrs),
+        None,
+    )?);
+    if view.is_edit {
+        let row = CheckRow::checkbox(
+            "is_active",
+            "on",
+            "Active - when off, the app cannot start new authorization flows.",
+        );
+        let row = if view.is_active { row.checked() } else { row };
+        body.push_str(&render(&row)?);
+    }
+    body.push_str(&hidden_input("csrf_token", view.csrf_token));
+    Ok(body)
+}
+
+fn application_form(
+    body: &str,
+    action: &str,
+    submit_label: &str,
+    cancel_href: &str,
+) -> Result<String, BrowserError> {
+    let primary = submit_button(submit_label)?;
+    let cancel = render(&Button::link("Cancel", cancel_href))?;
+    let actions =
+        render(&FormActions::new(trusted_html(&primary)).with_secondary(trusted_html(&cancel)))?;
+    let body = format!("{body}{actions}");
+    render(&Form::new(trusted_html(&body)).with_action(action))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dashboard::nav::tenant_nav_items;
+    use allowthem_core::applications::{Application, generate_client_id};
+    use allowthem_core::{ApplicationId, ClientType};
 
     fn workspaces<'a>() -> [WorkspaceView<'a>; 2] {
         [
@@ -915,5 +1455,154 @@ mod tests {
         assert!(wrong_user.contains(r#"href="/logout?next=%2Finvite%2Ftok%2F123""#));
         assert!(!wrong_user.contains("signed-in+<tag>@example.test"));
         assert!(!wrong_user.contains("invitee+<tag>@example.test"));
+    }
+
+    #[test]
+    fn application_list_page_uses_data_table_and_role_actions() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/applications", TenantRole::Owner);
+        let workspaces = workspaces();
+        let apps = [test_application(
+            "Default <OIDC>",
+            ClientType::Confidential,
+            true,
+        )];
+        let html = application_list_page(&ApplicationListPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            applications: &apps,
+            csrf_token: "csrf-apps",
+            status_session: Some("owner@example.test"),
+            is_production: false,
+        })
+        .expect("render application list page")
+        .0;
+
+        assert!(html.contains("Registered applications"));
+        assert!(html.contains("New application"));
+        assert!(html.contains(r#"class="wf-table sticky""#));
+        assert!(html.contains(r#"href="/t/acme/applications/"#));
+        assert!(html.contains("Confidential"));
+        assert!(html.contains("Active"));
+        assert!(!html.contains("Default <OIDC>"));
+    }
+
+    #[test]
+    fn application_detail_page_renders_secret_once_and_admin_actions() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/applications", TenantRole::Owner);
+        let workspaces = workspaces();
+        let app = test_application("Portal 'quoted' <App>", ClientType::Confidential, true);
+        let redirect_uris = vec!["https://portal.example.test/callback".to_owned()];
+        let html = application_detail_page(&ApplicationDetailPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            app: &app,
+            redirect_uris: &redirect_uris,
+            connected_users: 2,
+            csrf_token: "csrf-detail",
+            client_secret: Some("raw-secret"),
+            status_session: Some("owner@example.test"),
+            is_production: false,
+        })
+        .expect("render application detail page")
+        .0;
+
+        assert!(html.contains("Save this client secret now"));
+        assert!(html.contains(r#"data-wf-copy-value="raw-secret""#));
+        assert!(html.contains("Connected users"));
+        assert!(html.contains(">2<"));
+        assert!(html.contains("Regenerate secret"));
+        assert!(html.contains("Delete"));
+        assert!(html.contains("Delete this application? This cannot be undone."));
+        assert!(!html.contains("Delete Portal"));
+        assert!(html.contains(r#"name="csrf_token" value="csrf-detail""#));
+    }
+
+    #[test]
+    fn application_form_pages_preserve_values_and_csrf() {
+        let nav_sections = tenant_nav_items("acme", "/t/acme/applications", TenantRole::Owner);
+        let workspaces = workspaces();
+        let redirect_uris = vec!["https://app.example.test/callback".to_owned()];
+        let new_html = new_application_page(&ApplicationNewPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            csrf_token: "csrf-new",
+            name: "New <App>",
+            client_type: "public",
+            redirect_uris: &redirect_uris,
+            logo_url: "https://cdn.example.test/logo.svg",
+            error: Some("Invalid redirect <uri>."),
+            status_session: Some("owner@example.test"),
+            is_production: false,
+        })
+        .expect("render new application page")
+        .0;
+
+        assert!(new_html.contains("New application"));
+        assert!(new_html.contains(r#"action="/t/acme/applications""#));
+        assert!(new_html.contains(r#"name="csrf_token" value="csrf-new""#));
+        assert!(new_html.contains(r#"name="client_type" value="public" checked"#));
+        assert!(new_html.contains("https://app.example.test/callback"));
+        assert!(!new_html.contains("New <App>"));
+        assert!(!new_html.contains("Invalid redirect <uri>."));
+
+        let app = test_application("Existing <App>", ClientType::Confidential, false);
+        let edit_html = edit_application_page(&ApplicationEditPageView {
+            tenant_name: "Acme",
+            tenant_slug: "acme",
+            role: TenantRole::Owner,
+            nav_sections: &nav_sections,
+            workspaces: &workspaces,
+            app: &app,
+            redirect_uris: &redirect_uris,
+            csrf_token: "csrf-edit",
+            error: None,
+            status_session: Some("owner@example.test"),
+            is_production: false,
+        })
+        .expect("render edit application page")
+        .0;
+
+        assert!(edit_html.contains("Edit Existing"));
+        assert!(edit_html.contains(r#"name="csrf_token" value="csrf-edit""#));
+        assert!(edit_html.contains(r#"name="is_active" value="on""#));
+        assert!(!edit_html.contains(r#"name="client_type""#));
+        assert!(!edit_html.contains("Existing <App>"));
+    }
+
+    fn test_application(name: &str, client_type: ClientType, is_active: bool) -> Application {
+        Application {
+            id: ApplicationId::new(),
+            name: name.to_owned(),
+            client_id: generate_client_id(),
+            client_type,
+            client_secret_hash: None,
+            redirect_uris: r#"["https://app.example.test/callback"]"#.to_owned(),
+            logo_url: None,
+            primary_color: None,
+            accent_hex: None,
+            accent_ink: None,
+            forced_mode: None,
+            font_css_url: None,
+            font_family: None,
+            splash_text: None,
+            splash_image_url: None,
+            splash_primitive: None,
+            splash_url: None,
+            shader_cell_scale: None,
+            is_trusted: false,
+            created_by: None,
+            is_active,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
     }
 }
