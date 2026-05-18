@@ -4,7 +4,7 @@ resolver = "3"
 
 
 [workspace.package]
-version = "0.0.6"
+version = "0.0.7"
 authors = ["Wave Funk"]
 description = "allowthem — embeddable authentication system"
 edition = "2024"
@@ -13,9 +13,9 @@ repository = "https://github.com/wavefunk/allowthem"
 
 
 [workspace.dependencies]
-allowthem-core = { path = "crates/core", version = "0.0.6" }
-allowthem-saas = { path = "crates/saas", version = "0.0.6" }
-allowthem-server = { path = "crates/server", version = "0.0.6", default-features = false }
+allowthem-core = { path = "crates/core", version = "0.0.7" }
+allowthem-saas = { path = "crates/saas", version = "0.0.7" }
+allowthem-server = { path = "crates/server", version = "0.0.7", default-features = false }
 tokio = { version = "1", features = ["full"] }
 tracing = { version = "0.1", features = ["log"] }
 eyre = "0.6"

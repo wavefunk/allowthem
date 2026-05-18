@@ -83,11 +83,18 @@ publish_package() {
     package="$1"
     attempt=1
 
+    if [ "$dry_run" = "true" ]; then
+        set -- -p "$package" --locked --list
+        if [ "$allow_dirty" = "true" ]; then
+            set -- "$@" --allow-dirty
+        fi
+
+        cargo package "$@" >/dev/null
+        return
+    fi
+
     while :; do
         set -- -p "$package" --locked
-        if [ "$dry_run" = "true" ]; then
-            set -- "$@" --dry-run
-        fi
         if [ "$allow_dirty" = "true" ]; then
             set -- "$@" --allow-dirty
         fi
@@ -96,7 +103,7 @@ publish_package() {
             return 0
         fi
 
-        if [ "$dry_run" = "true" ] || [ "$attempt" -ge "$retry_count" ]; then
+        if [ "$attempt" -ge "$retry_count" ]; then
             return 1
         fi
 
