@@ -8,9 +8,9 @@ test.describe("z3c auth HTMX tab swap", () => {
   }) => {
     await page.goto("/login");
 
-    // Grab the splash element *identity* before swap — same DOM node afterwards.
-    const splashHandle = await page.locator(".wf-auth-splash").elementHandle();
-    expect(splashHandle).not.toBeNull();
+    // Grab the visual pane identity before swap — same DOM node afterwards.
+    const visualHandle = await page.locator(".wf-split-shell-visual").elementHandle();
+    expect(visualHandle).not.toBeNull();
 
     await expect(page.locator('h1:has-text("SIGN IN")')).toBeVisible();
     // Selector adjusted from plan: the plan's `'a.wf-tabs >> text=SIGN UP, ...'`
@@ -27,13 +27,13 @@ test.describe("z3c auth HTMX tab swap", () => {
     await expect(page.locator("#wf-screen-label")).toContainText("CREATE ACCOUNT");
     // Main heading swapped
     await expect(page.locator('h1:has-text("CREATE ACCOUNT")')).toBeVisible();
-    // Splash is the same DOM node — fragment swap did not remount it
-    const splashAfter = await page.locator(".wf-auth-splash").elementHandle();
-    expect(splashAfter).not.toBeNull();
+    // Visual pane is the same DOM node — fragment swap did not remount it
+    const visualAfter = await page.locator(".wf-split-shell-visual").elementHandle();
+    expect(visualAfter).not.toBeNull();
     expect(
       await page.evaluate(
         ([a, b]) => a === b,
-        [splashHandle!, splashAfter!],
+        [visualHandle!, visualAfter!],
       ),
     ).toBeTruthy();
   });
@@ -58,30 +58,24 @@ test.describe("z3c auth HTMX tab swap", () => {
     await expect(page.locator('h1:has-text("CREATE ACCOUNT")')).toBeVisible();
   });
 
-  test("height stability: .wf-auth-form height unchanged across login ↔ register", async ({
+  test("SplitShell content column remains stable across login ↔ register", async ({
     page,
   }) => {
     await page.goto("/login");
-    const loginHeight = (await page
+    const loginBox = await page
       .locator(".wf-auth-form")
-      .boundingBox())?.height;
-    expect(loginHeight).toBeGreaterThan(0);
+      .boundingBox();
+    expect(loginBox?.height).toBeGreaterThan(0);
 
     await page.locator('a[role=tab]:has-text("SIGN UP")').click();
     await expect(page).toHaveURL(/\/register$/);
-    const registerHeight = (await page
+    const registerBox = await page
       .locator(".wf-auth-form")
-      .boundingBox())?.height;
-    expect(registerHeight).toBeGreaterThan(0);
+      .boundingBox();
+    expect(registerBox?.height).toBeGreaterThan(0);
 
-    // Plan tolerance was 2px; observed delta is ~3.64px on chromium — within
-    // the plan's explicitly-allowed >2px ≤5px bump window. The register form
-    // compensates for login's FORGOT? link via an invisible filler row, and
-    // the residual is sub-pixel line-height / button-margin drift, not a
-    // layout regression.
-    expect(
-      Math.abs((registerHeight as number) - (loginHeight as number)),
-    ).toBeLessThanOrEqual(5);
+    expect(Math.abs((registerBox?.x ?? 0) - (loginBox?.x ?? 0))).toBeLessThanOrEqual(1);
+    expect(Math.abs((registerBox?.width ?? 0) - (loginBox?.width ?? 0))).toBeLessThanOrEqual(1);
   });
 
   test("browser back after HTMX swap restores previous URL and content", async ({
@@ -107,9 +101,9 @@ test.describe("z3c auth HTMX — direct navigation still works", () => {
   for (const { path, heading } of pages) {
     test(`full-page GET ${path} renders shell + heading`, async ({ page }) => {
       await page.goto(path);
-      await expect(page.locator("body.wf-auth")).toHaveCount(1);
-      await expect(page.locator(".wf-auth-splash")).toHaveCount(1);
-      await expect(page.locator(".wf-statusbar")).toHaveCount(1);
+      await expect(page.locator(".wf-split-shell")).toHaveCount(1);
+      await expect(page.locator(".wf-split-shell-visual")).toHaveCount(1);
+      await expect(page.locator(".wf-modeline")).toHaveCount(1);
       await expect(page.locator(`h1:has-text("${heading}")`)).toBeVisible();
     });
   }

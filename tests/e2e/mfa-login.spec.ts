@@ -16,14 +16,14 @@ test("mfa login > valid TOTP code creates session and redirects to /", async ({
   // Read secret before enableMfa navigates away from setup page
   await page.goto("/settings/mfa/setup");
   const secret = await page
-    .locator('[data-testid="totp-secret"]')
+    .locator('[data-testid="totp-secret"] code')
     .textContent();
   if (!secret) throw new Error("secret not found");
 
   // Complete setup (post_mfa_confirm renders recovery page inline)
   await page.locator('input[name="code"]').fill(generateTotpCode(secret.trim()));
   await page.locator('button[type="submit"]').click();
-  await page.locator('[data-testid="recovery-code"]').first().waitFor();
+  await page.locator('[data-testid="recovery-code-grid"] code').first().waitFor();
 
   // Log out, log back in
   await page.goto("/logout");
@@ -90,7 +90,10 @@ test("mfa login > disabled MFA bypasses challenge after disable", async ({
   await enableMfa(page);
   // Disable MFA
   await page.goto("/settings");
-  await page.locator('button:has-text("Disable 2FA")').click();
+  await page
+    .locator('form[action="/settings/mfa/disable"]')
+    .evaluate((form) => (form as HTMLFormElement).requestSubmit());
+  await expect(page.locator("text=Not configured")).toBeVisible();
   // Log out + log in — should not see challenge
   await page.goto("/logout");
   await context.clearCookies();
