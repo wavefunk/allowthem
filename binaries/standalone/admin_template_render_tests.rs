@@ -153,13 +153,13 @@ fn ambient_ctx_for(template: &str, shell: &ShellContext) -> minijinja::Value {
     }
 }
 
-// MiniJinja's HTML autoescape encodes `/` as `&#x2f;` inside rendered values.
-// Sidebar nav hrefs are injected via `{{ item.href }}` in _sidebar_nav.html,
-// so they appear HTML-encoded in the output. Literal hrefs in admin page
-// templates keep their raw form, but the guardrail asserts the shell-supplied
-// nav links only.
-fn enc(href: &str) -> String {
-    href.replace('/', "&#x2f;")
+fn has_nav_href(body: &str, href: &str) -> bool {
+    [
+        format!("class=\"wf-nav-item\" href=\"{href}\""),
+        format!("class=\"wf-nav-item is-active\" href=\"{href}\""),
+    ]
+    .into_iter()
+    .any(|needle| body.contains(&needle))
 }
 
 fn assert_guardrails(name: &str, body: &str, expect_admin_nav: bool) {
@@ -195,25 +195,32 @@ fn assert_guardrails(name: &str, body: &str, expect_admin_nav: bool) {
     assert!(body.contains("wf-modeline"), "{name}: missing modeline");
     assert!(body.contains("wf-"), "{name}: no wf-* kit class found");
     assert!(
-        body.contains(&enc("/settings")),
+        body.contains(r#"<nav class="wf-nav-list" id="app-nav" aria-label="primary navigation">"#),
+        "{name}: missing primary navigation aria-label"
+    );
+    assert!(
+        !body.contains(r#"hx-boost="true""#),
+        "{name}: post-auth shell unexpectedly enables body-level htmx boost"
+    );
+    assert!(
+        has_nav_href(body, "/settings"),
         "{name}: missing /settings nav href"
     );
     assert!(
-        body.contains(&enc("/logout")),
+        has_nav_href(body, "/logout"),
         "{name}: missing /logout nav href"
     );
     for admin_href in ["/admin/applications", "/admin/sessions", "/admin/audit"] {
-        let encoded = enc(admin_href);
         if expect_admin_nav {
             assert!(
-                body.contains(&encoded),
+                has_nav_href(body, admin_href),
                 "{name}: expected admin nav href {admin_href}"
             );
         }
     }
     // /admin/users is not in the sidebar nav (reachable via inline links only).
     assert!(
-        !body.contains(&format!("href=\"{}\"", enc("/admin/users"))),
+        !has_nav_href(body, "/admin/users"),
         "{name}: /admin/users link present in sidebar but route is reachable via inline links only"
     );
 }

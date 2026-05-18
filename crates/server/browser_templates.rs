@@ -4,7 +4,11 @@ use axum::response::Html;
 use minijinja::value::{Kwargs, Value};
 use minijinja::{Environment, Error, ErrorKind};
 use wavefunk_ui::Template;
-use wavefunk_ui::components::{FormPanel, SplitShell};
+use wavefunk_ui::components::{
+    Alert, FeedbackKind, FormPanel, HtmlAttr, Minibuffer, Modeline, ModelineSegment, NavItem,
+    NavSection, PageHeader, SplitShell,
+};
+use wavefunk_ui::layouts::AppShell;
 
 use crate::browser_error::BrowserError;
 use crate::ui::{render_component, trusted_html};
@@ -107,6 +111,198 @@ fn wf_split_shell(content_html: String, kwargs: Kwargs) -> Result<Value, Error> 
     safe_component_value(&shell, "SplitShell")
 }
 
+fn wf_app_shell(
+    title: String,
+    app_name: String,
+    content_html: String,
+    kwargs: Kwargs,
+) -> Result<Value, Error> {
+    let nav_html: Option<String> = kwargs.get("nav_html")?;
+    let nav_aria_label: Option<String> = kwargs.get("nav_aria_label")?;
+    let breadcrumbs_html: Option<String> = kwargs.get("breadcrumbs_html")?;
+    let topbar_html: Option<String> = kwargs.get("topbar_html")?;
+    let page_header_html: Option<String> = kwargs.get("page_header_html")?;
+    let footer_html: Option<String> = kwargs.get("footer_html")?;
+    let main_class: Option<String> = kwargs.get("main_class")?;
+    let brand_href: Option<String> = kwargs.get("brand_href")?;
+    let head_html: Option<String> = kwargs.get("head_html")?;
+    let scripts_html: Option<String> = kwargs.get("scripts_html")?;
+    let mode: Option<String> = kwargs.get("mode")?;
+    let mode_locked = kwargs.get::<Option<bool>>("mode_locked")?.unwrap_or(false);
+    let body_hx_boost = kwargs.get::<Option<bool>>("body_hx_boost")?.unwrap_or(true);
+    kwargs.assert_all_used()?;
+
+    let title = title.trim().to_owned();
+    let app_name = app_name.trim().to_owned();
+    let mut shell = AppShell::new(&title, &app_name, &content_html);
+    if let Some(nav_html) = nav_html.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_nav(nav_html);
+    }
+    if let Some(nav_aria_label) = nav_aria_label
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        shell = shell.with_nav_aria_label(nav_aria_label);
+    }
+    if let Some(breadcrumbs_html) = breadcrumbs_html
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        shell = shell.with_breadcrumbs(trusted_html(breadcrumbs_html));
+    }
+    if let Some(topbar_html) = topbar_html.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_topbar(trusted_html(topbar_html));
+    }
+    if let Some(page_header_html) = page_header_html
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        shell = shell.with_page_header(trusted_html(page_header_html));
+    }
+    if let Some(footer_html) = footer_html.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_footer(trusted_html(footer_html));
+    }
+    if let Some(main_class) = main_class
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        shell = shell.with_main_class(main_class);
+    }
+    if let Some(brand_href) = brand_href
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        shell = shell.with_brand_href(brand_href);
+    }
+    if let Some(head_html) = head_html.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_head(trusted_html(head_html));
+    }
+    if let Some(scripts_html) = scripts_html.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_scripts(trusted_html(scripts_html));
+    }
+    if let Some(mode) = mode.as_deref().filter(|value| !value.is_empty()) {
+        shell = shell.with_mode(mode);
+    }
+    if mode_locked {
+        shell = shell.mode_locked();
+    }
+    if !body_hx_boost {
+        shell = shell.without_body_hx_boost();
+    }
+
+    safe_component_value(&shell, "AppShell")
+}
+
+fn wf_page_header(title: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let subtitle: Option<String> = kwargs.get("subtitle")?;
+    let meta_html: Option<String> = kwargs.get("meta_html")?;
+    let primary_html: Option<String> = kwargs.get("primary_html")?;
+    let secondary_html: Option<String> = kwargs.get("secondary_html")?;
+    kwargs.assert_all_used()?;
+
+    let title = title.trim().to_owned();
+    let mut header = PageHeader::new(&title);
+    if let Some(subtitle) = subtitle.as_deref().filter(|value| !value.is_empty()) {
+        header = header.with_subtitle(subtitle);
+    }
+    if let Some(meta_html) = meta_html.as_deref().filter(|value| !value.is_empty()) {
+        header = header.with_meta(trusted_html(meta_html));
+    }
+    if let Some(primary_html) = primary_html.as_deref().filter(|value| !value.is_empty()) {
+        header = header.with_primary(trusted_html(primary_html));
+    }
+    if let Some(secondary_html) = secondary_html.as_deref().filter(|value| !value.is_empty()) {
+        header = header.with_secondary(trusted_html(secondary_html));
+    }
+
+    safe_component_value(&header, "PageHeader")
+}
+
+fn feedback_kind(kind: &str) -> FeedbackKind {
+    match kind {
+        "ok" | "success" => FeedbackKind::Ok,
+        "warn" | "warning" => FeedbackKind::Warn,
+        "err" | "error" | "danger" => FeedbackKind::Error,
+        _ => FeedbackKind::Info,
+    }
+}
+
+fn wf_alert(kind: String, message: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let title: Option<String> = kwargs.get("title")?;
+    kwargs.assert_all_used()?;
+
+    let mut alert = Alert::new(feedback_kind(kind.trim()), &message);
+    if let Some(title) = title.as_deref().filter(|value| !value.is_empty()) {
+        alert = alert.with_title(title);
+    }
+    safe_component_value(&alert, "Alert")
+}
+
+fn wf_modeline(status_env: String, status_session: Option<String>) -> Result<Value, Error> {
+    let screen_label =
+        ModelineSegment::text("").with_html(trusted_html(r#"<span id="wf-screen-label"></span>"#));
+    let left = [
+        ModelineSegment::chevron("AT"),
+        ModelineSegment::text(status_env.trim()),
+        screen_label,
+    ];
+
+    let session_label = status_session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("ANON");
+    let logout_attrs = [
+        HtmlAttr::new("title", "Sign out"),
+        HtmlAttr::new("aria-label", "Sign out"),
+    ];
+    let mode_attrs = [
+        HtmlAttr::new("data-mode-toggle", ""),
+        HtmlAttr::new("title", "Toggle color mode"),
+        HtmlAttr::new("aria-label", "Toggle color mode"),
+    ];
+    let mut right = vec![ModelineSegment::text(session_label)];
+    if session_label != "ANON" {
+        right.push(ModelineSegment::link("⏻", "/logout").with_attrs(&logout_attrs));
+    }
+    right.push(
+        ModelineSegment::button("")
+            .with_kbd("m")
+            .with_attrs(&mode_attrs),
+    );
+    let modeline_attrs = [
+        HtmlAttr::new("role", "status"),
+        HtmlAttr::new("aria-label", "Modeline"),
+    ];
+    let modeline = Modeline::new(&left)
+        .with_right(&right)
+        .with_attrs(&modeline_attrs);
+    safe_component_value(&modeline, "Modeline")
+}
+
+fn wf_minibuffer() -> Result<Value, Error> {
+    let minibuffer = Minibuffer::new().with_prompt("λ");
+    safe_component_value(&minibuffer, "Minibuffer")
+}
+
+fn wf_nav_section(label: String) -> Result<Value, Error> {
+    let label = label.trim().to_owned();
+    safe_component_value(&NavSection::new(&label), "NavSection")
+}
+
+fn wf_nav_item(label: String, href: String, active: Option<bool>) -> Result<Value, Error> {
+    let label = label.trim().to_owned();
+    let href = href.trim().to_owned();
+    let mut item = NavItem::new(&label, &href);
+    if active.unwrap_or(false) {
+        item = item.active();
+    }
+    safe_component_value(&item, "NavItem")
+}
+
 /// Register the default browser templates into an existing environment.
 ///
 /// Useful for consumers (like the standalone binary) that need to extend
@@ -160,7 +356,14 @@ fn wf_split_shell(content_html: String, kwargs: Kwargs) -> Result<Value, Error> 
 /// `.wf-shell` / `.wf-sidebar` / `.wf-main` structure is owned by the
 /// shell and remains stable.
 pub fn add_default_browser_templates(env: &mut Environment<'static>) {
+    env.add_function("wf_alert", wf_alert);
+    env.add_function("wf_app_shell", wf_app_shell);
     env.add_function("wf_form_panel", wf_form_panel);
+    env.add_function("wf_minibuffer", wf_minibuffer);
+    env.add_function("wf_modeline", wf_modeline);
+    env.add_function("wf_nav_item", wf_nav_item);
+    env.add_function("wf_nav_section", wf_nav_section);
+    env.add_function("wf_page_header", wf_page_header);
     env.add_function("wf_split_shell", wf_split_shell);
 
     env.add_filter("datefmt", |value: String| -> String {

@@ -625,7 +625,7 @@ mod tests {
         assert!(
             !html.contains("class=\"at-app-shell\"") && !html.contains("class=\"at-app-shell ")
         );
-        assert!(html.contains("&#x2f;logout"));
+        assert!(html.contains("href=\"/logout\""));
     }
 
     #[tokio::test]
@@ -648,11 +648,11 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let html = body_string(resp).await;
-        assert!(html.contains("&#x2f;admin&#x2f;applications"));
-        assert!(html.contains("&#x2f;admin&#x2f;sessions"));
-        assert!(html.contains("&#x2f;admin&#x2f;audit"));
+        assert!(html.contains("href=\"/admin/applications\""));
+        assert!(html.contains("href=\"/admin/sessions\""));
+        assert!(html.contains("href=\"/admin/audit\""));
         // Users admin route is not yet wired; must not appear.
-        assert!(!html.contains("&#x2f;admin&#x2f;users"));
+        assert!(!html.contains("href=\"/admin/users\""));
     }
 
     #[tokio::test]

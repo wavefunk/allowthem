@@ -1,98 +1,79 @@
-{# _app_shell.html — sidebar + main + modeline for post-auth pages.
+{# _app_shell.html — post-auth pages composed through wavefunk-ui AppShell.
 
-   Inheritance chain:
-     base.html
-       └── _partials/_app_shell.html   (this file)
-             └── settings.html, admin/applications_*, admin/users_*,
-                 admin/sessions_list.html, admin/audit_log.html
-
-   Child responsibility:
-     - fill {% block page_content %} with the page body (or {% block content %}
-       for backwards compat — page_content wraps content by default).
-     - fill {% block sidebar_nav %} with role-filtered nav links.
-     - optionally override {% block pagetitle %}, {% block crumbs %},
-       {% block page_meta %}, {% block topbar %}, and {% block main_class %}
-       (defaults to "has-header"; list pages use "has-tablewrap").
-
-   Block overrides this shell sets on base.html:
-     - html_attrs    data-mode / data-mode-locked when branding.forced_mode is set
-     - body_class    "wf-app"
-     - body_content  shell + main + modeline (no second <body> tag)
-     - head          app grid CSS
-     - scripts       mode-toggle.js (super() preserves HTMX)
-
-   Expected context:
-     - branding (optional BrandingConfig; forced_mode drives html_attrs)
-     - application_name (optional string)
-     - status_* keys (optional; see _modeline.html)
-     - csrf_token, is_production (from the renderer)
-
-   Shell chrome comes from upstream Wave Funk layouts.css — .wf-app / .wf-shell
-   / .wf-sidebar / .wf-main own the grid; responsive sidebar collapse is built
-   into .wf-sidebar itself.
+   Child templates keep the existing blocks:
+   pagetitle, crumbs, page_meta, topbar, main_class, page_content/content,
+   and sidebar_nav. AllowThem still owns role-filtering, tenant routes, labels,
+   flash extraction, and logout/mode behavior.
 #}
-{% extends "base.html" %}
-
-{% block html_attrs %}{% if branding and branding.forced_mode %}data-mode="{{ branding.forced_mode }}" data-mode-locked{% endif %}{% endblock %}
-
-{% block body_class %}wf-app{% endblock %}
-
-{% block head %}
-  {{ super() }}
+{% set title_text %}{% block title %}{{ title_brand | default("allowthem") }}{% endblock %}{% endset %}
+{% set app_label = (shell.application_name if shell is defined else app_name) or application_name or "allowthem" %}
+{% set brand_href %}{% if tenant and tenant.slug %}/t/{{ tenant.slug }}/applications{% else %}/{% endif %}{% endset %}
+{% set page_title %}{% block pagetitle %}{% endblock %}{% endset %}
+{% set page_meta_html %}{% block page_meta %}{% endblock %}{% endset %}
+{% set page_header_html %}{{ wf_page_header(page_title, meta_html=page_meta_html) }}{% endset %}
+{% set crumbs_html %}{% block crumbs %}{% endblock %}{% endset %}
+{% set topbar_html %}{% block topbar %}{% endblock %}{% endset %}
+{% set nav_html %}{% block sidebar_nav %}{% include "_partials/_sidebar_nav.html" %}{% endblock %}{% endset %}
+{% set main_class_text %}{% block main_class %}has-header{% endblock %}{% endset %}
+{% set page_content_html %}
+  {% include "_partials/_flash.html" %}
+  {% block page_content %}{% block content %}{% endblock %}{% endblock %}
+{% endset %}
+{% set footer_html %}{% include "_partials/_modeline.html" %}{% endset %}
+{% set extra_head_html %}
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+  <script>(function(){try{var m=localStorage.getItem('allowthem:mode');if((m==='dark'||m==='light')&&!document.documentElement.hasAttribute('data-mode-locked')){document.documentElement.dataset.mode=m;}}catch(_e){}})();</script>
+  {% block head %}{% endblock %}
+{% endset %}
+{% set scripts_html %}
+  {% if accent %}
   <style>
-    .wf-app {
-      display: grid;
-      grid-template-columns: 240px 1fr;
-      grid-template-rows: 56px 1fr 22px 22px;
-      grid-template-areas:
-        "side  top"
-        "side  main"
-        "ml    ml"
-        "mb    mb";
-      height: 100vh;
+    :root {
+      --accent: {{ accent }};
+      --accent-ink: {{ accent_ink | default("#000000") }};
     }
-    .wf-app > .wf-shell      { grid-column: 1 / -1; grid-row: 1 / 3; }
-    .wf-app > .wf-sidebar    { grid-area: side; }
-    .wf-app > .wf-main       { grid-area: main; overflow: auto; }
-    .wf-app > .wf-modeline   { grid-area: ml; }
-    .wf-app > .wf-minibuffer { grid-area: mb; }
+    {% if accent_light %}
+    html[data-mode="light"] {
+      --accent: {{ accent_light }};
+      --accent-ink: {{ accent_ink_light | default("#ffffff") }};
+    }
+    {% endif %}
     html[data-mode-locked] [data-mode-toggle] { display: none; }
-    @media (max-width: 900px) {
-      .wf-app { grid-template-columns: 1fr; grid-template-areas: "top" "main" "ml" "mb"; }
-      .wf-app > .wf-sidebar { display: none; }
-    }
   </style>
-{% endblock %}
-
-{% block body_content %}
-  <div class="wf-shell">
-    <aside class="wf-sidebar" aria-label="primary navigation">
-      <div class="wf-brand">
-        <a href="{% if tenant and tenant.slug %}/t/{{ tenant.slug }}/applications{% else %}/{% endif %}" class="wf-brand-name" style="text-decoration:none;color:inherit">{{ (shell.application_name if shell is defined else app_name) or application_name or "allowthem" }}</a>
-      </div>
-      <nav class="wf-nav-list">
-        {% block sidebar_nav %}{% include "_partials/_sidebar_nav.html" %}{% endblock %}
-      </nav>
-    </aside>
-    <div class="wf-main {% block main_class %}has-header{% endblock %}">
-      {% block topbar %}{% endblock %}
-      <div class="wf-pageheader">
-        <div>
-          <div class="wf-crumbs">{% block crumbs %}{% endblock %}</div>
-          <h1 class="wf-pagetitle">{% block pagetitle %}{% endblock %}</h1>
-        </div>
-        <div class="wf-page-meta">{% block page_meta %}{% endblock %}</div>
-      </div>
-      {% include "_partials/_flash.html" %}
-      <div class="wf-scroll">
-        {% block page_content %}{% block content %}{% endblock %}{% endblock %}
-      </div>
-    </div>
-  </div>
-  {% include "_partials/_modeline.html" %}
-{% endblock %}
-
-{% block scripts %}
-  {{ super() }}
+  {% endif %}
   <script src="/__allowthem/static/js/mode-toggle.js" defer></script>
-{% endblock %}
+  {% block scripts %}{% endblock %}
+{% endset %}
+{% if branding and branding.forced_mode %}
+  {{ wf_app_shell(title_text,
+                  app_label,
+                  page_content_html,
+                  nav_html=nav_html,
+                  nav_aria_label="primary navigation",
+                  breadcrumbs_html=crumbs_html,
+                  topbar_html=topbar_html,
+                  page_header_html=page_header_html,
+                  footer_html=footer_html,
+                  main_class=main_class_text,
+                  brand_href=brand_href,
+                  head_html=extra_head_html,
+                  scripts_html=scripts_html,
+                  mode=branding.forced_mode,
+                  mode_locked=true,
+                  body_hx_boost=false) }}
+{% else %}
+  {{ wf_app_shell(title_text,
+                  app_label,
+                  page_content_html,
+                  nav_html=nav_html,
+                  nav_aria_label="primary navigation",
+                  breadcrumbs_html=crumbs_html,
+                  topbar_html=topbar_html,
+                  page_header_html=page_header_html,
+                  footer_html=footer_html,
+                  main_class=main_class_text,
+                  brand_href=brand_href,
+                  head_html=extra_head_html,
+                  scripts_html=scripts_html,
+                  body_hx_boost=false) }}
+{% endif %}

@@ -1,6 +1,5 @@
 {%- if flash is defined and flash %}
-<div class="wf-alert {{ flash.kind | default('err') }}" role="alert">
-  <div class="wf-alert-bar"></div>
-  {{ flash.message }}
+<div role="alert">
+{{ wf_alert(flash.kind | default("err"), flash.message) }}
 </div>
 {% endif -%}

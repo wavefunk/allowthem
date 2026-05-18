@@ -41,6 +41,22 @@ fn modeline_renders_defaults() {
 }
 
 #[test]
+fn modeline_renders_production_status_from_context() {
+    let env = env_with_wrapper(
+        "wrap_modeline_prod.html",
+        r#"{% include "_partials/_modeline.html" %}"#,
+    );
+    let html = env
+        .get_template("wrap_modeline_prod.html")
+        .unwrap()
+        .render(context! { is_production => true })
+        .unwrap();
+    assert!(html.contains("wf-modeline"));
+    assert!(html.contains(">PROD<"));
+    assert!(!html.contains(">DEV<"));
+}
+
+#[test]
 fn flash_renders_error_variant() {
     let env = env_with_wrapper(
         "wrap_flash_err.html",
@@ -389,6 +405,39 @@ fn app_shell_wraps_content_block_and_renders_sidebar() {
 }
 
 #[test]
+fn app_shell_uses_wavefunk_ui_chrome_components() {
+    let mut env = Environment::new();
+    add_default_browser_templates(&mut env);
+    env.add_template(
+        "app_child_components.html",
+        r#"{% extends "_partials/_app_shell.html" %}
+           {% block sidebar_nav %}<a class="wf-nav-item" href="/x">x</a>{% endblock %}
+           {% block pagetitle %}Component Shell{% endblock %}
+           {% block crumbs %}Account · Component Shell{% endblock %}
+           {% block page_meta %}<span class="wf-tag">beta</span>{% endblock %}
+           {% block content %}<section id="page">payload</section>{% endblock %}"#,
+    )
+    .unwrap();
+    let shell = ShellContext::new(false, "/app", "acme");
+    let html = env
+        .get_template("app_child_components.html")
+        .unwrap()
+        .render(context! {
+            csrf_token => "_",
+            is_production => false,
+            shell => Value::from_serialize(&shell),
+        })
+        .unwrap();
+    assert!(html.contains(r#"<body class="wf-app density-dense">"#));
+    assert!(!html.contains(r#"hx-boost="true""#));
+    assert!(html.contains(r#"aria-label="primary navigation""#));
+    assert!(html.contains(r#"class="wf-pageheader-main""#));
+    assert!(html.contains(r#"class="wf-modeline""#));
+    assert!(html.contains("data-wf-echo"));
+    assert!(!html.contains(".wf-app {\n      display: grid;"));
+}
+
+#[test]
 fn app_shell_without_forced_mode_emits_no_html_attrs() {
     let mut env = Environment::new();
     add_default_browser_templates(&mut env);
@@ -403,14 +452,14 @@ fn app_shell_without_forced_mode_emits_no_html_attrs() {
         .get_template("app_child_nofm.html")
         .unwrap()
         .render(context! {
-            csrf_token => "_",
-            is_production => false,
-            shell => Value::from_serialize(&shell),
+                csrf_token => "_",
+                is_production => false,
+                shell => Value::from_serialize(&shell),
         })
         .unwrap();
     let html_open = html.split_once("<head").map(|(h, _)| h).unwrap_or("");
     assert!(!html_open.contains("data-mode-locked"));
-    assert!(!html_open.contains("data-mode="));
+    assert!(html_open.contains("data-mode=\"dark\""));
 }
 
 #[test]

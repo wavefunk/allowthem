@@ -639,7 +639,7 @@ mod tests {
         assert!(
             !body.contains("class=\"at-app-shell\"") && !body.contains("class=\"at-app-shell ")
         );
-        assert!(body.contains("&#x2f;admin&#x2f;audit"));
+        assert!(body.contains("href=\"/admin/audit\""));
     }
 
     #[tokio::test]
@@ -821,7 +821,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body_string(resp).await;
         assert!(body.contains("Edit App"));
-        // MiniJinja HTML-escapes `/` as `&#x2f;` in attribute values
         assert!(body.contains("example.com"));
     }
 
