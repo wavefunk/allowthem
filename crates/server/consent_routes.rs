@@ -28,6 +28,8 @@ struct ConsentConfig {
 #[derive(Serialize)]
 struct ScopeItem {
     description: String,
+    kind: &'static str,
+    status_label: &'static str,
 }
 
 fn build_scope_items(scopes: &[String]) -> Vec<ScopeItem> {
@@ -42,6 +44,8 @@ fn build_scope_items(scopes: &[String]) -> Vec<ScopeItem> {
             };
             ScopeItem {
                 description: description.to_string(),
+                kind: "ok",
+                status_label: "requested",
             }
         })
         .collect()
@@ -272,8 +276,8 @@ mod tests {
             "fragment must include the tenant-specific page_title"
         );
         assert!(
-            html.contains("wf-framed"),
-            "fragment must include the scope list container"
+            html.contains("wf-checklist"),
+            "fragment must include the checklist scope list"
         );
         assert!(
             html.contains("Verify your identity"),

@@ -921,12 +921,9 @@ mod tests {
         let csrf = get_csrf(&app, &cookie).await;
 
         let secret_of = |html: String| -> String {
-            // Extract the text content of the <code data-testid="totp-secret"> element.
-            // The template renders the element with additional class attributes before >,
-            // so split on the data-testid attribute value then find the closing > to skip
-            // all attributes, then read up to </code>.
+            // Extract the text content of the SecretValue code element.
             let after_attr = html
-                .split("data-testid=\"totp-secret\"")
+                .split("<code id=\"totp-secret\"")
                 .nth(1)
                 .expect("totp-secret element not found in HTML");
             let after_tag_close = after_attr
@@ -1367,7 +1364,7 @@ mod tests {
             "fragment must include the rendered recovery codes"
         );
         assert!(
-            html.contains("wf-grid"),
+            html.contains("wf-code-grid"),
             "fragment must include the recovery code grid"
         );
     }

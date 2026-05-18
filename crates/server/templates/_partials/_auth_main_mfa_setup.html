@@ -17,10 +17,15 @@
              style="image-rendering:pixelated;background:#fff;padding:8px">
       {% endif %}
       <div data-testid="totp-uri" class="wf-t-xs wf-fg-muted" style="display:none">{{ totp_uri }}</div>
-      <div class="wf-t-xs wf-fg-muted">
-        Manual entry:
-        <code data-testid="totp-secret" class="wf-kbd">{{ secret }}</code>
-      </div>
+      {{ wf_secret_value(
+        "Manual entry",
+        "totp-secret",
+        secret,
+        revealed=true,
+        copy_raw_value=true,
+        button_label="Copy secret",
+        testid="totp-secret"
+      ) }}
     </div>
 
     {% if error %}

@@ -164,9 +164,8 @@
           minlength="8",
           autocomplete="new-password"
         ) }}
-        <div id="password-strength" class="wf-pw-strength" aria-live="polite">
-          <div class="wf-pw-meter"><div class="wf-pw-fill" id="pw-fill"></div></div>
-          <span class="wf-pw-label" id="pw-label"></span>
+        <div id="password-strength" style="display:none">
+          {{ wf_strength_meter(0, 5, "Enter a password", label="Password strength", live=true) }}
         </div>
       {% endset %}
       {{ wf_field("Password", password_control) }}
@@ -198,22 +197,14 @@
   {% endset %}
   {{ wf_form_panel(panel_title, panel_body, subtitle=panel_subtitle) }}
 </main>
-<style>
-.wf-pw-strength{margin-top:.5rem;display:none}
-.wf-pw-meter{height:4px;background:var(--c-border,#333);overflow:hidden}
-.wf-pw-fill{height:100%;width:0;transition:width .2s,background .2s}
-.wf-pw-label{display:block;margin-top:.25rem;font-size:.75rem;line-height:1}
-.wf-pw-fill[data-s="weak"]{width:33%;background:var(--c-danger,#e55)}
-.wf-pw-fill[data-s="medium"]{width:66%;background:var(--c-warn,#ea0)}
-.wf-pw-fill[data-s="strong"]{width:100%;background:var(--c-ok,#2a5)}
-</style>
 <script>
 (function(){
   var pw=document.getElementById("password");
   var box=document.getElementById("password-strength");
-  var fill=document.getElementById("pw-fill");
-  var label=document.getElementById("pw-label");
-  if(!pw||!box||!fill||!label)return;
+  if(!pw||!box)return;
+  var meter=box.querySelector(".wf-strength-meter");
+  var text=box.querySelector(".wf-strength-text");
+  if(!meter||!text)return;
   pw.addEventListener("input",function(){
     var v=pw.value;
     if(!v.length){box.style.display="none";return}
@@ -228,9 +219,10 @@
     if(score<2){s="weak";t="Weak"}
     else if(score<4){s="medium";t="Medium"}
     else{s="strong";t="Strong"}
-    fill.setAttribute("data-s",s);
-    label.textContent=t+(v.length<8?" — min 8 characters":"");
-    label.style.color=s==="weak"?"var(--c-danger,#e55)":s==="medium"?"var(--c-warn,#ea0)":"var(--c-ok,#2a5)";
+    meter.style.setProperty("--strength", Math.min(score,5)*20+"%");
+    meter.setAttribute("aria-valuenow", String(score));
+    meter.className="wf-strength-meter is-"+(s==="weak"?"err":s==="medium"?"warn":"ok");
+    text.textContent=t+(v.length<8?" — min 8 characters":"");
   });
 })();
 </script>

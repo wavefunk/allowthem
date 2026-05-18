@@ -1,13 +1,1 @@
-{# _quickstart_snippet_server.html — placeholder for @allowthem/js server (h6d). #}
-<p class="wf-snippet-banner">
-  Requires <code>@allowthem/js</code> server entry (ships with Epic h6d).
-</p>
-<pre class="wf-code"><code>// Server — verify access tokens via JWKS
-import { createAllowthemVerifier } from '@allowthem/js/server';
-
-const verifier = createAllowthemVerifier({
-  issuer: '{{ issuer }}',
-  audience: '{{ client_id }}',
-});
-
-const claims = await verifier.verify(accessToken);</code></pre>
+{# Quickstart snippets are built in dashboard/quickstart.rs and rendered by _quickstart_snippets.html. #}

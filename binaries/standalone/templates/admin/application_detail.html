@@ -9,14 +9,15 @@
   <div class="wf-panel">
     <div class="wf-panel-body">
       {% if client_secret %}
-        <div class="wf-alert warn">
-          <span class="wf-bar"></span>
-          <div>
-            <div class="wf-eyebrow">Client secret (copy now — it will not be shown again)</div>
-            <code style="user-select: all; word-break: break-all;">{{ client_secret }}</code>
-          </div>
-          <span></span>
-        </div>
+        {{ wf_secret_value(
+          "Client secret",
+          "client-secret",
+          client_secret,
+          revealed=true,
+          copy_raw_value=true,
+          warning="Copy now — it will not be shown again.",
+          button_label="Copy secret"
+        ) }}
       {% endif %}
 
       <dl class="wf-dl">

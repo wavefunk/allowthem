@@ -5,11 +5,13 @@ use minijinja::value::{Kwargs, Value};
 use minijinja::{Environment, Error, ErrorKind};
 use wavefunk_ui::Template;
 use wavefunk_ui::components::{
-    Alert, Badge, BulkActionBar, Button, ButtonSize, ButtonVariant, CheckRow, FeedbackKind, Field,
-    FilterBar, Form, FormActions, FormPanel, FormSection, HtmlAttr, InlineFormRow, Input,
-    Minibuffer, Modeline, ModelineSegment, NavItem, NavSection, PageHeader, PageLink, Pagination,
-    RepeatableArray, RepeatableItem, RowSelect, Select, SelectOption, SettingsSection, SplitShell,
-    Switch, TableFooter, TableWrap, Tag, Textarea,
+    Alert, Badge, BulkActionBar, Button, ButtonSize, ButtonVariant, CheckRow, Checklist,
+    ChecklistItem, CodeBlock, CodeGrid, CopyableValue, CredentialStatusItem, CredentialStatusList,
+    FeedbackKind, Field, FilterBar, Form, FormActions, FormPanel, FormSection, HtmlAttr,
+    InlineFormRow, Input, Minibuffer, Modeline, ModelineSegment, NavItem, NavSection, PageHeader,
+    PageLink, Pagination, RepeatableArray, RepeatableItem, RowSelect, SecretValue, Select,
+    SelectOption, SettingsSection, SnippetTab, SnippetTabs, SplitShell, StrengthMeter, Switch,
+    TableFooter, TableWrap, Tag, Textarea,
 };
 use wavefunk_ui::layouts::AppShell;
 
@@ -68,6 +70,30 @@ where
 
 fn urlencode_filter(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+fn value_text(value: &Value) -> String {
+    value
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn attr_text(value: &Value, key: &str) -> Result<Option<String>, Error> {
+    let attr = value
+        .get_attr(key)
+        .map_err(|err| component_error("template data", err))?;
+    if attr.is_undefined() || attr.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(value_text(&attr)))
+}
+
+fn attr_bool(value: &Value, key: &str) -> Result<bool, Error> {
+    let attr = value
+        .get_attr(key)
+        .map_err(|err| component_error("template data", err))?;
+    Ok(!attr.is_undefined() && !attr.is_none() && attr.is_true())
 }
 
 fn attr_pairs<'a>(pairs: &'a [(&'static str, String)]) -> Vec<HtmlAttr<'a>> {
@@ -678,6 +704,185 @@ fn wf_badge(label: String, kwargs: Kwargs) -> Result<Value, Error> {
     safe_component_value(&badge, "Badge")
 }
 
+fn wf_copyable_value(
+    label: String,
+    id: String,
+    value: String,
+    kwargs: Kwargs,
+) -> Result<Value, Error> {
+    let button_label: Option<String> = kwargs.get("button_label")?;
+    let secret = kwargs.get::<Option<bool>>("secret")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut component = CopyableValue::new(&label, &id, &value);
+    if let Some(button_label) = button_label.as_deref().filter(|value| !value.is_empty()) {
+        component = component.with_button_label(button_label);
+    }
+    if secret {
+        component = component.secret();
+    }
+
+    safe_component_value(&component, "CopyableValue")
+}
+
+fn wf_secret_value(
+    label: String,
+    id: String,
+    value: String,
+    kwargs: Kwargs,
+) -> Result<Value, Error> {
+    let button_label: Option<String> = kwargs.get("button_label")?;
+    let warning: Option<String> = kwargs.get("warning")?;
+    let help_html: Option<String> = kwargs.get("help_html")?;
+    let testid: Option<String> = kwargs.get("testid")?;
+    let revealed = kwargs.get::<Option<bool>>("revealed")?.unwrap_or(false);
+    let copy_raw_value = kwargs
+        .get::<Option<bool>>("copy_raw_value")?
+        .unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "data-testid", testid);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut component = SecretValue::new(&label, &id, &value).with_attrs(&attrs);
+    if let Some(button_label) = button_label.as_deref().filter(|value| !value.is_empty()) {
+        component = component.with_button_label(button_label);
+    }
+    if let Some(warning) = warning.as_deref().filter(|value| !value.is_empty()) {
+        component = component.with_warning(warning);
+    }
+    if let Some(help_html) = help_html
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        component = component.with_help(trusted_html(help_html));
+    }
+    if revealed {
+        component = component.revealed();
+    }
+    if copy_raw_value {
+        component = component.copy_raw_value();
+    }
+
+    safe_component_value(&component, "SecretValue")
+}
+
+fn wf_checklist(items: Value, kwargs: Kwargs) -> Result<Value, Error> {
+    let testid: Option<String> = kwargs.get("testid")?;
+    kwargs.assert_all_used()?;
+
+    struct OwnedItem {
+        label: String,
+        description: Option<String>,
+        kind: FeedbackKind,
+        status_label: Option<String>,
+    }
+
+    let mut owned = Vec::new();
+    for item in items.try_iter()? {
+        if let Some(label) = item.as_str() {
+            owned.push(OwnedItem {
+                label: label.to_owned(),
+                description: None,
+                kind: FeedbackKind::Info,
+                status_label: None,
+            });
+            continue;
+        }
+
+        let label = attr_text(&item, "label")?
+            .or(attr_text(&item, "description")?)
+            .unwrap_or_else(|| value_text(&item));
+        let description =
+            attr_text(&item, "description")?.filter(|description| description != &label);
+        let kind_value = attr_text(&item, "kind")?;
+        owned.push(OwnedItem {
+            label,
+            description,
+            kind: feedback_kind(kind_value.as_deref().unwrap_or("info")),
+            status_label: attr_text(&item, "status_label")?,
+        });
+    }
+
+    let items: Vec<ChecklistItem<'_>> = owned
+        .iter()
+        .map(|item| {
+            let mut checklist_item = ChecklistItem::new(&item.label, item.kind);
+            if let Some(description) = item.description.as_deref() {
+                checklist_item = checklist_item.with_description(description);
+            }
+            if let Some(status_label) = item.status_label.as_deref() {
+                checklist_item = checklist_item.with_status_label(status_label);
+            }
+            checklist_item
+        })
+        .collect();
+
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "data-testid", testid);
+    let attrs = attr_pairs(&attr_values);
+
+    safe_component_value(&Checklist::new(&items).with_attrs(&attrs), "Checklist")
+}
+
+fn wf_code_grid(codes: Vec<String>, kwargs: Kwargs) -> Result<Value, Error> {
+    let label: Option<String> = kwargs.get("label")?;
+    let testid: Option<String> = kwargs.get("testid")?;
+    kwargs.assert_all_used()?;
+
+    let code_refs: Vec<&str> = codes.iter().map(String::as_str).collect();
+    let mut attr_values = Vec::new();
+    push_attr(&mut attr_values, "data-testid", testid);
+    let attrs = attr_pairs(&attr_values);
+
+    let mut component = CodeGrid::new(&code_refs).with_attrs(&attrs);
+    if let Some(label) = label.as_deref().filter(|value| !value.is_empty()) {
+        component = component.with_label(label);
+    }
+
+    safe_component_value(&component, "CodeGrid")
+}
+
+fn wf_credential_status_list(items: Value) -> Result<Value, Error> {
+    struct OwnedItem {
+        label: String,
+        value: String,
+        kind: FeedbackKind,
+        status_label: String,
+    }
+
+    let mut owned = Vec::new();
+    for item in items.try_iter()? {
+        let kind_value = attr_text(&item, "kind")?;
+        let kind = feedback_kind(kind_value.as_deref().unwrap_or("info"));
+        let status_label = attr_text(&item, "status_label")?.unwrap_or_else(|| {
+            match kind {
+                FeedbackKind::Info => "info",
+                FeedbackKind::Ok => "ok",
+                FeedbackKind::Warn => "warn",
+                FeedbackKind::Error => "error",
+            }
+            .to_owned()
+        });
+        owned.push(OwnedItem {
+            label: attr_text(&item, "label")?.unwrap_or_default(),
+            value: attr_text(&item, "value")?.unwrap_or_default(),
+            kind,
+            status_label,
+        });
+    }
+
+    let items: Vec<CredentialStatusItem<'_>> = owned
+        .iter()
+        .map(|item| {
+            CredentialStatusItem::new(&item.label, &item.value, item.kind, &item.status_label)
+        })
+        .collect();
+
+    safe_component_value(&CredentialStatusList::new(&items), "CredentialStatusList")
+}
+
 fn wf_filter_bar(controls_html: String, kwargs: Kwargs) -> Result<Value, Error> {
     let actions_html: Option<String> = kwargs.get("actions_html")?;
     let id: Option<String> = kwargs.get("id")?;
@@ -821,6 +1026,86 @@ fn wf_table_wrap(table_html: String, kwargs: Kwargs) -> Result<Value, Error> {
     safe_component_value(&table, "TableWrap")
 }
 
+fn wf_code_block(code: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let language: Option<String> = kwargs.get("language")?;
+    let label: Option<String> = kwargs.get("label")?;
+    let copy_target_id: Option<String> = kwargs.get("copy_target_id")?;
+    kwargs.assert_all_used()?;
+
+    let mut block = CodeBlock::new(&code);
+    if let Some(language) = language.as_deref().filter(|value| !value.is_empty()) {
+        block = block.with_language(language);
+    }
+    if let Some(label) = label.as_deref().filter(|value| !value.is_empty()) {
+        block = block.with_label(label);
+    }
+    if let Some(copy_target_id) = copy_target_id.as_deref().filter(|value| !value.is_empty()) {
+        block = block.with_copy_target(copy_target_id);
+    }
+
+    safe_component_value(&block, "CodeBlock")
+}
+
+fn wf_snippet_tabs(id: String, tabs: Value) -> Result<Value, Error> {
+    struct OwnedTab {
+        label: String,
+        code: String,
+        language: Option<String>,
+        active: bool,
+    }
+
+    let mut owned = Vec::new();
+    for tab in tabs.try_iter()? {
+        owned.push(OwnedTab {
+            label: attr_text(&tab, "label")?.unwrap_or_else(|| "Snippet".to_owned()),
+            code: attr_text(&tab, "code")?.unwrap_or_default(),
+            language: attr_text(&tab, "language")?,
+            active: attr_bool(&tab, "active")?,
+        });
+    }
+    if !owned.iter().any(|tab| tab.active)
+        && let Some(first) = owned.first_mut()
+    {
+        first.active = true;
+    }
+
+    let tabs: Vec<SnippetTab<'_>> = owned
+        .iter()
+        .map(|tab| {
+            let mut component_tab = SnippetTab::new(&tab.label, &tab.code);
+            if let Some(language) = tab.language.as_deref().filter(|value| !value.is_empty()) {
+                component_tab = component_tab.with_language(language);
+            }
+            if tab.active {
+                component_tab = component_tab.active();
+            }
+            component_tab
+        })
+        .collect();
+
+    safe_component_value(&SnippetTabs::new(&id, &tabs), "SnippetTabs")
+}
+
+fn wf_strength_meter(value: u8, max: u8, text: String, kwargs: Kwargs) -> Result<Value, Error> {
+    let label: Option<String> = kwargs.get("label")?;
+    let kind: Option<String> = kwargs.get("kind")?;
+    let live = kwargs.get::<Option<bool>>("live")?.unwrap_or(false);
+    kwargs.assert_all_used()?;
+
+    let mut meter = StrengthMeter::new(value, max, &text);
+    if let Some(label) = label.as_deref().filter(|value| !value.is_empty()) {
+        meter = meter.with_label(label);
+    }
+    if kind.as_deref().is_some_and(|value| !value.is_empty()) {
+        meter = meter.with_feedback(feedback_kind(kind.as_deref().unwrap_or("info")));
+    }
+    if live {
+        meter = meter.live();
+    }
+
+    safe_component_value(&meter, "StrengthMeter")
+}
+
 fn wf_modeline(status_env: String, status_session: Option<String>) -> Result<Value, Error> {
     let screen_label =
         ModelineSegment::text("").with_html(trusted_html(r#"<span id="wf-screen-label"></span>"#));
@@ -942,6 +1227,11 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
     env.add_function("wf_bulk_action_bar", wf_bulk_action_bar);
     env.add_function("wf_button", wf_button);
     env.add_function("wf_check_row", wf_check_row);
+    env.add_function("wf_checklist", wf_checklist);
+    env.add_function("wf_code_block", wf_code_block);
+    env.add_function("wf_code_grid", wf_code_grid);
+    env.add_function("wf_copyable_value", wf_copyable_value);
+    env.add_function("wf_credential_status_list", wf_credential_status_list);
     env.add_function("wf_field", wf_field);
     env.add_function("wf_filter_bar", wf_filter_bar);
     env.add_function("wf_form", wf_form);
@@ -959,9 +1249,12 @@ pub fn add_default_browser_templates(env: &mut Environment<'static>) {
     env.add_function("wf_repeatable_array", wf_repeatable_array);
     env.add_function("wf_repeatable_item", wf_repeatable_item);
     env.add_function("wf_row_select", wf_row_select);
+    env.add_function("wf_secret_value", wf_secret_value);
     env.add_function("wf_select", wf_select);
     env.add_function("wf_settings_section", wf_settings_section);
+    env.add_function("wf_snippet_tabs", wf_snippet_tabs);
     env.add_function("wf_split_shell", wf_split_shell);
+    env.add_function("wf_strength_meter", wf_strength_meter);
     env.add_function("wf_switch", wf_switch);
     env.add_function("wf_table_footer", wf_table_footer);
     env.add_function("wf_table_wrap", wf_table_wrap);
@@ -1284,6 +1577,50 @@ mod tests {
         assert!(rendered.contains(r#"class="wf-tag ok""#));
         assert!(rendered.contains(r#"class="wf-badge muted""#));
         assert!(rendered.contains("PAGE 2 / 3"));
+    }
+
+    #[test]
+    fn sensitive_display_helpers_render_through_minijinja() {
+        let mut env = Environment::new();
+        add_default_browser_templates(&mut env);
+        env.add_template(
+            "sensitive_helpers.html",
+            r##"
+{{ wf_secret_value("Client secret", "secret-id", "shh-secret", revealed=true, copy_raw_value=true, warning="copy now") }}
+{{ wf_copyable_value("Client ID", "client-id", "ath_test") }}
+{{ wf_checklist([
+  {"label": "Verify identity", "kind": "ok", "status_label": "requested"},
+  {"label": "Email address", "kind": "info", "status_label": "optional"}
+]) }}
+{{ wf_code_grid(["CODE-1", "CODE-2"], label="Recovery codes", testid="codes") }}
+{{ wf_code_block("curl https://example.test", language="shell", copy_target_id="curl-code") }}
+{{ wf_snippet_tabs("snips", [
+  {"label": "curl", "code": "curl https://example.test", "language": "shell", "active": true},
+  {"label": "Rust", "code": "let x = 1;", "language": "rust"}
+]) }}
+{{ wf_strength_meter(3, 5, "Medium", label="Password strength", kind="warn", live=true) }}
+{{ wf_credential_status_list([
+  {"label": "Status", "value": "Application", "kind": "ok", "status_label": "active"}
+]) }}
+"##,
+        )
+        .expect("add sensitive helper test template");
+
+        let rendered = env
+            .get_template("sensitive_helpers.html")
+            .expect("sensitive helper template")
+            .render(minijinja::context! {})
+            .expect("render sensitive helper template");
+
+        assert!(rendered.contains("wf-secret-value"));
+        assert!(rendered.contains(r#"data-wf-copy-value="shh-secret""#));
+        assert!(rendered.contains("wf-copyable"));
+        assert!(rendered.contains("wf-checklist"));
+        assert!(rendered.contains("wf-code-grid"));
+        assert!(rendered.contains("wf-code-block"));
+        assert!(rendered.contains("wf-snippet-tabs"));
+        assert!(rendered.contains("wf-strength-meter is-warn"));
+        assert!(rendered.contains("wf-credential-list"));
     }
 
     #[test]

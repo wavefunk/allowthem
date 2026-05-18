@@ -18,14 +18,16 @@
 
 {% block dashboard_content %}
   {% if new_key_secret %}
-    <div class="wf-alert ok" style="margin:16px 24px 0;">
-      <span class="wf-bar"></span>
-      <div>
-        <strong>New API key created.</strong> This is the only time you'll see this key.
-        Copy it now — it will not be shown again.<br />
-        <code style="user-select:all;font-size:13px;">{{ new_key_secret }}</code>
-      </div>
-      <span></span>
+    <div style="margin:16px 24px 0;">
+      {{ wf_secret_value(
+        "New API key",
+        "new-api-key-secret",
+        new_key_secret,
+        revealed=true,
+        copy_raw_value=true,
+        warning="This is the only time you'll see this key. Copy it now — it will not be shown again.",
+        button_label="Copy key"
+      ) }}
     </div>
   {% endif %}
 

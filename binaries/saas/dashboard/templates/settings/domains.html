@@ -22,7 +22,7 @@
         To use a custom domain, add a <strong>CNAME</strong> record in your DNS provider
         pointing to:
       </p>
-      <code class="wf-code-block">{{ dns_target }}</code>
+      {{ wf_code_block(dns_target, label="CNAME target", copy_target_id="domain-dns-target") }}
       <p class="wf-hint" style="margin-top:6px;font-size:12px;color:var(--wf-text-muted)">
         DNS propagation can take up to 48 hours. Use the Verify button once the record is live.
       </p>

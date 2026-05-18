@@ -19,15 +19,8 @@
            class="wf-mb-4" height="48">
     {% endif %}
 
-    <div class="wf-framed wf-mt-5">
-      <ul class="wf-f wf-col wf-gap-2 wf-p-0">
-        {% for item in scope_items %}
-          <li class="wf-f wf-gap-2 wf-ai-s">
-            <span class="wf-ok" aria-hidden="true">✓</span>
-            <span>{{ item.description }}</span>
-          </li>
-        {% endfor %}
-      </ul>
+    <div class="wf-mt-5">
+      {{ wf_checklist(scope_items, testid="consent-scopes") }}
     </div>
 
     <form method="post" action="/oauth/authorize" class="wf-f wf-col wf-gap-3 wf-mt-5">

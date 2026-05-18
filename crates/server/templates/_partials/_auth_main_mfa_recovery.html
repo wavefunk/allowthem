@@ -17,12 +17,8 @@
       If you lose access to your authenticator app, you can use a recovery code to sign in.
     </div>
 
-    <div class="wf-framed wf-mt-5">
-      <div class="wf-grid cols-2 wf-gap-2">
-        {% for code in recovery_codes %}
-          <code data-testid="recovery-code" class="wf-kbd wf-w-full">{{ code }}</code>
-        {% endfor %}
-      </div>
+    <div class="wf-mt-5">
+      {{ wf_code_grid(recovery_codes, label="Recovery codes", testid="recovery-code-grid") }}
     </div>
 
     <div class="wf-f wf-gap-3 wf-mt-4">
@@ -45,7 +41,7 @@
 <script>
 (function(){
   function getCodes(){
-    var els=document.querySelectorAll('[data-testid="recovery-code"]');
+    var els=document.querySelectorAll('[data-testid="recovery-code-grid"] .wf-code-grid-item');
     var codes=[];
     for(var i=0;i<els.length;i++)codes.push(els[i].textContent.trim());
     return codes;

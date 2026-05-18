@@ -50,48 +50,46 @@
   </div>
 
   <div class="wf-panel-body" style="margin:0 24px;">
-    <dl class="wf-kv">
-      <dt>Client ID</dt>
-      <dd><code class="wf-mono">{{ app.client_id }}</code></dd>
+    {{ wf_copyable_value("Client ID", "application-client-id", app.client_id) }}
 
-      <dt>Type</dt>
-      <dd>
-        {% if app.client_type == "public" %}
-          <span class="wf-tag muted">Public</span>
-          <span class="wf-help">PKCE required; no client_secret issued.</span>
-        {% else %}
-          <span class="wf-tag">Confidential</span>
-        {% endif %}
-      </dd>
+    {% if app.client_type == "public" %}
+      {% set type_status = "pkce" %}
+      {% set type_kind = "info" %}
+      {% set type_value = "Public client" %}
+    {% else %}
+      {% set type_status = "secret" %}
+      {% set type_kind = "warn" %}
+      {% set type_value = "Confidential client" %}
+    {% endif %}
+    {% if app.is_active %}
+      {% set status_label = "active" %}
+      {% set status_kind = "ok" %}
+      {% set status_value = "Accepting authorization requests" %}
+    {% else %}
+      {% set status_label = "inactive" %}
+      {% set status_kind = "bad" %}
+      {% set status_value = "Blocked from authorization requests" %}
+    {% endif %}
+    {{ wf_credential_status_list([
+      {"label": "Type", "value": type_value, "kind": type_kind, "status_label": type_status},
+      {"label": "Status", "value": status_value, "kind": status_kind, "status_label": status_label},
+      {"label": "Connected users", "value": connected_users, "kind": "info", "status_label": "users"},
+      {"label": "Created", "value": app.created_at | datefmt, "kind": "info", "status_label": "created"}
+    ]) }}
+    {% if app.client_type == "public" %}
+      <p class="wf-caption wf-mt-3">PKCE required; no client_secret issued.</p>
+    {% endif %}
 
-      <dt>Status</dt>
-      <dd>
-        {% if app.is_active %}
-          <span class="wf-tag ok">Active</span>
-        {% else %}
-          <span class="wf-tag muted">Inactive</span>
-        {% endif %}
-      </dd>
+    {% if redirect_uris %}
+      <div class="wf-mt-5">
+        {{ wf_code_grid(redirect_uris, label="Redirect URIs") }}
+      </div>
+    {% endif %}
 
-      <dt>Redirect URIs</dt>
-      <dd>
-        <ul>
-          {% for uri in redirect_uris %}
-            <li><code class="wf-mono">{{ uri }}</code></li>
-          {% endfor %}
-        </ul>
-      </dd>
-
-      {% if app.logo_url %}
-        <dt>Logo</dt>
-        <dd><a class="wf-link" href="{{ app.logo_url }}" target="_blank" rel="noopener">{{ app.logo_url }}</a></dd>
-      {% endif %}
-
-      <dt>Connected users</dt>
-      <dd>{{ connected_users }}</dd>
-
-      <dt>Created</dt>
-      <dd>{{ app.created_at | datefmt }}</dd>
-    </dl>
+    {% if app.logo_url %}
+      <p class="wf-mt-4">
+        <a class="wf-link" href="{{ app.logo_url }}" target="_blank" rel="noopener">{{ app.logo_url }}</a>
+      </p>
+    {% endif %}
   </div>
 {% endblock %}

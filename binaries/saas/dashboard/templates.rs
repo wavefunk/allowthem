@@ -438,6 +438,23 @@ mod tests {
 
     use crate::dashboard::nav::tenant_nav_items;
 
+    fn quickstart_snippet_tabs() -> Vec<minijinja::Value> {
+        vec![
+            minijinja::context! {
+                label => "curl",
+                code => "curl https://acme.example.com/.well-known/openid-configuration\n-u 'ath_test:very-secret'",
+                language => "shell",
+                active => true,
+            },
+            minijinja::context! {
+                label => "Rust",
+                code => "AllowthemClient::builder().client_id(\"ath_test\")",
+                language => "rust",
+                active => false,
+            },
+        ]
+    }
+
     #[test]
     fn build_dashboard_env_loads_default_partials() {
         let env = build_dashboard_env();
@@ -505,6 +522,7 @@ mod tests {
                 client_id => "ath_test",
                 client_secret => "very-secret",
                 redirect_uri => "http://localhost/callback",
+                snippet_tabs => quickstart_snippet_tabs(),
             })
             .expect("render");
         assert!(html.contains("ath_test"), "client_id rendered");
@@ -700,25 +718,19 @@ mod tests {
     #[test]
     fn quickstart_snippets_substitute_values() {
         let env = build_dashboard_env();
-        for name in [
-            "_partials/_quickstart_snippet_curl.html",
-            "_partials/_quickstart_snippet_browser.html",
-            "_partials/_quickstart_snippet_server.html",
-            "_partials/_quickstart_snippet_rust.html",
-        ] {
-            let tmpl = env.get_template(name).unwrap_or_else(|_| panic!("{name}"));
-            let html = tmpl
-                .render(minijinja::context! {
-                    issuer => "https://acme.example.com",
-                    client_id => "ath_test",
-                    client_secret => "very-secret",
-                    redirect_uri => "http://localhost/callback",
-                })
-                .unwrap_or_else(|_| panic!("render {name}"));
-            assert!(
-                html.contains("ath_test") || html.contains("acme.example.com"),
-                "snippet {name} should substitute issuer/client_id"
-            );
-        }
+        let tmpl = env
+            .get_template("_partials/_quickstart_snippets.html")
+            .expect("_quickstart_snippets.html");
+        let html = tmpl
+            .render(minijinja::context! {
+                snippet_tabs => quickstart_snippet_tabs(),
+            })
+            .expect("render quickstart snippets");
+        assert!(html.contains("ath_test"), "client_id rendered in snippets");
+        assert!(
+            html.contains("acme.example.com"),
+            "issuer rendered in snippets"
+        );
+        assert!(html.contains("wf-snippet-tabs"));
     }
 }

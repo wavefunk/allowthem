@@ -490,8 +490,8 @@ async fn quickstart_renders_with_correct_session() {
     assert!(body.contains("Client secret"));
     // The plaintext secret is in the page body.
     assert!(
-        body.contains("data-secret"),
-        "secret card marker should be present"
+        body.contains("data-wf-copy-value"),
+        "secret copy value should be present"
     );
 }
 
