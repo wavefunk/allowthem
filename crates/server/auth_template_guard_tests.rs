@@ -312,33 +312,18 @@ fn accent_consent() {
     assert_accent("consent.html", consent_ctx());
 }
 
-// ── CSS cascade order ────────────────────────────────────────────────────
+// ── Shared asset loading ─────────────────────────────────────────────────
 
 #[test]
-fn css_cascade_order() {
+fn base_loads_wavefunk_ui_assets() {
     let html = render("login.html", login_ctx());
-    let ordered = [
-        "/__allowthem/static/css/01-tokens.css",
-        "/__allowthem/static/css/02-base.css",
-        "/__allowthem/static/css/03-layout.css",
-        "/__allowthem/static/css/04-components.css",
-        "/__allowthem/static/css/05-utilities.css",
-    ];
-    let indices: Vec<usize> = ordered
-        .iter()
-        .map(|needle| {
-            html.find(needle)
-                .unwrap_or_else(|| panic!("missing stylesheet link `{needle}`"))
-        })
-        .collect();
-    for w in indices.windows(2) {
-        assert!(
-            w[0] < w[1],
-            "CSS link order broken — expected {:?}, got indices {:?}",
-            ordered,
-            indices
-        );
-    }
+    assert!(html.contains(r#"<link rel="stylesheet" href="/static/wavefunk/css/wavefunk.css">"#));
+    assert!(html.contains(r#"<script src="/static/wavefunk/js/htmx.min.js" defer></script>"#));
+    assert!(html.contains(r#"<script src="/static/wavefunk/js/wavefunk.js" defer></script>"#));
+    assert!(!html.contains("cdn.jsdelivr.net/npm/htmx.org"));
+    assert!(!html.contains("/__allowthem/static/js/echo.js"));
+    assert!(!html.contains("/__allowthem/static/css/01-tokens.css"));
+    assert!(!html.contains("/__allowthem/static/css/05-utilities.css"));
 }
 
 // ── OOB head fragment ────────────────────────────────────────────────────

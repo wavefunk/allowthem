@@ -10,11 +10,7 @@ const FALLBACK_ERROR_HTML: &str = r#"<!DOCTYPE html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{TITLE}} — allowthem</title>
-  <link rel="stylesheet" href="/__allowthem/static/css/01-tokens.css">
-  <link rel="stylesheet" href="/__allowthem/static/css/02-base.css">
-  <link rel="stylesheet" href="/__allowthem/static/css/03-layout.css">
-  <link rel="stylesheet" href="/__allowthem/static/css/04-components.css">
-  <link rel="stylesheet" href="/__allowthem/static/css/05-utilities.css">
+  <link rel="stylesheet" href="/static/wavefunk/css/wavefunk.css">
 </head>
 <body class="wf-auth" style="display:flex;align-items:center;justify-content:center;min-height:100vh">
   <main class="wf-auth-form" style="max-width:460px;width:100%">

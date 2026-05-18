@@ -483,6 +483,7 @@ impl AllRoutesBuilder {
 
         Ok(csrf_protected
             .merge(non_csrf)
+            .nest("/static/wavefunk", wavefunk_ui::axum::asset_router())
             .merge(crate::static_routes::router()))
     }
 
@@ -507,6 +508,9 @@ impl AllRoutesBuilder {
 mod tests {
     use super::*;
     use allowthem_core::AllowThemBuilder;
+    use axum::body::{self, Body};
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
 
     #[tokio::test]
     async fn build_fails_no_routes_selected() {
@@ -622,5 +626,50 @@ mod tests {
             .userinfo()
             .build(&ath);
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn built_routes_serve_wavefunk_ui_assets() {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .csrf_key(*b"test-csrf-key-for-server-tests!!")
+            .build()
+            .await
+            .unwrap();
+        let app = AllRoutesBuilder::new()
+            .login()
+            .build(&ath)
+            .expect("routes should build");
+
+        for (path, content_type, expected_text) in [
+            (
+                "/static/wavefunk/css/wavefunk.css",
+                "text/css; charset=utf-8",
+                "@import url(\"./04-components.css\")",
+            ),
+            (
+                "/static/wavefunk/js/wavefunk.js",
+                "text/javascript; charset=utf-8",
+                "data-wf-copy",
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path} should be served");
+            assert_eq!(
+                response.headers().get("content-type").unwrap(),
+                content_type
+            );
+            let body = body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let text = std::str::from_utf8(&body).expect("asset should be UTF-8");
+            assert!(
+                text.contains(expected_text),
+                "{path} missing expected marker {expected_text}"
+            );
+        }
     }
 }

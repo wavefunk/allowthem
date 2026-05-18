@@ -619,8 +619,16 @@ mod tests {
             "prod-only CSS path must be gone"
         );
         assert!(
-            html.contains("/__allowthem/static/css/04-components.css"),
-            "design system components CSS still served"
+            html.contains("/static/wavefunk/css/wavefunk.css"),
+            "wavefunk-ui stylesheet should be loaded"
+        );
+        assert!(
+            html.contains("/static/wavefunk/js/htmx.min.js"),
+            "vendored htmx should be loaded from wavefunk-ui assets"
+        );
+        assert!(
+            html.contains("/static/wavefunk/js/wavefunk.js"),
+            "wavefunk-ui behavior script should be loaded"
         );
     }
 
