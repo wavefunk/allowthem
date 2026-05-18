@@ -8,9 +8,8 @@ use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::http::header::{LOCATION, SET_COOKIE};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use minijinja::context;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -24,6 +23,9 @@ use allowthem_server::csrf::CsrfToken;
 
 use super::auth_helpers::current_dashboard_user;
 use super::state::DashboardRouterState;
+use super::views::{
+    self, InviteAcceptPageView, InviteRegisterPageView, InviteTenantView, InviteWrongUserPageView,
+};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -47,23 +49,10 @@ pub struct InviteAcceptForm {
 // Local helpers
 // ---------------------------------------------------------------------------
 
-fn render(
-    state: &DashboardRouterState,
-    template: &str,
-    ctx: minijinja::value::Value,
-) -> Result<Html<String>, BrowserError> {
-    let tmpl = state
-        .templates
-        .get_template(template)
-        .map_err(BrowserError::from)?;
-    let body = tmpl.render(ctx).map_err(BrowserError::from)?;
-    Ok(Html(body))
-}
-
-fn tenant_ctx(tenant: &allowthem_saas::Tenant) -> minijinja::value::Value {
-    context! {
-        name => tenant.name.clone(),
-        slug => tenant.slug.clone(),
+fn tenant_view(tenant: &allowthem_saas::Tenant) -> InviteTenantView<'_> {
+    InviteTenantView {
+        name: tenant.name.as_str(),
+        slug: tenant.slug.as_str(),
     }
 }
 
@@ -99,7 +88,7 @@ pub async fn show(
     let member = match state.control_db.find_pending_invite_by_hash(&hash).await {
         Ok(Some(m)) => m,
         _ => {
-            return render(&state, "invite/expired.html", context! {})
+            return views::invite_expired_page(state.is_production)
                 .map(IntoResponse::into_response);
         }
     };
@@ -107,7 +96,7 @@ pub async fn show(
     let tenant_id = match member.tenant_id_as_tenant_id() {
         Some(tid) => tid,
         None => {
-            return render(&state, "invite/expired.html", context! {})
+            return views::invite_expired_page(state.is_production)
                 .map(IntoResponse::into_response);
         }
     };
@@ -129,30 +118,25 @@ pub async fn show(
     if let Some(user) = session_user {
         if user.email.as_str() == member.email.as_str() {
             // Matched: show a confirm form.
-            return render(
-                &state,
-                "invite/accept.html",
-                context! {
-                    tenant => tenant_ctx(&tenant),
-                    email => member.email.clone(),
-                    role => member.role.as_str(),
-                    token => token,
-                    csrf_token => csrf.as_str(),
-                },
-            )
+            return views::invite_accept_page(&InviteAcceptPageView {
+                tenant: tenant_view(&tenant),
+                email: member.email.as_str(),
+                role: member.role.as_str(),
+                token: token.as_str(),
+                csrf_token: csrf.as_str(),
+                is_production: state.is_production,
+            })
             .map(IntoResponse::into_response);
         } else {
             // Logged in as someone else.
             return Ok((
                 StatusCode::FORBIDDEN,
-                Html(format!(
-                    "<p>You're signed in as <strong>{}</strong>, but this invite is for \
-                     <strong>{}</strong>. \
-                     <a href='/logout?next=/invite/{}'>Sign out</a> and try again.</p>",
-                    user.email.as_str(),
-                    member.email,
-                    token,
-                )),
+                views::invite_wrong_user_page(&InviteWrongUserPageView {
+                    signed_in_email: user.email.as_str(),
+                    invite_email: member.email.as_str(),
+                    token: token.as_str(),
+                    is_production: state.is_production,
+                })?,
             )
                 .into_response());
         }
@@ -175,18 +159,15 @@ pub async fn show(
     }
 
     // Brand-new user: render the registration form.
-    render(
-        &state,
-        "invite/register.html",
-        context! {
-            tenant => tenant_ctx(&tenant),
-            email => member.email.clone(),
-            role => member.role.as_str(),
-            token => token,
-            error => "",
-            csrf_token => csrf.as_str(),
-        },
-    )
+    views::invite_register_page(&InviteRegisterPageView {
+        tenant: tenant_view(&tenant),
+        email: member.email.as_str(),
+        role: member.role.as_str(),
+        token: token.as_str(),
+        error: None,
+        csrf_token: csrf.as_str(),
+        is_production: state.is_production,
+    })
     .map(IntoResponse::into_response)
 }
 
@@ -204,7 +185,7 @@ pub async fn accept(
         let pending = match state.control_db.find_pending_invite_by_hash(&hash).await {
             Ok(Some(m)) => m,
             _ => {
-                return render(&state, "invite/expired.html", context! {})
+                return views::invite_expired_page(state.is_production)
                     .map(IntoResponse::into_response);
             }
         };
@@ -212,7 +193,7 @@ pub async fn accept(
         let tenant_id = match pending.tenant_id_as_tenant_id() {
             Some(tid) => tid,
             None => {
-                return render(&state, "invite/expired.html", context! {})
+                return views::invite_expired_page(state.is_production)
                     .map(IntoResponse::into_response);
             }
         };
@@ -241,34 +222,28 @@ pub async fn accept(
                         .into_response());
                 }
                 Err(DashboardSignupError::InvalidEmail) => {
-                    return render(
-                        &state,
-                        "invite/register.html",
-                        context! {
-                            tenant => tenant_ctx(&tenant),
-                            email => pending.email.clone(),
-                            role => pending.role.as_str(),
-                            token => token,
-                            error => "Invalid email address.",
-                            csrf_token => csrf.as_str(),
-                        },
-                    )
+                    return views::invite_register_page(&InviteRegisterPageView {
+                        tenant: tenant_view(&tenant),
+                        email: pending.email.as_str(),
+                        role: pending.role.as_str(),
+                        token: token.as_str(),
+                        error: Some("Invalid email address."),
+                        csrf_token: csrf.as_str(),
+                        is_production: state.is_production,
+                    })
                     .map(IntoResponse::into_response);
                 }
                 Err(e) => {
                     tracing::error!(error = %e, "dashboard_register_for_invite failed");
-                    return render(
-                        &state,
-                        "invite/register.html",
-                        context! {
-                            tenant => tenant_ctx(&tenant),
-                            email => pending.email.clone(),
-                            role => pending.role.as_str(),
-                            token => token,
-                            error => "Account creation failed. Please try again.",
-                            csrf_token => csrf.as_str(),
-                        },
-                    )
+                    return views::invite_register_page(&InviteRegisterPageView {
+                        tenant: tenant_view(&tenant),
+                        email: pending.email.as_str(),
+                        role: pending.role.as_str(),
+                        token: token.as_str(),
+                        error: Some("Account creation failed. Please try again."),
+                        csrf_token: csrf.as_str(),
+                        is_production: state.is_production,
+                    })
                     .map(IntoResponse::into_response);
                 }
             };
@@ -285,7 +260,7 @@ pub async fn accept(
                         "rollback delete_user failed; orphan dashboard user"
                     );
                 }
-                return render(&state, "invite/expired.html", context! {})
+                return views::invite_expired_page(state.is_production)
                     .map(IntoResponse::into_response);
             }
         }
@@ -310,7 +285,7 @@ pub async fn accept(
     let pending = match state.control_db.find_pending_invite_by_hash(&hash).await {
         Ok(Some(m)) => m,
         _ => {
-            return render(&state, "invite/expired.html", context! {})
+            return views::invite_expired_page(state.is_production)
                 .map(IntoResponse::into_response);
         }
     };
@@ -318,7 +293,12 @@ pub async fn accept(
     if session_user.email.as_str() != pending.email.as_str() {
         return Ok((
             StatusCode::FORBIDDEN,
-            Html("<p>This invite belongs to a different email address.</p>"),
+            views::invite_wrong_user_page(&InviteWrongUserPageView {
+                signed_in_email: session_user.email.as_str(),
+                invite_email: pending.email.as_str(),
+                token: token.as_str(),
+                is_production: state.is_production,
+            })?,
         )
             .into_response());
     }
@@ -326,7 +306,7 @@ pub async fn accept(
     let tenant_id = match pending.tenant_id_as_tenant_id() {
         Some(tid) => tid,
         None => {
-            return render(&state, "invite/expired.html", context! {})
+            return views::invite_expired_page(state.is_production)
                 .map(IntoResponse::into_response);
         }
     };

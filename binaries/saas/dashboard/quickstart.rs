@@ -10,7 +10,6 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use serde::Serialize;
 
 use allowthem_server::browser_error::BrowserError;
 use allowthem_server::csrf::{CsrfToken, csrf_middleware};
@@ -19,8 +18,8 @@ use super::SignupState;
 use super::auth_helpers::current_dashboard_user;
 use super::quickstart_cache::QuickstartEntry;
 use super::signup::no_store;
+use super::views::{self, QuickstartPageView, QuickstartSnippetView};
 
-#[derive(Serialize)]
 struct QuickstartSnippet {
     label: &'static str,
     code: String,
@@ -51,7 +50,7 @@ async fn get_quickstart(
         _ => return Ok(StatusCode::NOT_FOUND.into_response()),
     };
 
-    let html = render_quickstart(&state, csrf.as_str(), &token, &entry)?;
+    let html = render_quickstart(&state, csrf.as_str(), &token, &entry, user.email.as_str())?;
     Ok(no_store(html.into_response()))
 }
 
@@ -89,23 +88,33 @@ fn render_quickstart(
     csrf_token: &str,
     token: &str,
     entry: &QuickstartEntry,
+    status_session: &str,
 ) -> Result<axum::response::Html<String>, BrowserError> {
     // Default app's redirect URI matches `provision_tenant`'s placeholder.
     let redirect_uri = "http://localhost/callback";
     let snippet_tabs = quickstart_snippets(state, entry, redirect_uri);
-    let tmpl = state.templates.get_template("quickstart.html")?;
-    let html = tmpl.render(minijinja::context! {
-        csrf_token => csrf_token,
-        token => token,
-        slug => &entry.slug,
-        issuer => &entry.issuer,
-        base_domain => &state.base_domain,
-        client_id => &entry.client_id,
-        client_secret => &entry.client_secret,
-        redirect_uri => redirect_uri,
-        snippet_tabs => snippet_tabs,
-    })?;
-    Ok(axum::response::Html(html))
+    let snippets: Vec<QuickstartSnippetView<'_>> = snippet_tabs
+        .iter()
+        .map(|snippet| QuickstartSnippetView {
+            label: snippet.label,
+            code: snippet.code.as_str(),
+            language: snippet.language,
+            active: snippet.active,
+        })
+        .collect();
+    views::quickstart_page(&QuickstartPageView {
+        csrf_token,
+        token,
+        slug: &entry.slug,
+        issuer: &entry.issuer,
+        base_domain: &state.base_domain,
+        client_id: &entry.client_id,
+        client_secret: &entry.client_secret,
+        redirect_uri,
+        snippets: &snippets,
+        status_session: Some(status_session),
+        is_production: state.is_production,
+    })
 }
 
 fn quickstart_snippets(
