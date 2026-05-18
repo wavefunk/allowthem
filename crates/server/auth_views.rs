@@ -1533,7 +1533,7 @@ fn recovery_codes_script() -> &'static str {
     r#"<script>
 (function(){
   function getCodes(){
-    var els=document.querySelectorAll('[data-testid="recovery-code-grid"] .wf-code-grid-item');
+    var els=document.querySelectorAll('[data-testid="recovery-code-grid"] code');
     var codes=[];
     for(var i=0;i<els.length;i++)codes.push(els[i].textContent.trim());
     return codes;

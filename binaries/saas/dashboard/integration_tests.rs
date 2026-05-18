@@ -767,14 +767,6 @@ async fn dashboard_shell_navigation_renders_workspaces_and_role_filtered_nav() {
 
     let html = body_string(resp).await;
     assert!(html.contains(r#"aria-label="Dashboard navigation""#));
-    assert!(
-        html.contains(r#"<div class="wf-sidenav""#),
-        "sidenav should be embedded inside the app-shell navigation landmark"
-    );
-    assert!(
-        !html.contains(r#"<nav class="wf-sidenav""#),
-        "sidenav should not create a nested navigation landmark"
-    );
     assert!(html.contains(
         r#"class="wf-context-switcher-item is-active" href="/t/acme/applications" aria-current="page""#
     ));
@@ -782,8 +774,8 @@ async fn dashboard_shell_navigation_renders_workspaces_and_role_filtered_nav() {
     assert!(!html.contains(r#"href="/t/viewer-ws/applications" aria-current="page""#));
     assert!(html.contains(">viewer<"));
     assert!(html.contains(">owner<"));
-    assert!(html.contains(r#"class="wf-sidenav-item is-active" href="/t/acme/applications""#));
-    assert!(html.contains(r#"class="wf-sidenav-item is-muted" href="/t/acme/settings/team""#));
+    assert!(html.contains(r#"href="/t/acme/applications" aria-current="page""#));
+    assert!(html.contains(r#"href="/t/acme/settings/team""#));
 }
 
 #[tokio::test]

@@ -451,11 +451,7 @@ pub fn applications_list_page(
             .map(|app| {
                 let href = format!("/admin/applications/{}", app.id);
                 [
-                    format!(
-                        r#"<a class="wf-link" href="{}">{}</a>"#,
-                        attr(&href),
-                        text(&app.name)
-                    ),
+                    format!(r#"<a href="{}">{}</a>"#, attr(&href), text(&app.name)),
                     format!(
                         r#"<code title="{}">{}</code>"#,
                         attr(app.client_id.as_str()),
@@ -613,7 +609,7 @@ pub fn application_detail_page(
         r#"<p>{edit}
 <form method="post" action="/admin/applications/{}/regenerate-secret" style="display:inline" onsubmit="return confirm('Regenerate client secret? The old secret will be permanently invalidated and all integrations using it will break.')"><input type="hidden" name="csrf_token" value="{}">{regen}</form>
 <form method="post" action="/admin/applications/{}/delete" style="display:inline" onsubmit="return confirm('Permanently delete this application? This will revoke all associated authorization codes, refresh tokens, and consents.')"><input type="hidden" name="csrf_token" value="{}">{delete}</form></p>
-<p><a class="wf-link-quiet" href="/admin/applications">Back to applications</a></p>"#,
+<p><a href="/admin/applications">Back to applications</a></p>"#,
         app.id,
         attr(csrf_token),
         app.id,
@@ -735,7 +731,7 @@ pub fn application_form_page(view: &ApplicationFormView<'_>) -> ViewResult<Html<
 
     let submit = render(&Button::primary(view.submit_label).with_button_type("submit"))?;
     let cancel = format!(
-        r#"<a class="wf-link-quiet" href="{}">{}</a>"#,
+        r#"<a href="{}">{}</a>"#,
         attr(&view.cancel_href),
         if view.is_active.is_some() {
             "Cancel"
@@ -782,7 +778,7 @@ pub fn sessions_page(view: &SessionsPageView<'_>) -> ViewResult<Html<String>> {
     if let Some(email) = view.filter_user_email {
         write!(
             content,
-            r#"<div style="margin:16px 24px 0"><div class="wf-alert info"><div class="wf-alert-bar"></div><div><div class="wf-alert-kicker">Filtered</div><div>Showing sessions for <strong>{}</strong> <a class="wf-link" href="/admin/sessions">Show all</a></div></div></div></div>"#,
+            r#"<div style="margin:16px 24px 0"><div class="wf-alert info"><div class="wf-alert-bar"></div><div><div class="wf-alert-kicker">Filtered</div><div>Showing sessions for <strong>{}</strong> <a href="/admin/sessions">Show all</a></div></div></div></div>"#,
             text(email)
         )
         .unwrap();
@@ -836,7 +832,7 @@ pub fn sessions_page(view: &SessionsPageView<'_>) -> ViewResult<Html<String>> {
                 .unwrap_or_else(|_| "Revoke".to_owned());
                 [
                     format!(
-                        r#"<a class="wf-link" href="/admin/users/{}">{}</a>{}"#,
+                        r#"<a href="/admin/users/{}">{}</a>{}"#,
                         session.user_id,
                         text(session.user_email.as_str()),
                         you
@@ -992,7 +988,7 @@ pub fn users_page(view: &UsersPageView<'_>) -> ViewResult<Html<String>> {
             .map(|user| {
                 [
                     format!(
-                        r#"<a class="wf-link" href="/admin/users/{}">{}</a>"#,
+                        r#"<a href="/admin/users/{}">{}</a>"#,
                         user.id,
                         text(user.email.as_str())
                     ),
@@ -1176,11 +1172,7 @@ pub fn audit_page(view: &AuditPageView<'_>) -> ViewResult<Html<String>> {
                         .as_deref()
                         .map(|id| format!("/admin/users/{id}"))
                         .unwrap_or_else(|| "/admin/users".to_owned());
-                    format!(
-                        r#"<a class="wf-link" href="{}">{}</a>"#,
-                        attr(&href),
-                        text(email)
-                    )
+                    format!(r#"<a href="{}">{}</a>"#, attr(&href), text(email))
                 } else if let Some(id) = entry.user_id.as_deref() {
                     short_id_html(id)
                 } else {
@@ -1605,6 +1597,6 @@ fn user_action_buttons(view: &UserDetailView<'_>) -> ViewResult<String> {
         )
         .unwrap();
     }
-    html.push_str(r#"</p><p><a class="wf-link-quiet" href="/admin/users">Back to users</a></p>"#);
+    html.push_str(r#"</p><p><a href="/admin/users">Back to users</a></p>"#);
     Ok(html)
 }

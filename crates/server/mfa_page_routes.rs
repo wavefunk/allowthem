@@ -1302,7 +1302,7 @@ mod tests {
             "fragment must include the rendered recovery codes"
         );
         assert!(
-            html.contains("wf-code-grid"),
+            html.contains(r#"data-testid="recovery-code-grid""#),
             "fragment must include the recovery code grid"
         );
     }

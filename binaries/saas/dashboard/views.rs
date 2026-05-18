@@ -840,7 +840,7 @@ pub fn suspended_page(view: &SuspendedPageView<'_>) -> Result<Html<String>, Brow
     let mut content = String::new();
     write!(
         content,
-        r#"<div class="wf-panel wf-pad-5" style="text-align:center; max-width:48rem; margin:4rem auto;"><h1>Workspace suspended</h1><p class="wf-mt-3">The workspace <strong>{}</strong> can't be managed right now.</p><p class="wf-mt-3">Contact <a class="wf-link" href="mailto:support@allowthem.io">support@allowthem.io</a> for help.</p></div>"#,
+        r#"<div class="wf-panel wf-pad-5" style="text-align:center; max-width:48rem; margin:4rem auto;"><h1>Workspace suspended</h1><p class="wf-mt-3">The workspace <strong>{}</strong> can't be managed right now.</p><p class="wf-mt-3">Contact <a href="mailto:support@allowthem.io">support@allowthem.io</a> for help.</p></div>"#,
         esc_text(view.tenant_name),
     )
     .unwrap();
@@ -1210,7 +1210,7 @@ pub fn application_list_page(
             .iter()
             .map(|app| {
                 format!(
-                    r#"<a class="wf-link" href="/t/{}/applications/{}">{}</a>"#,
+                    r#"<a href="/t/{}/applications/{}">{}</a>"#,
                     attr(view.tenant_slug),
                     app.id,
                     text(&app.name)
@@ -1361,7 +1361,7 @@ pub fn application_detail_page(
     {
         write!(
             content,
-            r#"<p class="wf-mt-4"><a class="wf-link" href="{}" target="_blank" rel="noopener">{}</a></p>"#,
+            r#"<p class="wf-mt-4"><a href="{}" target="_blank" rel="noopener">{}</a></p>"#,
             attr(logo_url),
             text(logo_url)
         )
@@ -1746,7 +1746,7 @@ pub fn user_list_page(view: &UserListPageView<'_>) -> Result<Html<String>, Brows
             .iter()
             .map(|user| {
                 format!(
-                    r#"<a class="wf-link" href="/t/{}/users/{}">{}</a>"#,
+                    r#"<a href="/t/{}/users/{}">{}</a>"#,
                     attr(view.tenant_slug),
                     user.id,
                     text(user.email.as_str())
@@ -2292,7 +2292,7 @@ fn user_recent_audit_panel(view: &UserDetailPageView<'_>) -> Result<String, Brow
         let table = render(&DataTable::new(&headers, &rows))?;
         let wrapped = render(&TableWrap::new(trusted_html(&table)))?;
         format!(
-            r#"{wrapped}<p style="padding:4px 16px 8px; font-size:0.85em; color:var(--wf-muted);">Showing last {} events. <a class="wf-link" href="/t/{}/audit">View full audit log &rarr;</a></p>"#,
+            r#"{wrapped}<p style="padding:4px 16px 8px; font-size:0.85em; color:var(--wf-muted);">Showing last {} events. <a href="/t/{}/audit">View full audit log &rarr;</a></p>"#,
             view.audit_entries.len(),
             attr(view.tenant_slug)
         )
@@ -2386,12 +2386,14 @@ pub fn audit_list_page(view: &AuditListPageView<'_>) -> Result<Html<String>, Bro
     let mut content =
         render(&Panel::new("Audit log", trusted_html(&filterbar)).with_attrs(&panel_attrs))?;
     if view.no_user {
-        write!(
-            content,
-            r#"<p class="wf-flash" style="margin:12px 24px;">{}</p>"#,
-            text("No user found with that email. Showing zero results.")
-        )
-        .unwrap();
+        let alert = render(
+            &Alert::new(
+                FeedbackKind::Warn,
+                "No user found with that email. Showing zero results.",
+            )
+            .with_title("Filtered"),
+        )?;
+        write!(content, r#"<div style="margin:12px 24px;">{alert}</div>"#).unwrap();
     }
 
     if view.entries.is_empty() {
@@ -2566,7 +2568,7 @@ pub fn role_list_page(view: &RoleListPageView<'_>) -> Result<Html<String>, Brows
             .iter()
             .map(|role| {
                 format!(
-                    r#"<a class="wf-link" href="/t/{}/roles/{}">{}</a>"#,
+                    r#"<a href="/t/{}/roles/{}">{}</a>"#,
                     attr(view.tenant_slug),
                     attr(&role.id),
                     text(&role.name)
@@ -3922,7 +3924,7 @@ pub fn admin_overview_page(view: &AdminOverviewPageView<'_>) -> Result<Html<Stri
             .iter()
             .map(|tenant| {
                 format!(
-                    r#"<a class="wf-link" href="/admin/tenants/{}">{}</a>"#,
+                    r#"<a href="/admin/tenants/{}">{}</a>"#,
                     attr(tenant.id.as_str()),
                     text(tenant.name.as_str())
                 )
@@ -4446,15 +4448,11 @@ mod tests {
         .0;
 
         assert!(html.contains(r#"aria-label="Dashboard navigation""#));
-        assert!(html.contains(r#"<div class="wf-sidenav""#));
-        assert!(!html.contains(r#"<nav class="wf-sidenav""#));
         assert!(html.contains(r#"class="wf-context-switcher-item is-active" href="/t/acme/applications" aria-current="page""#));
         assert!(html.contains(r#"class="wf-context-switcher-item" href="/t/beta/applications">"#));
         assert!(html.contains(">owner<"));
         assert!(html.contains(">viewer<"));
-        assert!(html.contains(
-            r#"class="wf-sidenav-item is-active is-muted" href="/t/acme/settings/team""#
-        ));
+        assert!(html.contains(r#"href="/t/acme/settings/team" aria-current="page""#));
         assert!(html.contains(r#"href="/t/acme/logout""#));
         assert!(html.contains(r#"data-mode-toggle"#));
     }
