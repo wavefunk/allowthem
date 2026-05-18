@@ -635,10 +635,9 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let html = body_string(resp).await;
         assert!(html.contains("href=\"/admin/applications\""));
+        assert!(html.contains("href=\"/admin/users\""));
         assert!(html.contains("href=\"/admin/sessions\""));
         assert!(html.contains("href=\"/admin/audit\""));
-        // Users admin route is not yet wired; must not appear.
-        assert!(!html.contains("href=\"/admin/users\""));
     }
 
     #[tokio::test]

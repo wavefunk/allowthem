@@ -8,6 +8,10 @@ license-file = "LICENSE"
 repository.workspace = true
 publish = false
 
+[features]
+default = []
+saas-dashboard-templates = ["dep:minijinja", "allowthem-server/browser-templates"]
+
 [[bin]]
 name = "allowthem"
 path = "standalone/main.rs"
@@ -15,6 +19,7 @@ path = "standalone/main.rs"
 [[bin]]
 name = "allowthem-saas"
 path = "saas/main.rs"
+required-features = ["saas-dashboard-templates"]
 
 [[bin]]
 name = "seed-branding"
@@ -22,7 +27,7 @@ path = "standalone/bin/seed_branding.rs"
 
 [dependencies]
 allowthem-core = { path = "../crates/core" }
-allowthem-server = { path = "../crates/server" }
+allowthem-server = { path = "../crates/server", default-features = false }
 allowthem-saas = { path = "../crates/saas" }
 axum.workspace = true
 base64ct.workspace = true
@@ -32,6 +37,7 @@ dashmap.workspace = true
 eyre.workspace = true
 figment.workspace = true
 hex.workspace = true
+html-escape.workspace = true
 moka.workspace = true
 rand.workspace = true
 uuid.workspace = true
@@ -41,8 +47,9 @@ sqlx.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-minijinja.workspace = true
+minijinja = { workspace = true, optional = true }
 tower-http.workspace = true
+url.workspace = true
 serde_html_form.workspace = true
 sha2.workspace = true
 wavefunk-ui.workspace = true

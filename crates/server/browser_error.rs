@@ -53,11 +53,13 @@ pub fn render_error_page(title: &str, message: &str) -> String {
 
 #[derive(Debug)]
 pub enum BrowserError {
+    #[cfg(feature = "browser-templates")]
     Template(minijinja::Error),
     Ui(wavefunk_ui::askama::Error),
     Auth(allowthem_core::AuthError),
 }
 
+#[cfg(feature = "browser-templates")]
 impl From<minijinja::Error> for BrowserError {
     fn from(err: minijinja::Error) -> Self {
         BrowserError::Template(err)
@@ -79,6 +81,7 @@ impl From<allowthem_core::AuthError> for BrowserError {
 impl IntoResponse for BrowserError {
     fn into_response(self) -> Response {
         match self {
+            #[cfg(feature = "browser-templates")]
             BrowserError::Template(e) => {
                 tracing::error!(error = %e, "template render failed");
                 let html = render_error_page(

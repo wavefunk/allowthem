@@ -39,11 +39,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builds_admin_shell_with_five_items() {
+    fn builds_admin_shell_with_six_items() {
         let s = ShellContext::new(true, "/admin/sessions", "allowthem");
         assert!(s.is_admin);
         assert_eq!(s.application_name, "allowthem");
-        assert_eq!(s.nav_items.len(), 5);
+        assert_eq!(s.nav_items.len(), 6);
     }
 
     #[test]

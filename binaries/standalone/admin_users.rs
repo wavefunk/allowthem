@@ -1,23 +1,38 @@
 use axum::Router;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
-use minijinja::context;
+use serde::Deserialize;
 
 use allowthem_core::audit::SearchAuditParams;
 use allowthem_core::sessions::ListSessionsParams;
 use allowthem_core::types::UserId;
+use allowthem_core::users::SearchUsersParams;
 use allowthem_server::{BrowserAdminUser, CsrfToken, ShellContext};
-use minijinja::value::Value;
 
 use crate::error::AppError;
 use crate::state::AppState;
 
 /// Maximum recent audit entries shown on the user detail page.
 const RECENT_AUDIT_LIMIT: u32 = 10;
+const PAGE_SIZE: u32 = 25;
+
+#[derive(Deserialize)]
+pub struct UserListQuery {
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    mfa: Option<String>,
+    #[serde(default)]
+    page: Option<u32>,
+}
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/{id}", get(detail))
+    Router::new()
+        .route("/", get(list))
+        .route("/{id}", get(detail))
 }
 
 /// Parse a user ID from a path segment, redirecting to the users list on failure.
@@ -25,6 +40,58 @@ pub fn routes() -> Router<AppState> {
 fn parse_user_id(raw: &str) -> Result<UserId, Response> {
     raw.parse::<UserId>()
         .map_err(|_| Redirect::to("/admin/users").into_response())
+}
+
+/// GET /admin/users — searchable admin user list.
+pub async fn list(
+    State(state): State<AppState>,
+    BrowserAdminUser(admin): BrowserAdminUser,
+    Query(query): Query<UserListQuery>,
+) -> Result<Response, AppError> {
+    let page = query.page.unwrap_or(1).max(1);
+    let offset = (page - 1) * PAGE_SIZE;
+    let q = query.q.as_deref().unwrap_or("").trim();
+    let status = query.status.as_deref().unwrap_or("");
+    let mfa = query.mfa.as_deref().unwrap_or("");
+    let result = state
+        .ath
+        .db()
+        .search_users(SearchUsersParams {
+            query: if q.is_empty() { None } else { Some(q) },
+            is_active: match status {
+                "active" => Some(true),
+                "deactivated" => Some(false),
+                _ => None,
+            },
+            has_mfa: match mfa {
+                "yes" => Some(true),
+                "no" => Some(false),
+                _ => None,
+            },
+            email_verified: None,
+            limit: PAGE_SIZE,
+            offset,
+        })
+        .await?;
+    let total_pages = if result.total == 0 {
+        0
+    } else {
+        result.total.div_ceil(PAGE_SIZE)
+    };
+    let shell =
+        ShellContext::new(true, "/admin/users", "allowthem").with_session(admin.email.as_str());
+    let html = crate::views::users_page(&crate::views::UsersPageView {
+        shell: &shell,
+        users: &result.users,
+        total: result.total,
+        page,
+        total_pages,
+        q,
+        status,
+        mfa,
+        is_production: state.is_production,
+    })?;
+    Ok(html.into_response())
 }
 
 /// GET /admin/users/:id — show user detail with roles, OAuth accounts, sessions, and audit.
@@ -79,64 +146,138 @@ pub async fn detail(
 
     let shell =
         ShellContext::new(true, "/admin/users", "allowthem").with_session(admin.email.as_str());
-    let html = crate::templates::render(
-        &state.templates,
-        "admin/user_detail.html",
-        context! {
-            shell => Value::from_serialize(&shell),
-            user => &user,
-            roles,
-            oauth_accounts,
-            mfa_enabled,
-            sessions => &sessions_result.sessions,
-            last_login,
-            csrf_token => csrf.as_str(),
-        },
-        state.is_production,
-    )?;
+    let html = crate::views::user_detail_page(&crate::views::UserDetailView {
+        shell: &shell,
+        user: &user,
+        roles: &roles,
+        oauth_accounts: &oauth_accounts,
+        sessions: &sessions_result.sessions,
+        mfa_enabled,
+        last_login: last_login.as_deref(),
+        csrf_token: csrf.as_str(),
+        is_production: state.is_production,
+    })?;
     Ok(html.into_response())
 }
 
 #[cfg(test)]
 mod tests {
-    use minijinja::context;
-    use minijinja::value::Value;
+    use std::sync::Arc;
 
-    use allowthem_server::ShellContext;
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header::COOKIE};
+    use chrono::{Duration, Utc};
+    use tower::ServiceExt;
 
-    fn user_obj() -> minijinja::Value {
-        context! {
-            id => "user-id",
-            email => "user@example.com",
-            username => None::<String>,
-            is_active => true,
-            email_verified => false,
-            created_at => "2026-01-01",
-            updated_at => "2026-01-02",
-        }
+    use allowthem_core::{
+        AllowThem, AllowThemBuilder, AuthClient, Email, EmbeddedAuthClient, RoleName,
+        generate_token, hash_token,
+    };
+    use allowthem_server::{csrf_middleware, inject_ath_into_extensions};
+
+    use crate::state::AppState;
+
+    async fn setup() -> (AllowThem, AppState, String) {
+        let ath = AllowThemBuilder::new("sqlite::memory:")
+            .cookie_secure(false)
+            .csrf_key(*b"test-csrf-key-for-binary-tests!!")
+            .build()
+            .await
+            .unwrap();
+
+        let email = Email::new("admin@example.com".into()).unwrap();
+        let user = ath
+            .db()
+            .create_user(email, "password123", None, None)
+            .await
+            .unwrap();
+
+        let role_name = RoleName::new("admin");
+        let role = ath.db().create_role(&role_name, None).await.unwrap();
+        ath.db().assign_role(&user.id, &role.id).await.unwrap();
+
+        let token = generate_token();
+        let token_hash = hash_token(&token);
+        let expires = Utc::now() + Duration::hours(24);
+        ath.db()
+            .create_session(user.id, token_hash, None, None, expires)
+            .await
+            .unwrap();
+
+        let cookie = ath.session_cookie(&token);
+        let cookie_value = cookie.split(';').next().unwrap().to_string();
+        let auth_client: Arc<dyn AuthClient> =
+            Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
+        let state = AppState {
+            ath: ath.clone(),
+            auth_client,
+            is_production: false,
+        };
+
+        (ath, state, cookie_value)
     }
 
-    #[test]
-    fn user_detail_template_renders() {
-        let env = crate::templates::build_template_env().expect("template env");
-        let shell =
-            ShellContext::new(true, "/admin/users", "allowthem").with_session("admin@test.com");
-        let tmpl = env.get_template("admin/user_detail.html").unwrap();
-        let rendered = tmpl
-            .render(context! {
-                shell => Value::from_serialize(&shell),
-                csrf_token => "test",
-                is_production => false,
-                user => user_obj(),
-                roles => Vec::<()>::new(),
-                oauth_accounts => Vec::<()>::new(),
-                sessions => Vec::<()>::new(),
-                mfa_enabled => false,
-                last_login => None::<String>,
-                error => None::<String>,
-            })
+    fn test_app(state: AppState) -> Router {
+        Router::new()
+            .nest("/admin/users", super::routes())
+            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                inject_ath_into_extensions,
+            ))
+            .with_state(state)
+    }
+
+    async fn read_body_string(resp: axum::http::Response<Body>) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
             .unwrap();
-        assert!(rendered.contains("user@example.com"));
-        assert!(rendered.contains("ALLOWTHEM"));
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn users_list_renders() {
+        let (_ath, state, cookie) = setup().await;
+        let app = test_app(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/users")
+                    .header(COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(body.contains("admin@example.com"));
+        assert!(body.contains("USERS"));
+    }
+
+    #[tokio::test]
+    async fn user_detail_renders() {
+        let (ath, state, cookie) = setup().await;
+        let user = ath
+            .db()
+            .get_user_by_email(&Email::new("admin@example.com".into()).unwrap())
+            .await
+            .unwrap();
+        let app = test_app(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri(&format!("/admin/users/{}", user.id))
+                    .header(COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body_string(resp).await;
+        assert!(body.contains("admin@example.com"));
+        assert!(body.contains("ALLOWTHEM"));
     }
 }

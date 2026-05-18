@@ -16,13 +16,11 @@ pub struct NavItem {
 }
 
 pub fn nav_items_for(is_admin: bool, current_path: &str) -> Vec<NavItem> {
-    // "/admin/users" intentionally omitted: the route is not yet wired in
-    // binaries/standalone/main.rs. Add the entry here when the route lands,
-    // not before — a dead nav link is a user-visible regression.
-    let mut items = Vec::with_capacity(if is_admin { 5 } else { 2 });
+    let mut items = Vec::with_capacity(if is_admin { 6 } else { 2 });
     if is_admin {
         for (href, label) in [
             ("/admin/applications", "Applications"),
+            ("/admin/users", "Users"),
             ("/admin/sessions", "Sessions"),
             ("/admin/audit", "Audit log"),
         ] {
@@ -61,7 +59,7 @@ mod tests {
     #[test]
     fn admin_deep_path_highlights_applications() {
         let items = nav_items_for(true, "/admin/applications/abc123");
-        assert_eq!(items.len(), 5);
+        assert_eq!(items.len(), 6);
         let apps = items
             .iter()
             .find(|i| i.href == "/admin/applications")
@@ -71,9 +69,9 @@ mod tests {
     }
 
     #[test]
-    fn admin_nav_omits_users_until_route_lands() {
+    fn admin_nav_includes_users_after_route_lands() {
         let items = nav_items_for(true, "/admin/applications");
-        assert!(items.iter().all(|i| i.href != "/admin/users"));
+        assert!(items.iter().any(|i| i.href == "/admin/users"));
     }
 
     #[test]

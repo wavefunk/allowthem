@@ -4,13 +4,11 @@ use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use chrono::{NaiveDate, TimeZone, Utc};
-use minijinja::context;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use allowthem_core::audit::{AuditEvent, AuditListEntry, SearchAuditParams};
 use allowthem_core::types::UserId;
 use allowthem_server::{BrowserAdminUser, ShellContext};
-use minijinja::value::Value;
 
 use crate::error::AppError;
 use crate::state::AppState;
@@ -130,6 +128,7 @@ fn event_label(event: &AuditEvent) -> &'static str {
 
 /// Build windowed page numbers for pagination.
 /// Returns a Vec where 0 represents an ellipsis.
+#[cfg(test)]
 fn page_numbers(current: u32, total: u32) -> Vec<u32> {
     if total <= 7 {
         return (1..=total).collect();
@@ -159,21 +158,10 @@ fn page_numbers(current: u32, total: u32) -> Vec<u32> {
     pages
 }
 
-#[derive(Serialize)]
-struct EntryDisplay {
-    event_label: String,
-    is_failure: bool,
-    user_id: Option<String>,
-    user_email: Option<String>,
-    ip_address: Option<String>,
-    detail: Option<String>,
-    created_at: String,
-}
-
-fn to_entry_display(entries: Vec<AuditListEntry>) -> Vec<EntryDisplay> {
+fn to_entry_display(entries: Vec<AuditListEntry>) -> Vec<crate::views::AuditEntryView> {
     entries
         .into_iter()
-        .map(|e| EntryDisplay {
+        .map(|e| crate::views::AuditEntryView {
             event_label: event_label(&e.event_type).to_string(),
             is_failure: matches!(
                 e.event_type,
@@ -229,12 +217,17 @@ async fn list(
         Some("csv") => Ok(build_csv_response(&result.entries, result.total)),
         Some("json") => {
             let truncated = result.total > EXPORT_MAX_ROWS;
-            let json = serde_json::to_string(&result.entries).map_err(|e| {
-                AppError::Template(minijinja::Error::new(
-                    minijinja::ErrorKind::InvalidOperation,
-                    format!("JSON serialization failed: {e}"),
-                ))
-            })?;
+            let json = match serde_json::to_string(&result.entries) {
+                Ok(json) => json,
+                Err(e) => {
+                    tracing::error!(error = %e, "audit JSON serialization failed");
+                    return Ok((
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        "JSON serialization failed",
+                    )
+                        .into_response());
+                }
+            };
             let mut resp = (
                 [
                     (header::CONTENT_TYPE, "application/json"),
@@ -256,28 +249,22 @@ async fn list(
             let page = query.page.unwrap_or(1).max(1);
             let total_pages = result.total.div_ceil(PAGE_SIZE);
             let entries = to_entry_display(result.entries);
-            let pn = page_numbers(page, total_pages);
 
             let shell = ShellContext::new(true, "/admin/audit", "allowthem")
                 .with_session(admin.email.as_str());
-            let html = crate::templates::render(
-                &state.templates,
-                "admin/audit_log.html",
-                context! {
-                    shell => Value::from_serialize(&shell),
-                    entries,
-                    total => result.total,
-                    page,
-                    total_pages,
-                    page_numbers => pn,
-                    user => query.user.as_deref().unwrap_or(""),
-                    event => query.event.as_deref().unwrap_or(""),
-                    outcome => query.outcome.as_deref().unwrap_or(""),
-                    from => query.from.as_deref().unwrap_or(""),
-                    to => query.to.as_deref().unwrap_or(""),
-                },
-                state.is_production,
-            )?;
+            let html = crate::views::audit_page(&crate::views::AuditPageView {
+                shell: &shell,
+                entries: &entries,
+                total: result.total,
+                page,
+                total_pages,
+                user: query.user.as_deref().unwrap_or(""),
+                event: query.event.as_deref().unwrap_or(""),
+                outcome: query.outcome.as_deref().unwrap_or(""),
+                from: query.from.as_deref().unwrap_or(""),
+                to: query.to.as_deref().unwrap_or(""),
+                is_production: state.is_production,
+            })?;
             Ok(html.into_response())
         }
     }
@@ -383,13 +370,11 @@ mod tests {
         let cookie = ath.session_cookie(&token);
         let cookie_value = cookie.split(';').next().unwrap().to_string();
 
-        let templates = crate::templates::build_template_env().unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
         let state = AppState {
             ath: ath.clone(),
             auth_client,
-            templates,
             is_production: false,
         };
 
@@ -718,13 +703,11 @@ mod tests {
         let cookie = ath.session_cookie(&token);
         let cookie_value = cookie.split(';').next().unwrap().to_string();
 
-        let templates = crate::templates::build_template_env().unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
         let state = AppState {
             ath,
             auth_client,
-            templates,
             is_production: false,
         };
         let app = test_app(state);

@@ -163,6 +163,7 @@ pub fn default_branding_ref(
 ///
 /// Use with minijinja's spread syntax to compose with page-specific keys:
 /// `context! { ..branding_context(b), csrf_token, next, ... }`.
+#[cfg(feature = "browser-templates")]
 pub fn branding_context(branding: Option<&BrandingConfig>) -> minijinja::Value {
     let ctx = BrandingCtx::from_branding(branding);
     minijinja::context! {
@@ -419,6 +420,7 @@ mod tests {
         assert_eq!(ctx.title_brand, "Acme");
     }
 
+    #[cfg(feature = "browser-templates")]
     #[test]
     fn branding_context_none_emits_allowthem_defaults() {
         let v = branding_context(None);
@@ -442,6 +444,7 @@ mod tests {
         assert!(v.get_attr("branding").is_ok());
     }
 
+    #[cfg(feature = "browser-templates")]
     #[test]
     fn branding_context_some_projects_all_keys() {
         let b = BrandingConfig::new("Fixture Co")

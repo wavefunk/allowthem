@@ -1385,16 +1385,41 @@ fn hidden(out: &mut String, name: &str, value: &str) {
 fn modeline_html(is_production: bool, session: Option<&str>) -> Result<String, BrowserError> {
     let env = if is_production { "PROD" } else { "DEV" };
     let session = session.unwrap_or("ANON");
+    let screen_label =
+        ModelineSegment::text("").with_html(trusted_html(r#"<span id="wf-screen-label"></span>"#));
     let left = [
-        ModelineSegment::text("AT"),
-        ModelineSegment::mode(env),
-        ModelineSegment::text(session),
+        ModelineSegment::chevron("AT"),
+        ModelineSegment::text(env),
+        screen_label,
     ];
-    let mode_toggle_attrs = [HtmlAttr::new("data-mode-toggle", "")];
-    let mut mode_toggle = ModelineSegment::mode("m").with_attrs(&mode_toggle_attrs);
-    mode_toggle.button = true;
-    let right = [mode_toggle, ModelineSegment::text("Λ")];
-    let modeline = render_component(&Modeline::new(&left).with_right(&right))?.into_string();
+    let logout_attrs = [
+        HtmlAttr::new("title", "Sign out"),
+        HtmlAttr::new("aria-label", "Sign out"),
+    ];
+    let mode_attrs = [
+        HtmlAttr::new("data-mode-toggle", ""),
+        HtmlAttr::new("title", "Toggle color mode"),
+        HtmlAttr::new("aria-label", "Toggle color mode"),
+    ];
+    let mut right = vec![ModelineSegment::text(session)];
+    if session != "ANON" {
+        right.push(ModelineSegment::link("⏻", "/logout").with_attrs(&logout_attrs));
+    }
+    right.push(
+        ModelineSegment::button("")
+            .with_kbd("m")
+            .with_attrs(&mode_attrs),
+    );
+    let modeline_attrs = [
+        HtmlAttr::new("role", "status"),
+        HtmlAttr::new("aria-label", "Modeline"),
+    ];
+    let modeline = render_component(
+        &Modeline::new(&left)
+            .with_right(&right)
+            .with_attrs(&modeline_attrs),
+    )?
+    .into_string();
     let minibuffer = render_component(&wavefunk_ui::components::Minibuffer::new())?.into_string();
     Ok(format!("{modeline}{minibuffer}{READY_SCRIPT}"))
 }

@@ -4,14 +4,12 @@ use axum::http::header::COOKIE;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, Router};
-use minijinja::context;
 use serde::Deserialize;
 
 use allowthem_core::parse_session_cookie;
 use allowthem_core::sessions::ListSessionsParams;
 use allowthem_core::types::{SessionId, UserId};
 use allowthem_server::{BrowserAdminUser, CsrfToken, ShellContext};
-use minijinja::value::Value;
 
 use crate::error::AppError;
 use crate::state::AppState;
@@ -85,22 +83,18 @@ pub async fn list(
 
     let shell =
         ShellContext::new(true, "/admin/sessions", "allowthem").with_session(user.email.as_str());
-    let html = crate::templates::render(
-        &state.templates,
-        "admin/sessions_list.html",
-        context! {
-            shell => Value::from_serialize(&shell),
-            sessions => &result.sessions,
-            total => result.total,
-            page,
-            total_pages,
-            filter_user_email,
-            filter_user_id,
-            csrf_token => csrf.as_str(),
-            current_session_id,
-        },
-        state.is_production,
-    )?;
+    let html = crate::views::sessions_page(&crate::views::SessionsPageView {
+        shell: &shell,
+        sessions: &result.sessions,
+        total: result.total,
+        page,
+        total_pages,
+        filter_user_email: filter_user_email.as_deref(),
+        filter_user_id: filter_user_id.as_deref(),
+        csrf_token: csrf.as_str(),
+        current_session_id: current_session_id.as_deref(),
+        is_production: state.is_production,
+    })?;
     Ok(html.into_response())
 }
 
@@ -234,13 +228,11 @@ mod tests {
         let cookie = ath.session_cookie(&token);
         let cookie_value = cookie.split(';').next().unwrap().to_string();
 
-        let templates = crate::templates::build_template_env().unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
         let state = AppState {
             ath: ath.clone(),
             auth_client,
-            templates,
             is_production: false,
         };
 
@@ -583,13 +575,11 @@ mod tests {
         let cookie = ath.session_cookie(&token);
         let cookie_value = cookie.split(';').next().unwrap().to_string();
 
-        let templates = crate::templates::build_template_env().unwrap();
         let auth_client: Arc<dyn AuthClient> =
             Arc::new(EmbeddedAuthClient::new(ath.clone(), "/login"));
         let state = AppState {
             ath,
             auth_client,
-            templates,
             is_production: false,
         };
         let app = test_app(state);
