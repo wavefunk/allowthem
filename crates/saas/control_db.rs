@@ -874,7 +874,7 @@ impl ControlDb {
                     verified_at, cert_expires_at, last_error, created_at, updated_at \
              FROM tenant_domains \
              WHERE tenant_id = ?1 \
-             ORDER BY created_at DESC",
+             ORDER BY created_at DESC, id DESC",
         )
         .bind(tenant_id.as_bytes())
         .fetch_all(&self.pool)
@@ -2057,10 +2057,18 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
+        sqlx::query("UPDATE tenant_domains SET created_at = ?1 WHERE tenant_id = ?2")
+            .bind("2026-01-01T00:00:00.000Z")
+            .bind(tid.as_bytes())
+            .execute(db.pool())
+            .await
+            .unwrap();
+
         let rows = db.list_tenant_domains(&tid).await.unwrap();
         assert_eq!(rows.len(), 3);
-        // newest first — insertion order = a,b,c so c was most recent
+        // Same created_at values need a stable newest-first tiebreaker.
         assert_eq!(rows[0].domain, "c.example.com");
+        assert_eq!(rows[1].domain, "b.example.com");
         assert_eq!(rows[2].domain, "a.example.com");
     }
 
